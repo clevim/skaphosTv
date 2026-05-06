@@ -1,0 +1,17 @@
+"use strict";
+
+// https://html.spec.whatwg.org/multipage/webappapis.html#navigatorid
+var NavigatorID = {
+  appCodeName: "Mozilla",
+  appName: "Netscape",
+  appVersion: "4.0",
+  platform: "",
+  product: "Gecko",
+  productSub: "20100101",
+  userAgent: "",
+  vendor: "",
+  vendorSub: "",
+  taintEnabled: function() { return false; }
+};
+
+module.exports = NavigatorID;

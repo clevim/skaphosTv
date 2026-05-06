@@ -1,0 +1,27 @@
+"use strict";
+
+// The ChildNode interface contains methods that are particular to `Node`
+// objects that can have a parent.  It is implemented by `Element`,
+// `DocumentType`, and `CharacterData` objects.
+var ChildNode = {
+
+  // Remove this node from its parent
+  remove: { value: function remove() {
+    if (this.parentNode === null) return;
+
+    // Send mutation events if necessary
+    if (this.rooted && this.doc) this.doc.mutateRemove(this);
+
+    // Remove this node from its parents array of children
+    this.parentNode.childNodes.splice(this.index, 1);
+
+    // Update the structure id for all ancestors
+    this.parentNode.modify();
+
+    // Forget this node's parent
+    this.parentNode = null;
+  }},
+
+};
+
+module.exports = ChildNode;

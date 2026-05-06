@@ -1,0 +1,9 @@
+/* Domino uses sloppy-mode features (in particular, `with`) for a few
+ * minor things.  This file encapsulates all the sloppiness; every
+ * other module should be strict. */
+module.exports = {
+  Window_run: function(code, file) {
+    if (file) code += '\n//@ sourceURL=' + file;
+    with(this) eval(code);
+  }
+};

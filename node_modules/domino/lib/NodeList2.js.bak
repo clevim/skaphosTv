@@ -1,0 +1,21 @@
+"use strict";
+
+class NodeList2 extends Array {
+    constructor() { super(); }
+    item(i) { return this[i]; }
+}
+
+/*
+var handler = {
+    get: function(target, name) {
+        if (name === 'item') return function(i) { return this.backing[i]; };
+        return target.backing[name];
+    }
+};
+
+class NodeList2 extends Proxy {
+    constructor() { super({backing:[]}, handler); }
+}
+*/
+
+module.exports = NodeList2;

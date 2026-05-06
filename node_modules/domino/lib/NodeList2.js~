@@ -1,0 +1,7 @@
+"use strict";
+module.exports = NodeList2;
+
+class NodeList2 extends Array {
+    constructor() { super(); }
+    item(i) { return this[i]; }
+}
