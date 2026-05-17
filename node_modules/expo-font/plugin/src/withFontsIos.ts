@@ -1,9 +1,9 @@
-import type { ExpoConfig } from 'expo/config';
+import { ExpoConfig } from '@expo/config-types';
 import {
-  type ConfigPlugin,
+  ConfigPlugin,
   IOSConfig,
-  type InfoPlist,
-  type XcodeProject,
+  InfoPlist,
+  XcodeProject,
   withInfoPlist,
   withXcodeProject,
 } from 'expo/config-plugins';
