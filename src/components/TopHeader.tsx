@@ -62,10 +62,6 @@ export default function TopHeader({ onSettingsPress, onAddPress }: Props) {
           <Ionicons name="settings-outline" size={19} color={colors.text2} />
         </TVFocusable>
 
-        {/* Avatar */}
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>SK</Text>
-        </View>
       </View>
     </View>
   );
@@ -152,21 +148,5 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  avatar: {
-    width: 30,
-    height: 30,
-    borderRadius: radius.full,
-    backgroundColor: colors.bg2,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.text1,
-    letterSpacing: 0.5,
   },
 });

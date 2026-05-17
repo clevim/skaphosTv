@@ -159,9 +159,16 @@ export const useStore = create<AppState>((set, get) => ({
 
   removeSource: (id) => {
     set(state => ({ sources: state.sources.filter(s => s.id !== id) }));
-    // Limpa cache de canais ao remover fonte
     clearChannelsChunked(Math.ceil(get().channels.length / CHUNK_SIZE)).catch(() => {});
-    set({ channels: [], groups: [] });
+    set({
+      channels: [],
+      groups: [],
+      channelIndex: null,
+      currentChannel: null,
+      recentChannels: [],
+      activeSourceId: null,
+      selectedGroup: null,
+    });
     get().saveToStorage();
   },
 

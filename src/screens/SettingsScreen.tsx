@@ -293,17 +293,6 @@ export default function SettingsScreen() {
       <View style={tvStyles.root}>
         {/* Left sidebar */}
         <View style={tvStyles.sidebar}>
-          {/* Profile card */}
-          <View style={tvStyles.profileCard}>
-            <View style={tvStyles.avatar}>
-              <Text style={tvStyles.avatarText}>SK</Text>
-            </View>
-            <View>
-              <Text style={tvStyles.profileName}>SkaphosTV</Text>
-              <Text style={tvStyles.profilePlan}>SKAPHOS PRO</Text>
-            </View>
-          </View>
-
           {/* Category list */}
           <View style={tvStyles.categoryList}>
             {TV_CATEGORIES.map(cat => {
@@ -375,17 +364,6 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.inner}>
-        <View style={styles.profileCard}>
-          <View style={styles.profileAvatar}>
-            <Text style={styles.profileAvatarText}>SK</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.profileName}>SkaphosTV</Text>
-            <Text style={styles.profilePlan}>SKAPHOS PRO · IPTV PLAYER</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={14} color={colors.text2} />
-        </View>
-
         <SettingsGroup title="Reprodução">
           <SettingsRow icon="play-outline"            label="Qualidade do streaming"  value="Auto · até 4K" />
           <SettingsRow icon="download-outline"         label="Qualidade dos downloads" value="HD" />
@@ -456,29 +434,6 @@ const tvStyles = StyleSheet.create({
     paddingTop: 32,
     gap: spacing.xl,
   },
-  profileCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.xl,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSoft,
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.full,
-    backgroundColor: colors.bg2,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: { fontSize: 14, fontWeight: '700', color: colors.text1 },
-  profileName: { fontSize: 14, fontWeight: '600', color: colors.text1 },
-  profilePlan: { fontSize: 10, color: colors.text3, marginTop: 2, letterSpacing: 0.4 },
-
   categoryList: {
     flex: 1,
     paddingHorizontal: spacing.sm,
@@ -592,20 +547,6 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingTop: 18,
   },
-
-  profileCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    padding: 16, backgroundColor: colors.bg1,
-    borderRadius: 14, borderWidth: 1, borderColor: colors.border,
-  },
-  profileAvatar: {
-    width: 48, height: 48, borderRadius: 999,
-    backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  profileAvatarText: { fontSize: 16, fontWeight: '600', color: colors.text1 },
-  profileName: { fontSize: 15, fontWeight: '600', color: colors.text1 },
-  profilePlan: { fontSize: 11, color: colors.text3, marginTop: 2, letterSpacing: 0.4 },
 
   group: { gap: spacing.sm },
   groupTitle: {
