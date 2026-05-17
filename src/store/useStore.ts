@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Channel } from '../../App';
+import { Channel } from '../types';
+import { ChannelIndex, buildChannelIndex } from './channelIndex';
 
 export interface IPTVSource {
   id: string;
@@ -27,26 +28,18 @@ export interface PlayerState {
 }
 
 interface AppState {
-  // Sources
   sources: IPTVSource[];
   activeSourceId: string | null;
-
-  // Channels
   channels: Channel[];
+  channelIndex: ChannelIndex | null;
   groups: string[];
   selectedGroup: string | null;
   isLoading: boolean;
   loadError: string | null;
-
-  // Player
   currentChannel: Channel | null;
   recentChannels: Channel[];
   playerState: PlayerState;
-
-  // Favorites
   favorites: string[];
-
-  // Settings
   settings: {
     defaultPlayer: 'expo-av' | 'vlc';
     autoPlay: boolean;
@@ -58,10 +51,12 @@ interface AppState {
     epgEnabled: boolean;
   };
 
-  // Actions
   addSource: (source: IPTVSource) => void;
+  updateSource: (id: string, patch: Partial<IPTVSource>) => void;
   removeSource: (id: string) => void;
   setChannels: (channels: Channel[], groups: string[]) => void;
+  /** Adiciona canais à lista existente sem apagar os anteriores (carregamento faseado) */
+  appendChannels: (channels: Channel[], groups: string[]) => void;
   setSelectedGroup: (group: string | null) => void;
   setLoading: (loading: boolean) => void;
   setLoadError: (error: string | null) => void;
@@ -71,6 +66,7 @@ interface AppState {
   updateSettings: (settings: Partial<AppState['settings']>) => void;
   loadFromStorage: () => Promise<void>;
   saveToStorage: () => Promise<void>;
+  saveChannelsToStorage: () => Promise<void>;
 }
 
 const defaultPlayerState: PlayerState = {
@@ -85,10 +81,51 @@ const defaultPlayerState: PlayerState = {
   error: null,
 };
 
+// Canais são salvos em chunks de 500 para não exceder o limite do AsyncStorage (2MB por item)
+const CHUNK_SIZE = 500;
+const CHANNELS_KEY = 'skaphostv_channels';
+const CHANNELS_META_KEY = 'skaphostv_channels_meta';
+
+async function saveChannelsChunked(channels: Channel[], groups: string[]): Promise<void> {
+  const chunks: Channel[][] = [];
+  for (let i = 0; i < channels.length; i += CHUNK_SIZE) {
+    chunks.push(channels.slice(i, i + CHUNK_SIZE));
+  }
+  // Salva metadados primeiro
+  await AsyncStorage.setItem(CHANNELS_META_KEY, JSON.stringify({ chunks: chunks.length, groups }));
+  // Salva chunks sequencialmente para não OOM (Promise.all com 100+ writes explode no Firestick)
+  for (let i = 0; i < chunks.length; i++) {
+    await AsyncStorage.setItem(`${CHANNELS_KEY}_${i}`, JSON.stringify(chunks[i]));
+  }
+}
+
+async function loadChannelsChunked(): Promise<{ channels: Channel[]; groups: string[] } | null> {
+  const metaRaw = await AsyncStorage.getItem(CHANNELS_META_KEY);
+  if (!metaRaw) return null;
+  const meta = JSON.parse(metaRaw);
+  const chunkRaws = await Promise.all(
+    Array.from({ length: meta.chunks }, (_, i) =>
+      AsyncStorage.getItem(`${CHANNELS_KEY}_${i}`)
+    )
+  );
+  const channels: Channel[] = chunkRaws.flatMap(raw => (raw ? JSON.parse(raw) : []));
+  return { channels, groups: meta.groups || [] };
+}
+
+async function clearChannelsChunked(numChunks: number): Promise<void> {
+  await AsyncStorage.removeItem(CHANNELS_META_KEY);
+  await Promise.all(
+    Array.from({ length: numChunks }, (_, i) =>
+      AsyncStorage.removeItem(`${CHANNELS_KEY}_${i}`)
+    )
+  );
+}
+
 export const useStore = create<AppState>((set, get) => ({
   sources: [],
   activeSourceId: null,
   channels: [],
+  channelIndex: null,
   groups: [],
   selectedGroup: null,
   isLoading: false,
@@ -113,13 +150,40 @@ export const useStore = create<AppState>((set, get) => ({
     get().saveToStorage();
   },
 
+  updateSource: (id, patch) => {
+    set(state => ({
+      sources: state.sources.map(s => s.id === id ? { ...s, ...patch } : s),
+    }));
+    get().saveToStorage();
+  },
+
   removeSource: (id) => {
     set(state => ({ sources: state.sources.filter(s => s.id !== id) }));
+    // Limpa cache de canais ao remover fonte
+    clearChannelsChunked(Math.ceil(get().channels.length / CHUNK_SIZE)).catch(() => {});
+    set({ channels: [], groups: [] });
     get().saveToStorage();
   },
 
   setChannels: (channels, groups) => {
-    set({ channels, groups });
+    const channelIndex = buildChannelIndex(channels);
+    set({ channels, groups, channelIndex });
+    saveChannelsChunked(channels, groups).catch(e =>
+      console.warn('Erro ao salvar canais no cache:', e)
+    );
+  },
+
+  appendChannels: (newChannels, newGroups) => {
+    set(state => {
+      const merged = [...state.channels, ...newChannels];
+      const groupSet = new Set([...state.groups, ...newGroups]);
+      const groups = Array.from(groupSet).sort();
+      const channelIndex = buildChannelIndex(merged);
+      saveChannelsChunked(merged, groups).catch(e =>
+        console.warn('Erro ao salvar canais no cache:', e)
+      );
+      return { channels: merged, groups, channelIndex };
+    });
   },
 
   setSelectedGroup: (group) => set({ selectedGroup: group }),
@@ -155,20 +219,34 @@ export const useStore = create<AppState>((set, get) => ({
     get().saveToStorage();
   },
 
+  saveChannelsToStorage: async () => {
+    const { channels, groups } = get();
+    await saveChannelsChunked(channels, groups);
+  },
+
   loadFromStorage: async () => {
     try {
       const [sourcesRaw, favRaw, recentRaw, settingsRaw] = await Promise.all([
-        AsyncStorage.getItem('fluxtv_sources'),
-        AsyncStorage.getItem('fluxtv_favorites'),
-        AsyncStorage.getItem('fluxtv_recent'),
-        AsyncStorage.getItem('fluxtv_settings'),
+        AsyncStorage.getItem('skaphostv_sources'),
+        AsyncStorage.getItem('skaphostv_favorites'),
+        AsyncStorage.getItem('skaphostv_recent'),
+        AsyncStorage.getItem('skaphostv_settings'),
       ]);
+
       set({
         sources: sourcesRaw ? JSON.parse(sourcesRaw) : [],
         favorites: favRaw ? JSON.parse(favRaw) : [],
         recentChannels: recentRaw ? JSON.parse(recentRaw) : [],
         settings: settingsRaw ? { ...get().settings, ...JSON.parse(settingsRaw) } : get().settings,
       });
+
+      // Carrega canais do cache
+      const cached = await loadChannelsChunked();
+      if (cached && cached.channels.length > 0) {
+        const channelIndex = buildChannelIndex(cached.channels);
+        set({ channels: cached.channels, groups: cached.groups, channelIndex });
+        return; // Cache encontrado — não precisa baixar da rede
+      }
     } catch (e) {
       console.warn('Erro ao carregar dados:', e);
     }
@@ -178,10 +256,10 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const state = get();
       await Promise.all([
-        AsyncStorage.setItem('fluxtv_sources', JSON.stringify(state.sources)),
-        AsyncStorage.setItem('fluxtv_favorites', JSON.stringify(state.favorites)),
-        AsyncStorage.setItem('fluxtv_recent', JSON.stringify(state.recentChannels.slice(0, 20))),
-        AsyncStorage.setItem('fluxtv_settings', JSON.stringify(state.settings)),
+        AsyncStorage.setItem('skaphostv_sources', JSON.stringify(state.sources)),
+        AsyncStorage.setItem('skaphostv_favorites', JSON.stringify(state.favorites)),
+        AsyncStorage.setItem('skaphostv_recent', JSON.stringify(state.recentChannels.slice(0, 20))),
+        AsyncStorage.setItem('skaphostv_settings', JSON.stringify(state.settings)),
       ]);
     } catch (e) {
       console.warn('Erro ao salvar dados:', e);

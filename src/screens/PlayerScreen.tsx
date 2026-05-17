@@ -1,268 +1,222 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
-import {
-  View, Text, StyleSheet, TouchableOpacity, Animated,
-  FlatList, Image, Platform, BackHandler, Dimensions,
-} from 'react-native';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, BackHandler } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import Video, { ResizeMode } from 'react-native-video';
 import { Ionicons } from '@expo/vector-icons';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
-import * as ScreenOrientation from 'expo-screen-orientation';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { useStore } from '../store/useStore';
-import TVFocusable from '../components/TVFocusable';
-import { colors, spacing, fontSize, radius } from '../utils/theme';
-import { RootStackParamList, Channel } from '../../App';
+import { colors, fontSize } from '../utils/theme';
+import { RootStackParamList } from '../types';
+import { MAX_RETRIES, RETRY_DELAYS, usePlayer } from '@/hooks/usePlayer';
+import PlayerOSD from '@/components/PlayerOSD';
+import PlayerSidebar from '@/components/PlayerSidebar';
+import PlayerError from '@/components/PlayerError';
+import { fixStreamUrl } from '../utils/m3uParser';
+
+// Teclas do controle FireTV / Android TV
+const KEY = {
+  DPAD_UP:          19,
+  DPAD_DOWN:        20,
+  DPAD_LEFT:        21,
+  DPAD_RIGHT:       22,
+  DPAD_CENTER:      23,
+  MEDIA_PLAY_PAUSE: 85,
+  MEDIA_PLAY:       126,
+  MEDIA_PAUSE:      127,
+  MEDIA_REWIND:     89,
+  MEDIA_FAST_FWD:   90,
+  MENU:             82,
+};
 
 type PlayerRoute = RouteProp<RootStackParamList, 'Player'>;
-const { width, height } = Dimensions.get('window');
-const IS_TV = Platform.isTV;
-const OSD_TIMEOUT = 5000;
 
 export default function PlayerScreen() {
   const navigation = useNavigation();
   const route = useRoute<PlayerRoute>();
-  const insets = useSafeAreaInsets();
   const { channel } = route.params;
 
-  const { channels, favorites, currentChannel, setCurrentChannel, toggleFavorite, updatePlayerState } = useStore();
+  const { channels } = useStore();
+  const player = usePlayer(channel);
 
-  const videoRef = useRef<Video>(null);
-  const osdTimer = useRef<NodeJS.Timeout | null>(null);
-  const osdAnim = useRef(new Animated.Value(1)).current;
+  const {
+    videoRef, osdAnim, videoKey, paused,
+    playingChannel, isPlaying, isBuffering,
+    isMuted, volume, error,
+    retryCount, retryingIn,
+    position, duration,
+    showOSD, showSidebar,
+    isLive, currentIndex,
+    setVolume, setIsMuted, setShowSidebar,
+    handleScreenTap, showOSDTemporarily,
+    togglePlay, playChannel, prevChannel, nextChannel,
+    manualRetry, seekBy, seekTo,
+    onLoad, onProgress, onBuffer, onError, onEnd,
+  } = player;
 
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [isBuffering, setIsBuffering] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showOSD, setShowOSD] = useState(true);
-  const [showSidebar, setShowSidebar] = useState(false);
-  const [volume, setVolume] = useState(1.0);
-  const [isMuted, setIsMuted] = useState(false);
-  const [playingChannel, setPlayingChannel] = useState<Channel>(channel);
+  const groupChannels = channels.filter(c => c.group === playingChannel.group);
+  const sidebarChannels = groupChannels.length > 0 ? groupChannels : channels;
 
-  const isFav = favorites.includes(playingChannel.id);
-  const currentIndex = channels.findIndex(c => c.id === playingChannel.id);
+  const streamUrl = fixStreamUrl(playingChannel.url);
 
-  useEffect(() => {
-    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-    showOSDTemporarily();
-  }, []);
-
-  // Hardware back button
   useEffect(() => {
     const handler = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showSidebar) { setShowSidebar(false); return true; }
       navigation.goBack();
       return true;
     });
     return () => handler.remove();
-  }, [navigation]);
+  }, [navigation, showSidebar]);
 
-  const showOSDTemporarily = useCallback(() => {
-    setShowOSD(true);
-    Animated.timing(osdAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-    if (osdTimer.current) clearTimeout(osdTimer.current);
-    osdTimer.current = setTimeout(() => {
-      Animated.timing(osdAnim, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
-        setShowOSD(false);
-      });
-    }, OSD_TIMEOUT);
-  }, [osdAnim]);
+  // Refs para evitar closure stale nos callbacks de key event
+  const showOSDRef    = useRef(showOSD);
+  const showSidebarRef = useRef(showSidebar);
+  const isLiveRef     = useRef(isLive);
+  useEffect(() => { showOSDRef.current    = showOSD;    }, [showOSD]);
+  useEffect(() => { showSidebarRef.current = showSidebar; }, [showSidebar]);
+  useEffect(() => { isLiveRef.current     = isLive;     }, [isLive]);
 
-  const handleScreenTap = useCallback(() => {
-    if (showOSD) {
-      if (osdTimer.current) clearTimeout(osdTimer.current);
-      Animated.timing(osdAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => setShowOSD(false));
-    } else {
-      showOSDTemporarily();
-    }
-  }, [showOSD, osdAnim, showOSDTemporarily]);
-
-  const playChannel = useCallback((ch: Channel) => {
-    setPlayingChannel(ch);
-    setCurrentChannel(ch);
-    setIsBuffering(true);
-    setError(null);
+  // onKeyDown no Android TV: onKeyDown fires no View pai mesmo quando
+  // um filho tem o foco — key events sobem na hierarquia de views.
+  // useTVEventHandler NÃO existe em react-native 0.74 padrão (só em tvos).
+  const handleKeyDown = useCallback((e: any) => {
+    const code: number = e?.nativeEvent?.keyCode ?? 0;
     showOSDTemporarily();
-  }, [setCurrentChannel, showOSDTemporarily]);
 
-  const prevChannel = useCallback(() => {
-    if (currentIndex > 0) playChannel(channels[currentIndex - 1]);
-  }, [currentIndex, channels, playChannel]);
+    // Quando OSD está aberto, o D-pad navega nos botões do OSD — não fazemos seek
+    if (showOSDRef.current) return;
 
-  const nextChannel = useCallback(() => {
-    if (currentIndex < channels.length - 1) playChannel(channels[currentIndex + 1]);
-  }, [currentIndex, channels, playChannel]);
-
-  const handlePlaybackStatusUpdate = useCallback((status: AVPlaybackStatus) => {
-    if (!status.isLoaded) {
-      if (status.error) setError(`Erro: ${status.error}`);
-      return;
+    switch (code) {
+      case KEY.DPAD_LEFT:
+      case KEY.MEDIA_REWIND:
+        if (!isLiveRef.current) seekBy(-10);
+        break;
+      case KEY.DPAD_RIGHT:
+      case KEY.MEDIA_FAST_FWD:
+        if (!isLiveRef.current) seekBy(10);
+        break;
+      case KEY.DPAD_CENTER:
+      case KEY.MEDIA_PLAY_PAUSE:
+      case KEY.MEDIA_PLAY:
+      case KEY.MEDIA_PAUSE:
+        togglePlay();
+        break;
+      case KEY.DPAD_UP:
+        setVolume((v: number) => Math.min(1, parseFloat((v + 0.1).toFixed(1))));
+        break;
+      case KEY.DPAD_DOWN:
+        setVolume((v: number) => Math.max(0, parseFloat((v - 0.1).toFixed(1))));
+        break;
+      case KEY.MENU:
+        if (showSidebarRef.current) setShowSidebar(false);
+        else navigation.goBack();
+        break;
     }
-    setIsBuffering(status.isBuffering);
-    setIsPlaying(status.isPlaying);
-    updatePlayerState({
-      isPlaying: status.isPlaying,
-      isBuffering: status.isBuffering,
-    });
-  }, [updatePlayerState]);
-
-  const togglePlay = useCallback(async () => {
-    if (!videoRef.current) return;
-    if (isPlaying) {
-      await videoRef.current.pauseAsync();
-    } else {
-      await videoRef.current.playAsync();
-    }
-    showOSDTemporarily();
-  }, [isPlaying, showOSDTemporarily]);
-
-  const groupChannels = channels.filter(c => c.group === playingChannel.group);
+  }, [seekBy, togglePlay, setVolume, setShowSidebar, showOSDTemporarily, navigation]);
 
   return (
-    <View style={styles.root}>
-      {/* Video */}
-      <TouchableOpacity
-        style={styles.videoContainer}
-        onPress={handleScreenTap}
-        activeOpacity={1}
-      >
+    // onKeyDown no root View captura todos os eventos de tecla do controle remoto.
+    // Platform.OS guard: no iOS/web View não tem onKeyDown.
+    <View
+      style={styles.root}
+      {...(Platform.OS === 'android' ? { onKeyDown: handleKeyDown } as any : {})}
+    >
+      <TouchableOpacity style={styles.videoContainer} onPress={handleScreenTap} activeOpacity={1}>
         <Video
+          key={videoKey}
           ref={videoRef}
-          source={{ uri: playingChannel.url }}
-          style={styles.video}
+          source={{
+            uri: streamUrl,
+            headers: {
+              'User-Agent': 'okhttp/4.9.0',
+              'Connection': 'keep-alive',
+            },
+          }}
+          style={StyleSheet.absoluteFill}
           resizeMode={ResizeMode.CONTAIN}
-          shouldPlay={true}
-          isLooping={false}
-          isMuted={isMuted}
+          paused={paused}
+          muted={isMuted}
           volume={volume}
-          onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-          onError={(e) => setError('Erro ao reproduzir o canal')}
-          useNativeControls={false}
+          repeat={false}
+          bufferConfig={{
+            minBufferMs: 5000,
+            maxBufferMs: 30000,
+            bufferForPlaybackMs: 2500,
+            bufferForPlaybackAfterRebufferMs: 5000,
+          }}
+          ignoreSilentSwitch="ignore"
+          playInBackground={false}
+          playWhenInactive={false}
+          onLoad={onLoad}
+          onProgress={onProgress}
+          onBuffer={onBuffer}
+          onError={onError}
+          onEnd={onEnd}
         />
 
-        {/* Buffering */}
         {isBuffering && !error && (
           <View style={styles.bufferingOverlay}>
-            <View style={styles.bufferingBox}>
-              <Ionicons name="reload" size={32} color={colors.accent2} />
-              <Text style={styles.bufferingText}>Carregando...</Text>
-            </View>
+            <Ionicons name="reload-circle" size={52} color={colors.accent2} />
+            <Text style={styles.bufferingText}>Carregando...</Text>
+            {retryCount > 0 && (
+              <Text style={styles.retryLabel}>Tentativa {retryCount + 1} de {MAX_RETRIES}</Text>
+            )}
           </View>
         )}
 
-        {/* Error */}
-        {error && (
-          <View style={styles.bufferingOverlay}>
-            <View style={styles.errorBox}>
-              <Ionicons name="warning" size={48} color={colors.red} />
-              <Text style={styles.errorTitle}>Erro ao reproduzir</Text>
-              <Text style={styles.errorMsg}>{playingChannel.name}</Text>
-              <TVFocusable onPress={() => playChannel(playingChannel)} style={styles.retryBtn}>
-                <Text style={styles.retryText}>Tentar Novamente</Text>
-              </TVFocusable>
-            </View>
-          </View>
+        {!!error && (
+          <PlayerError
+            channelName={playingChannel.name}
+            error={error}
+            retryCount={retryCount}
+            retryingIn={retryingIn}
+            maxRetries={MAX_RETRIES}
+            retryDelays={RETRY_DELAYS}
+            onRetryNow={manualRetry}
+            onNextChannel={nextChannel}
+          />
         )}
 
-        {/* OSD overlay */}
         {showOSD && (
-          <Animated.View style={[styles.osd, { opacity: osdAnim }]}>
-            {/* Top bar */}
-            <View style={styles.osdTop}>
-              <TVFocusable onPress={() => navigation.goBack()} style={styles.backBtn}>
-                <Ionicons name="chevron-back" size={22} color={colors.white} />
-                <Text style={styles.backText}>Voltar</Text>
-              </TVFocusable>
-
-              <View style={styles.channelMeta}>
-                {playingChannel.logo ? (
-                  <Image source={{ uri: playingChannel.logo }} style={styles.osdLogo} resizeMode="contain" />
-                ) : (
-                  <View style={styles.osdLogoPlaceholder}>
-                    <Text style={styles.osdLogoText}>{playingChannel.name.slice(0, 2).toUpperCase()}</Text>
-                  </View>
-                )}
-                <View>
-                  <Text style={styles.osdChannelName}>{playingChannel.name}</Text>
-                  <View style={styles.osdBadges}>
-                    <View style={styles.liveBadge}><Text style={styles.liveText}>● AO VIVO</Text></View>
-                    <Text style={styles.osdGroup}>{playingChannel.group}</Text>
-                    <Text style={styles.osdQuality}>{playingChannel.quality || 'HD'}</Text>
-                  </View>
-                </View>
-              </View>
-
-              <View style={styles.osdTopActions}>
-                <TVFocusable onPress={() => toggleFavorite(playingChannel.id)} style={styles.osdBtn}>
-                  <Ionicons name={isFav ? 'star' : 'star-outline'} size={22} color={isFav ? colors.yellow : colors.white} />
-                </TVFocusable>
-                <TVFocusable onPress={() => setShowSidebar(!showSidebar)} style={styles.osdBtn}>
-                  <Ionicons name="list" size={22} color={colors.white} />
-                </TVFocusable>
-              </View>
-            </View>
-
-            {/* Bottom controls */}
-            <View style={styles.osdBottom}>
-              <TVFocusable onPress={prevChannel} style={styles.ctrlBtn}>
-                <Ionicons name="play-skip-back" size={28} color={colors.white} />
-              </TVFocusable>
-
-              <TVFocusable onPress={togglePlay} style={[styles.ctrlBtn, styles.ctrlBtnMain]} hasTVPreferredFocus>
-                <Ionicons name={isPlaying ? 'pause' : 'play'} size={38} color={colors.white} />
-              </TVFocusable>
-
-              <TVFocusable onPress={nextChannel} style={styles.ctrlBtn}>
-                <Ionicons name="play-skip-forward" size={28} color={colors.white} />
-              </TVFocusable>
-
-              <View style={styles.volControl}>
-                <TVFocusable onPress={() => setIsMuted(!isMuted)} style={styles.ctrlBtn}>
-                  <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} size={22} color={colors.white} />
-                </TVFocusable>
-              </View>
-
-              <View style={{ flex: 1 }} />
-
-              <View style={styles.channelNumber}>
-                <Text style={styles.channelNumberText}>
-                  {currentIndex + 1} / {channels.length}
-                </Text>
-              </View>
-            </View>
-          </Animated.View>
+          <PlayerOSD
+            osdAnim={osdAnim}
+            channel={playingChannel}
+            isPlaying={isPlaying}
+            isMuted={isMuted}
+            volume={volume}
+            isLive={isLive}
+            position={position}
+            duration={duration}
+            currentIndex={currentIndex}
+            totalChannels={channels.length}
+            retryCount={retryCount}
+            onBack={() => navigation.goBack()}
+            onTogglePlay={togglePlay}
+            onPrevChannel={prevChannel}
+            onNextChannel={nextChannel}
+            onToggleMute={() => setIsMuted(m => !m)}
+            onVolumeChange={setVolume}
+            onToggleSidebar={() => setShowSidebar(s => !s)}
+            onSeekTo={seekTo}
+            onSeekBy={seekBy}
+          />
         )}
       </TouchableOpacity>
 
-      {/* Sidebar channel list */}
       {showSidebar && (
-        <View style={styles.sidebar}>
-          <Text style={styles.sidebarTitle}>Canais — {playingChannel.group}</Text>
-          <FlatList
-            data={groupChannels.length > 0 ? groupChannels : channels}
-            keyExtractor={item => item.id}
-            showsVerticalScrollIndicator={false}
-            renderItem={({ item }) => (
-              <TVFocusable
-                onPress={() => playChannel(item)}
-                style={[styles.sidebarItem, item.id === playingChannel.id && styles.sidebarItemActive]}
-              >
-                {item.logo ? (
-                  <Image source={{ uri: item.logo }} style={styles.sidebarLogo} resizeMode="contain" />
-                ) : (
-                  <View style={styles.sidebarLogoPlaceholder}>
-                    <Text style={styles.sidebarLogoText}>{item.name.slice(0, 2).toUpperCase()}</Text>
-                  </View>
-                )}
-                <View style={styles.sidebarMeta}>
-                  <Text style={styles.sidebarName} numberOfLines={1}>{item.name}</Text>
-                  <Text style={styles.sidebarGroup} numberOfLines={1}>{item.group}</Text>
-                </View>
-                {item.id === playingChannel.id && (
-                  <View style={styles.sidebarPlaying} />
-                )}
-              </TVFocusable>
-            )}
+        <View style={styles.sidebarOverlay}>
+          <TouchableOpacity
+            style={styles.sidebarBackdrop}
+            onPress={() => setShowSidebar(false)}
+            activeOpacity={1}
           />
+          <View style={styles.sidebarContainer}>
+            <PlayerSidebar
+              channels={sidebarChannels}
+              currentChannel={playingChannel}
+              onSelectChannel={(ch) => { playChannel(ch); setShowSidebar(false); }}
+              onClose={() => setShowSidebar(false)}
+            />
+          </View>
         </View>
       )}
     </View>
@@ -270,83 +224,24 @@ export default function PlayerScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#000', flexDirection: 'row' },
-  videoContainer: { flex: 1, position: 'relative', justifyContent: 'center', alignItems: 'center' },
-  video: { width: '100%', height: '100%' },
-
-  // OSD
-  osd: {
+  root: { flex: 1, backgroundColor: '#000' },
+  videoContainer: { flex: 1 },
+  bufferingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'space-between',
-    backgroundColor: 'transparent',
-  },
-  osdTop: {
-    flexDirection: 'row', alignItems: 'center', gap: 16,
-    padding: spacing.lg,
-    paddingTop: spacing.xl,
-    backgroundColor: 'rgba(0,0,0,0)',
-    backgroundImage: 'linear-gradient(to bottom, rgba(0,0,0,0.85), transparent)',
-  },
-  osdBottom: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    padding: spacing.lg,
-    paddingBottom: spacing.xl,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-  },
-  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4 },
-  backText: { color: colors.white, fontSize: fontSize.sm },
-  channelMeta: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  osdLogo: { width: 52, height: 52, borderRadius: radius.sm, backgroundColor: '#ffffff11' },
-  osdLogoPlaceholder: { width: 52, height: 52, borderRadius: radius.sm, backgroundColor: '#ffffff22', alignItems: 'center', justifyContent: 'center' },
-  osdLogoText: { color: colors.white, fontSize: fontSize.sm, fontWeight: '700' },
-  osdChannelName: { color: colors.white, fontSize: fontSize.xl, fontWeight: '700' },
-  osdBadges: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
-  liveBadge: { backgroundColor: colors.red, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
-  liveText: { color: colors.white, fontSize: 10, fontWeight: '700' },
-  osdGroup: { color: 'rgba(255,255,255,0.6)', fontSize: fontSize.xs },
-  osdQuality: { color: colors.accent3, fontSize: fontSize.xs, fontWeight: '600' },
-  osdTopActions: { flexDirection: 'row', gap: 8 },
-  osdBtn: { padding: 8, borderRadius: radius.sm, backgroundColor: 'rgba(255,255,255,0.1)' },
-
-  ctrlBtn: {
-    width: 52, height: 52, borderRadius: 26,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(0,0,0,0.6)', gap: 12,
   },
-  ctrlBtnMain: {
-    width: 68, height: 68, borderRadius: 34,
-    backgroundColor: colors.accent,
+  bufferingText: { color: colors.text2, fontSize: fontSize.md, fontWeight: '500' },
+  retryLabel: { color: colors.accent2, fontSize: fontSize.xs },
+  sidebarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
   },
-  volControl: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: spacing.md },
-  channelNumber: {
-    backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: radius.sm,
-    paddingHorizontal: 12, paddingVertical: 6,
+  sidebarBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
-  channelNumberText: { color: colors.text2, fontSize: fontSize.xs },
-
-  // Overlays
-  bufferingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
-  bufferingBox: { alignItems: 'center', gap: 12 },
-  bufferingText: { color: colors.text2, fontSize: fontSize.md },
-  errorBox: { alignItems: 'center', gap: 12, padding: 32, backgroundColor: 'rgba(0,0,0,0.8)', borderRadius: radius.lg },
-  errorTitle: { color: colors.white, fontSize: fontSize.lg, fontWeight: '700' },
-  errorMsg: { color: colors.text2, fontSize: fontSize.sm },
-  retryBtn: { backgroundColor: colors.accent, borderRadius: radius.sm, paddingHorizontal: 20, paddingVertical: 10, marginTop: 8 },
-  retryText: { color: colors.white, fontWeight: '700' },
-
-  // Sidebar
-  sidebar: { width: 280, backgroundColor: colors.bg1, borderLeftWidth: 1, borderLeftColor: colors.border },
-  sidebarTitle: { fontSize: fontSize.sm, fontWeight: '700', color: colors.text1, padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
-  sidebarItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    padding: spacing.md, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.03)',
+  sidebarContainer: {
+    width: 300,
   },
-  sidebarItemActive: { backgroundColor: colors.accent + '18' },
-  sidebarLogo: { width: 36, height: 36, borderRadius: radius.sm },
-  sidebarLogoPlaceholder: { width: 36, height: 36, borderRadius: radius.sm, backgroundColor: colors.bg3, alignItems: 'center', justifyContent: 'center' },
-  sidebarLogoText: { color: colors.text2, fontSize: 11, fontWeight: '700' },
-  sidebarMeta: { flex: 1 },
-  sidebarName: { color: colors.text1, fontSize: fontSize.sm, fontWeight: '500' },
-  sidebarGroup: { color: colors.text3, fontSize: fontSize.xs },
-  sidebarPlaying: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent2 },
 });

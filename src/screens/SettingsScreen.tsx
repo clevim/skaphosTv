@@ -1,132 +1,641 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, Alert } from 'react-native';
+// SettingsScreen.tsx
+// Mobile: vertical scroll layout
+// TV: two-panel (left sidebar with categories + right panel with settings)
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Switch, ActivityIndicator } from 'react-native';
+import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useStore } from '../store/useStore';
 import TVFocusable from '../components/TVFocusable';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
+import { IS_TV } from '../utils/tvDetect';
 
-export default function SettingsScreen() {
-  const navigation = useNavigation();
-  const { settings, updateSettings, sources } = useStore();
+// ── Shared sub-components ───────────────────────────────────────────────────
 
-  const clearAll = () => {
-    Alert.alert('Limpar dados', 'Isso remove todas as fontes, favoritos e histórico. Continuar?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Limpar tudo', style: 'destructive',
-        onPress: async () => {
-          await AsyncStorage.clear();
-          Alert.alert('Pronto', 'Todos os dados foram removidos. Reinicie o app.');
-        },
-      },
-    ]);
-  };
+// ── Auth info helpers ───────────────────────────────────────────────────────
 
-  const Row = ({ label, sub, children }: { label: string; sub?: string; children?: React.ReactNode }) => (
+interface XtreamUserInfo {
+  status: string;
+  exp_date: string;
+  created_at: string;
+  active_cons: string;
+  max_connections: string;
+  is_trial: string;
+  allowed_output_formats?: string[];
+}
+
+function formatExpDate(unixStr: string): string {
+  const ms = parseInt(unixStr) * 1000;
+  if (!ms || isNaN(ms)) return '—';
+  return new Date(ms).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function formatCreatedAt(unixStr: string): string {
+  const ms = parseInt(unixStr) * 1000;
+  if (!ms || isNaN(ms)) return '—';
+  const diff = Date.now() - ms;
+  const years  = Math.floor(diff / (1000 * 60 * 60 * 24 * 365));
+  const months = Math.floor(diff / (1000 * 60 * 60 * 24 * 30));
+  const days   = Math.floor(diff / (1000 * 60 * 60 * 24));
+  if (years  >= 1) return `há ${years} ano${years  > 1 ? 's' : ''}`;
+  if (months >= 1) return `há ${months} mês${months > 1 ? 'es' : ''}`;
+  if (days   >= 1) return `há ${days} dia${days   > 1 ? 's' : ''}`;
+  return 'hoje';
+}
+
+function statusColor(status: string): string {
+  switch (status?.toLowerCase()) {
+    case 'active':  return '#22c55e';
+    case 'expired': return colors.red;
+    case 'banned':  return colors.red;
+    default:        return colors.text3;
+  }
+}
+
+function statusLabel(status: string): string {
+  switch (status?.toLowerCase()) {
+    case 'active':  return 'Ativo';
+    case 'expired': return 'Expirado';
+    case 'banned':  return 'Banido';
+    case 'disabled': return 'Desativado';
+    default: return status || '—';
+  }
+}
+
+// ── SettingsGroup / SettingsRow ─────────────────────────────────────────────
+
+function SettingsGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <View style={styles.group}>
+      <Text style={styles.groupTitle}>{title}</Text>
+      <View style={styles.groupBox}>{children}</View>
+    </View>
+  );
+}
+
+function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle, onPress }: {
+  icon: string; label: string; sub?: string; value?: string; valueColor?: string;
+  toggle?: boolean; on?: boolean; onToggle?: (v: boolean) => void;
+  onPress?: () => void;
+}) {
+  const content = (
     <View style={styles.row}>
+      <View style={styles.rowIcon}>
+        <Ionicons name={icon as any} size={16} color={colors.text2} />
+      </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.rowLabel}>{label}</Text>
         {sub && <Text style={styles.rowSub}>{sub}</Text>}
       </View>
-      {children}
+      {toggle && onToggle ? (
+        <Switch
+          value={on}
+          onValueChange={onToggle}
+          trackColor={{ true: colors.accent, false: colors.border }}
+          thumbColor={colors.white}
+        />
+      ) : value ? (
+        <View style={styles.rowValueWrap}>
+          <Text style={[styles.rowValue, valueColor ? { color: valueColor } : null]}>{value}</Text>
+          {onPress && <Ionicons name="chevron-forward" size={12} color={colors.text3} />}
+        </View>
+      ) : onPress ? (
+        <Ionicons name="chevron-forward" size={14} color={colors.text3} />
+      ) : null}
     </View>
   );
 
-  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <View style={styles.sectionBox}>{children}</View>
-    </View>
-  );
+  if (onPress) {
+    return (
+      <TVFocusable onPress={onPress} style={{ borderRadius: 0 }}>
+        {content}
+      </TVFocusable>
+    );
+  }
+  return content;
+}
 
+// ── XtreamSourceCard ────────────────────────────────────────────────────────
+
+function XtreamSourceCard({ source, authInfo }: {
+  source: { id: string; name: string; host?: string; username?: string; password?: string; channelCount?: number };
+  authInfo: XtreamUserInfo | 'loading' | 'error' | undefined;
+}) {
+  const isLoading = authInfo === 'loading';
+  const isError   = authInfo === 'error';
+  const info      = typeof authInfo === 'object' ? authInfo : null;
+
+  return (
+    <SettingsGroup title={source.name}>
+      <SettingsRow icon="server-outline"      label="Servidor" value={source.host ?? '—'} />
+      <SettingsRow icon="person-outline"      label="Usuário"  value={source.username ?? '—'} />
+      <SettingsRow icon="lock-closed-outline" label="Senha"    value={'•'.repeat(Math.min(source.password?.length ?? 0, 10))} />
+      <SettingsRow icon="layers-outline"      label="Canais"   value={`${source.channelCount ?? 0} itens`} />
+      {isLoading && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10 }}>
+          <ActivityIndicator size="small" color={colors.accent} />
+          <Text style={{ fontSize: 12, color: colors.text3 }}>Verificando conta...</Text>
+        </View>
+      )}
+      {isError && (
+        <SettingsRow icon="warning-outline" label="Conta" value="Sem resposta do servidor" valueColor={colors.text3} />
+      )}
+      {info && (
+        <>
+          <SettingsRow
+            icon="checkmark-circle-outline"
+            label="Status"
+            value={statusLabel(info.status)}
+            valueColor={statusColor(info.status)}
+          />
+          <SettingsRow
+            icon="calendar-outline"
+            label="Expira em"
+            value={formatExpDate(info.exp_date)}
+            valueColor={info.status?.toLowerCase() === 'expired' ? colors.red : undefined}
+          />
+          <SettingsRow
+            icon="time-outline"
+            label="Conta criada"
+            value={formatCreatedAt(info.created_at)}
+          />
+          <SettingsRow
+            icon="people-outline"
+            label="Conexões"
+            value={`${info.active_cons} de ${info.max_connections} ativa${info.max_connections !== '1' ? 's' : ''}`}
+          />
+          {info.is_trial === '1' && (
+            <SettingsRow icon="flask-outline" label="Tipo" value="Trial" valueColor={colors.accent} />
+          )}
+        </>
+      )}
+    </SettingsGroup>
+  );
+}
+
+// ── TV category definitions ─────────────────────────────────────────────────
+
+type CategoryKey = 'reproducao' | 'conta' | 'sistema';
+
+const TV_CATEGORIES: { key: CategoryKey; label: string; icon: string }[] = [
+  { key: 'reproducao', label: 'Reprodução',           icon: 'play-circle-outline' },
+  { key: 'conta',      label: 'Conta e dispositivos', icon: 'person-circle-outline' },
+  { key: 'sistema',    label: 'Sistema',              icon: 'settings-outline' },
+];
+
+// ── TV Panel content ────────────────────────────────────────────────────────
+
+function TVPanel({
+  category, settings, updateSettings, sources, navigation, authInfoMap,
+}: {
+  category: CategoryKey;
+  settings: any;
+  updateSettings: (s: any) => void;
+  sources: any[];
+  navigation: any;
+  authInfoMap: Record<string, XtreamUserInfo | 'loading' | 'error'>;
+}) {
+  if (category === 'reproducao') {
+    return (
+      <>
+        <SettingsGroup title="Reprodução">
+          <SettingsRow icon="play-outline"           label="Qualidade do streaming"    value="Auto · até 4K" />
+          <SettingsRow icon="download-outline"        label="Qualidade dos downloads"   value="HD" />
+          <SettingsRow icon="chatbox-ellipses-outline" label="Legendas e áudio"         value="Português" />
+          <SettingsRow
+            icon="sparkles-outline"
+            label="Reprodução automática"
+            toggle
+            on={settings.autoPlay}
+            onToggle={v => updateSettings({ autoPlay: v })}
+          />
+          <SettingsRow
+            icon="volume-high-outline"
+            label="Normalizar volume"
+            toggle
+            on={false}
+            onToggle={() => {}}
+          />
+        </SettingsGroup>
+        <SettingsGroup title="Player">
+          <SettingsRow icon="resize-outline"   label="Modo de tela padrão" value="Ajustar" />
+          <SettingsRow icon="time-outline"     label="Buffer de streaming"  value="3s" />
+          <SettingsRow icon="stats-chart-outline" label="Exibir bitrate"    toggle on={false} onToggle={() => {}} />
+        </SettingsGroup>
+      </>
+    );
+  }
+
+  if (category === 'conta') {
+    return (
+      <>
+        <SettingsGroup title="Fontes">
+          <SettingsRow
+            icon="globe-outline"
+            label="Gerenciar listas"
+            value={`${sources.length} lista${sources.length !== 1 ? 's' : ''}`}
+            onPress={() => navigation.navigate('Setup')}
+          />
+        </SettingsGroup>
+        {sources.filter(s => s.type === 'xtream').map(s => (
+          <XtreamSourceCard key={s.id} source={s} authInfo={authInfoMap[s.id]} />
+        ))}
+        {sources.filter(s => s.type === 'm3u').map(s => (
+          <SettingsGroup key={s.id} title={s.name}>
+            <SettingsRow icon="link-outline"   label="URL"    value={s.url ?? '—'} />
+            <SettingsRow icon="layers-outline" label="Canais" value={`${s.channelCount ?? 0} itens`} />
+          </SettingsGroup>
+        ))}
+      </>
+    );
+  }
+
+  // sistema
+  return (
+    <SettingsGroup title="Sistema">
+      <SettingsRow icon="language-outline"      label="Idioma"           value={settings.language || 'pt-BR'} />
+      <SettingsRow icon="notifications-outline" label="Notificações"     toggle on={false} onToggle={() => {}} />
+      <SettingsRow icon="cloud-upload-outline"  label="Backup automático" toggle on={false} onToggle={() => {}} />
+      <SettingsRow icon="refresh-outline"       label="Limpar cache" />
+      <SettingsRow icon="information-circle-outline" label="Versão" value="v4.2.1 · build 1124" />
+    </SettingsGroup>
+  );
+}
+
+// ── Main component ──────────────────────────────────────────────────────────
+
+export default function SettingsScreen() {
+  const navigation = useNavigation();
+  const { settings, updateSettings, sources } = useStore();
+  const [activeCategory, setActiveCategory] = useState<CategoryKey>('reproducao');
+  const [authInfoMap, setAuthInfoMap] = useState<Record<string, XtreamUserInfo | 'loading' | 'error'>>({});
+
+  useEffect(() => {
+    sources.filter(s => s.type === 'xtream' && s.host && s.username && s.password).forEach(async s => {
+      setAuthInfoMap(prev => ({ ...prev, [s.id]: 'loading' }));
+      try {
+        const res = await axios.get(
+          `${s.host}/player_api.php?username=${s.username}&password=${s.password}`,
+          { timeout: 10_000, headers: { 'User-Agent': 'okhttp/4.9.0' } },
+        );
+        const info: XtreamUserInfo = res.data?.user_info;
+        setAuthInfoMap(prev => ({ ...prev, [s.id]: info ?? 'error' }));
+      } catch {
+        setAuthInfoMap(prev => ({ ...prev, [s.id]: 'error' }));
+      }
+    });
+  }, [sources]);
+
+  // ── TV Layout ────────────────────────────────────────────────────────────
+  if (IS_TV) {
+    return (
+      <View style={tvStyles.root}>
+        {/* Left sidebar */}
+        <View style={tvStyles.sidebar}>
+          {/* Profile card */}
+          <View style={tvStyles.profileCard}>
+            <View style={tvStyles.avatar}>
+              <Text style={tvStyles.avatarText}>SK</Text>
+            </View>
+            <View>
+              <Text style={tvStyles.profileName}>SkaphosTV</Text>
+              <Text style={tvStyles.profilePlan}>SKAPHOS PRO</Text>
+            </View>
+          </View>
+
+          {/* Category list */}
+          <View style={tvStyles.categoryList}>
+            {TV_CATEGORIES.map(cat => {
+              const active = cat.key === activeCategory;
+              return (
+                <TVFocusable
+                  key={cat.key}
+                  onPress={() => setActiveCategory(cat.key)}
+                  style={[tvStyles.categoryItem, active && tvStyles.categoryItemActive]}
+                  hasTVPreferredFocus={cat.key === 'reproducao'}
+                >
+                  <Ionicons
+                    name={cat.icon as any}
+                    size={18}
+                    color={active ? colors.accent : colors.text3}
+                  />
+                  <Text style={[tvStyles.categoryLabel, active && tvStyles.categoryLabelActive]}>
+                    {cat.label}
+                  </Text>
+                  {active && <View style={tvStyles.categoryActiveBar} />}
+                </TVFocusable>
+              );
+            })}
+          </View>
+
+          {/* Back button at bottom */}
+          <View style={tvStyles.sidebarFooter}>
+            <TVFocusable onPress={() => navigation.goBack()} style={tvStyles.backBtn}>
+              <Ionicons name="chevron-back" size={16} color={colors.text2} />
+              <Text style={tvStyles.backBtnText}>Voltar</Text>
+            </TVFocusable>
+            <Text style={tvStyles.madeBy}>made by clevs</Text>
+          </View>
+        </View>
+
+        {/* Right panel */}
+        <View style={tvStyles.panel}>
+          <View style={tvStyles.panelHeader}>
+            <Text style={tvStyles.panelTitle}>
+              {TV_CATEGORIES.find(c => c.key === activeCategory)?.label}
+            </Text>
+          </View>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={tvStyles.panelContent}
+          >
+            <TVPanel
+              category={activeCategory}
+              settings={settings}
+              updateSettings={updateSettings}
+              sources={sources}
+              navigation={navigation}
+              authInfoMap={authInfoMap}
+            />
+          </ScrollView>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Mobile Layout ────────────────────────────────────────────────────────
   return (
     <View style={styles.root}>
       <View style={styles.header}>
         <TVFocusable onPress={() => navigation.goBack()} style={styles.back}>
-          <Ionicons name="chevron-back" size={22} color={colors.text2} />
+          <Ionicons name="chevron-back" size={20} color={colors.text2} />
         </TVFocusable>
-        <Ionicons name="settings" size={22} color={colors.accent2} />
-        <Text style={styles.title}>Configurações</Text>
+        <Text style={styles.title}>Ajustes</Text>
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.inner}>
-        <Section title="REPRODUÇÃO">
-          <Row label="Reprodução automática" sub="Iniciar próximo canal automaticamente">
-            <Switch
-              value={settings.autoPlay}
-              onValueChange={v => updateSettings({ autoPlay: v })}
-              trackColor={{ true: colors.accent }}
-              thumbColor={colors.white}
-            />
-          </Row>
-          <Row label="Mostrar relógio" sub="Exibir horário na tela do player">
-            <Switch
-              value={settings.showClock}
-              onValueChange={v => updateSettings({ showClock: v })}
-              trackColor={{ true: colors.accent }}
-              thumbColor={colors.white}
-            />
-          </Row>
-          <Row label="Buffer de carregamento" sub={`${settings.bufferSize}ms`} />
-        </Section>
+        <View style={styles.profileCard}>
+          <View style={styles.profileAvatar}>
+            <Text style={styles.profileAvatarText}>SK</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.profileName}>SkaphosTV</Text>
+            <Text style={styles.profilePlan}>SKAPHOS PRO · IPTV PLAYER</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={14} color={colors.text2} />
+        </View>
 
-        <Section title="FONTE IPTV">
-          <Row label="Fontes configuradas" sub={`${sources.length} fonte${sources.length !== 1 ? 's' : ''} ativa${sources.length !== 1 ? 's' : ''}`}>
-            <TVFocusable onPress={() => navigation.navigate('Setup' as never)} style={styles.linkBtn}>
-              <Text style={styles.linkBtnText}>Gerenciar</Text>
-              <Ionicons name="chevron-forward" size={14} color={colors.accent2} />
-            </TVFocusable>
-          </Row>
-        </Section>
+        <SettingsGroup title="Reprodução">
+          <SettingsRow icon="play-outline"            label="Qualidade do streaming"  value="Auto · até 4K" />
+          <SettingsRow icon="download-outline"         label="Qualidade dos downloads" value="HD" />
+          <SettingsRow icon="chatbox-ellipses-outline" label="Legendas e áudio"        value="Português" />
+          <SettingsRow
+            icon="sparkles-outline"
+            label="Reprodução automática"
+            toggle on={settings.autoPlay}
+            onToggle={v => updateSettings({ autoPlay: v })}
+          />
+        </SettingsGroup>
 
-        <Section title="SOBRE">
-          <Row label="Versão" sub="FluxTV 1.0.0" />
-          <Row label="Plataformas" sub="Android • Android TV • FireStick" />
-          <Row label="Formatos suportados" sub="M3U, M3U8, Xtream Codes API" />
-          <Row label="Protocolos" sub="HLS, DASH, HTTP TS, RTMP" />
-        </Section>
+        <SettingsGroup title="Fontes">
+          <SettingsRow
+            icon="globe-outline"
+            label="Gerenciar listas"
+            value={`${sources.length} lista${sources.length !== 1 ? 's' : ''}`}
+            onPress={() => (navigation as any).navigate('Setup')}
+          />
+        </SettingsGroup>
 
-        <Section title="DADOS">
-          <TVFocusable onPress={clearAll} style={styles.dangerBtn}>
-            <Ionicons name="trash-outline" size={18} color={colors.red} />
-            <Text style={styles.dangerText}>Limpar todos os dados</Text>
-          </TVFocusable>
-        </Section>
+        {sources.filter(s => s.type === 'xtream').map(s => (
+          <SettingsGroup key={s.id} title={s.name}>
+            <SettingsRow icon="server-outline"      label="Servidor" value={s.host ?? '—'} />
+            <SettingsRow icon="person-outline"      label="Usuário"  value={s.username ?? '—'} />
+            <SettingsRow icon="lock-closed-outline" label="Senha"    value={'•'.repeat(Math.min(s.password?.length ?? 0, 10))} />
+            <SettingsRow icon="layers-outline"      label="Canais"   value={`${s.channelCount ?? 0} itens`} />
+          </SettingsGroup>
+        ))}
+
+        {sources.filter(s => s.type === 'm3u').map(s => (
+          <SettingsGroup key={s.id} title={s.name}>
+            <SettingsRow icon="link-outline"   label="URL"    value={s.url ?? '—'} />
+            <SettingsRow icon="layers-outline" label="Canais" value={`${s.channelCount ?? 0} itens`} />
+          </SettingsGroup>
+        ))}
+
+        <View style={styles.footer}>
+          <View style={styles.footerLogoRow}>
+            <View style={styles.footerLogoIcon}>
+              <Ionicons name="tv" size={12} color={colors.accent} />
+            </View>
+            <Text style={styles.footerLogoText}>
+              Skaphos<Text style={{ color: colors.accent }}>·</Text>TV
+            </Text>
+          </View>
+          <Text style={styles.footerVersion}>v4.2.1 · build 1124</Text>
+          <Text style={styles.footerBy}>made by clevs</Text>
+        </View>
       </ScrollView>
     </View>
   );
 }
 
+// ── TV Styles ────────────────────────────────────────────────────────────────
+const tvStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: colors.bg0,
+    flexDirection: 'row',
+  },
+
+  // Sidebar
+  sidebar: {
+    width: 260,
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+    paddingTop: 32,
+    gap: spacing.xl,
+  },
+  profileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.xl,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSoft,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.full,
+    backgroundColor: colors.bg2,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: { fontSize: 14, fontWeight: '700', color: colors.text1 },
+  profileName: { fontSize: 14, fontWeight: '600', color: colors.text1 },
+  profilePlan: { fontSize: 10, color: colors.text3, marginTop: 2, letterSpacing: 0.4 },
+
+  categoryList: {
+    flex: 1,
+    paddingHorizontal: spacing.sm,
+    gap: 2,
+  },
+  categoryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: radius.md,
+    position: 'relative',
+  },
+  categoryItemActive: {
+    backgroundColor: colors.accentSoft,
+  },
+  categoryLabel: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    fontWeight: '500',
+    color: colors.text3,
+  },
+  categoryLabelActive: {
+    color: colors.accent,
+    fontWeight: '600',
+  },
+  categoryActiveBar: {
+    position: 'absolute',
+    left: 0,
+    top: 8,
+    bottom: 8,
+    width: 3,
+    borderRadius: 2,
+    backgroundColor: colors.accent,
+  },
+
+  sidebarFooter: {
+    padding: spacing.xl,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSoft,
+    gap: 8,
+  },
+  madeBy: { fontSize: 10, color: colors.text3, letterSpacing: 0.4 },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: radius.md,
+    backgroundColor: colors.bg1,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  backBtnText: {
+    fontSize: fontSize.sm,
+    fontWeight: '500',
+    color: colors.text2,
+  },
+
+  // Right panel
+  panel: {
+    flex: 1,
+  },
+  panelHeader: {
+    paddingHorizontal: spacing.xxxl,
+    paddingTop: 32,
+    paddingBottom: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSoft,
+  },
+  panelTitle: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: colors.text1,
+    letterSpacing: -0.5,
+  },
+  panelContent: {
+    padding: spacing.xxxl,
+    paddingTop: spacing.xl,
+    gap: 20,
+    maxWidth: 600,
+  },
+});
+
+// ── Mobile Styles ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg0 },
   header: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border,
-    backgroundColor: colors.bg1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 22,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
   },
-  back: { padding: 6, borderRadius: radius.sm },
-  title: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text1 },
+  back: {
+    width: 36, height: 36, borderRadius: radius.full,
+    backgroundColor: colors.bg1, borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  title: { fontSize: 28, fontWeight: '600', color: colors.text1, letterSpacing: -0.6 },
   content: { flex: 1 },
-  inner: { padding: spacing.xl, gap: spacing.xl, maxWidth: 600, alignSelf: 'center', width: '100%' },
+  inner: {
+    paddingHorizontal: 22,
+    paddingBottom: 60,
+    gap: 20,
+    maxWidth: 600,
+    alignSelf: 'center',
+    width: '100%',
+    paddingTop: 18,
+  },
 
-  section: { gap: spacing.sm },
-  sectionTitle: { fontSize: 11, fontWeight: '600', color: colors.text3, letterSpacing: 0.8 },
-  sectionBox: { backgroundColor: colors.bg1, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+  profileCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    padding: 16, backgroundColor: colors.bg1,
+    borderRadius: 14, borderWidth: 1, borderColor: colors.border,
+  },
+  profileAvatar: {
+    width: 48, height: 48, borderRadius: 999,
+    backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  profileAvatarText: { fontSize: 16, fontWeight: '600', color: colors.text1 },
+  profileName: { fontSize: 15, fontWeight: '600', color: colors.text1 },
+  profilePlan: { fontSize: 11, color: colors.text3, marginTop: 2, letterSpacing: 0.4 },
+
+  group: { gap: spacing.sm },
+  groupTitle: {
+    fontSize: 10, fontWeight: '600', color: colors.text3,
+    letterSpacing: 0.6, textTransform: 'uppercase', paddingLeft: 2,
+  },
+  groupBox: {
+    backgroundColor: colors.bg1, borderRadius: 12,
+    borderWidth: 1, borderColor: colors.border, overflow: 'hidden',
+  },
+
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border + '80',
+    paddingVertical: 13, paddingHorizontal: 14,
+    borderBottomWidth: 1, borderBottomColor: colors.borderSoft,
   },
-  rowLabel: { fontSize: fontSize.sm, fontWeight: '500', color: colors.text1 },
+  rowIcon: { width: 24, alignItems: 'center' },
+  rowLabel: { fontSize: 14, fontWeight: '500', color: colors.text1 },
   rowSub: { fontSize: fontSize.xs, color: colors.text3, marginTop: 2 },
-  linkBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  linkBtnText: { fontSize: fontSize.sm, color: colors.accent2, fontWeight: '600' },
-  dangerBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    padding: spacing.md, margin: spacing.sm,
-    backgroundColor: colors.red + '18', borderRadius: radius.sm,
-    borderWidth: 1, borderColor: colors.red + '44',
+  rowValueWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowValue: { fontSize: 12, color: colors.text2 },
+
+  footer: { alignItems: 'center', paddingVertical: 20, gap: 8 },
+  footerLogoRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  footerLogoIcon: {
+    width: 20, height: 20, borderRadius: 5,
+    backgroundColor: 'rgba(167,139,250,0.15)',
+    alignItems: 'center', justifyContent: 'center',
   },
-  dangerText: { color: colors.red, fontSize: fontSize.sm, fontWeight: '600' },
+  footerLogoText: { fontSize: 11, fontWeight: '600', color: colors.text3, letterSpacing: 0.4 },
+  footerVersion: { fontSize: 10, color: colors.text3, letterSpacing: 0.4 },
+  footerBy: { fontSize: 10, color: colors.text3, letterSpacing: 0.4, marginTop: 2 },
 });

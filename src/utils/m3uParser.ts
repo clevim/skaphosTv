@@ -1,4 +1,4 @@
-import { Channel } from '../../App';
+import { Channel } from '../types';
 
 export interface ParseResult {
   channels: Channel[];
@@ -6,36 +6,52 @@ export interface ParseResult {
   errors: string[];
 }
 
+// Limite de canais para não OOM dispositivos com pouca RAM (Firestick, etc.)
+const MAX_CHANNELS = 30_000;
+
 /**
  * Parse an M3U playlist string into Channel objects.
  * Supports: #EXTM3U, #EXTINF, tvg-id, tvg-name, tvg-logo, group-title
  */
 export function parseM3U(content: string): ParseResult {
-  const lines = content.split('\n').map(l => l.trim()).filter(Boolean);
+  const lines = content.split('\n');
   const channels: Channel[] = [];
   const groupSet = new Set<string>();
   const errors: string[] = [];
   let i = 0;
 
-  if (!lines[0]?.startsWith('#EXTM3U')) {
+  if (!lines[0]?.trimStart().startsWith('#EXTM3U')) {
     errors.push('Arquivo não começa com #EXTM3U. Pode não ser uma lista M3U válida.');
   }
 
   while (i < lines.length) {
-    const line = lines[i];
+    if (channels.length >= MAX_CHANNELS) {
+      errors.push(`Lista truncada em ${MAX_CHANNELS} canais para proteger a memória do dispositivo.`);
+      break;
+    }
+
+    const line = lines[i].trim();
+    if (!line) { i++; continue; }
 
     if (line.startsWith('#EXTINF')) {
+      // Procura a próxima linha não-vazia como URL
+      let urlLine = '';
+      let j = i + 1;
+      while (j < lines.length) {
+        const candidate = lines[j].trim();
+        if (candidate && !candidate.startsWith('#')) { urlLine = candidate; break; }
+        j++;
+      }
       try {
-        const channel = parseExtInf(line, lines[i + 1] || '');
+        const channel = parseExtInf(line, urlLine);
         if (channel) {
           channels.push(channel);
           if (channel.group) groupSet.add(channel.group);
         }
-        i += 2;
       } catch (e) {
-        errors.push(`Erro na linha ${i}: ${line}`);
-        i++;
+        errors.push(`Erro na linha ${i}`);
       }
+      i = urlLine ? j + 1 : i + 1;
     } else {
       i++;
     }
@@ -51,21 +67,26 @@ export function parseM3U(content: string): ParseResult {
 function parseExtInf(extinf: string, url: string): Channel | null {
   if (!url || url.startsWith('#')) return null;
 
-  // Extract attributes from #EXTINF line
   const tvgId = extractAttr(extinf, 'tvg-id') || extractAttr(extinf, 'tvg-ID');
   const tvgName = extractAttr(extinf, 'tvg-name');
   const tvgLogo = extractAttr(extinf, 'tvg-logo');
   const group = extractAttr(extinf, 'group-title') || 'Sem Categoria';
 
-  // Channel name is after the last comma
   const commaIdx = extinf.lastIndexOf(',');
   const rawName = commaIdx >= 0 ? extinf.slice(commaIdx + 1).trim() : '';
-  const name = tvgName || rawName || 'Canal sem nome';
 
-  // Detect quality from name
+  // Prefer rawName when it has year info that tvgName lacks
+  // e.g. tvg-name="Filme" but display name is "Filme (2026)"
+  const hasYear = (s: string) => /\(\d{4}\)|\[\d{4}\]/.test(s);
+  const name =
+    tvgName && rawName && !hasYear(tvgName) && hasYear(rawName)
+      ? rawName
+      : tvgName || rawName || 'Canal sem nome';
   const quality = detectQuality(name + ' ' + url);
 
-  const id = `${name}-${url}`.replace(/\W/g, '').slice(0, 32) + Math.random().toString(36).slice(2, 6);
+  const id =
+    `${name}-${url}`.replace(/\W/g, '').slice(0, 32) +
+    Math.random().toString(36).slice(2, 6);
 
   return {
     id,
@@ -96,33 +117,37 @@ function detectQuality(str: string): string {
 
 function cleanName(name: string): string {
   return name
-    .replace(/\[.*?\]/g, '')
-    .replace(/\(.*?\)/g, '')
+    .replace(/\[(?!\d{4})[^\]]*\]/g, '')   // remove [TAG] mas preserva [2024], [2025], etc.
+    .replace(/\((?!\d{4}\))[^)]*\)/g, '')   // remove (TAG) mas preserva (2024), (2025), etc.
     .replace(/(HD|FHD|4K|SD|UHD)/gi, '')
     .trim()
     .replace(/\s+/g, ' ');
 }
 
 /**
- * Build M3U URL for Xtream Codes API
+ * Corrige/normaliza a URL do stream para o ExoPlayer.
+ * - .avi → .mp4  (ExoPlayer não suporta .avi)
  */
-export function buildXtreamM3U(host: string, username: string, password: string): string {
-  const base = host.replace(/\/$/, '');
-  return `${base}/get.php?username=${username}&password=${password}&type=m3u_plus&output=ts`;
+export function fixStreamUrl(url: string): string {
+  if (!url) return url;
+  if (url.endsWith('.avi')) return url.slice(0, -4) + '.mp4';
+  return url;
 }
 
 /**
- * Build Xtream API URL for getting live streams
+ * Detecta o tipo do stream pela URL para passar ao ExoPlayer via prop `type`.
+ * Retorna 'mpegts' para .ts e URLs sem extensão (canais live).
  */
-export function buildXtreamApiUrl(host: string, username: string, password: string, action: string): string {
-  const base = host.replace(/\/$/, '');
-  return `${base}/player_api.php?username=${username}&password=${password}&action=${action}`;
-}
-
-/**
- * Build stream URL for Xtream channel
- */
-export function buildXtreamStreamUrl(host: string, username: string, password: string, streamId: number): string {
-  const base = host.replace(/\/$/, '');
-  return `${base}/live/${username}/${password}/${streamId}.ts`;
+export function detectStreamType(url: string): 'mpegts' | undefined {
+  if (!url) return undefined;
+  if (
+    url.endsWith('.mp4') ||
+    url.endsWith('.mkv') ||
+    url.endsWith('.m3u8') ||
+    url.endsWith('.avi')
+  ) {
+    return undefined;
+  }
+  if (url.endsWith('.ts')) return 'mpegts';
+  return 'mpegts';
 }

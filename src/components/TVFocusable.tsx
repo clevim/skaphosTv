@@ -1,15 +1,38 @@
-import React, { useRef, useState, useCallback } from 'react';
+/**
+ * TVFocusable — wrapper focalizável para TV e Mobile.
+ *
+ * A animação de escala ao focar é feita 100% NATIVA pelo módulo
+ * TvFocus (modules/tv-focus/) via ViewPropertyAnimator — sem JS,
+ * sem jank, funciona mesmo com JS thread ocupado.
+ *
+ * O módulo também emite 'onTvFocusChanged' para JS, que usamos
+ * para mostrar/esconder o overlay branco de foco.
+ *
+ * Anel de foco DENTRO do Pressable para posição correta relativa
+ * ao card (não na área de margin entre cards).
+ */
+
+import React, { useRef, useEffect, useState, useImperativeHandle } from 'react';
 import {
-  TouchableOpacity,
-  Animated,
-  Platform,
+  Pressable,
   StyleSheet,
+  View,
   ViewStyle,
   StyleProp,
+  findNodeHandle,
 } from 'react-native';
-import { colors } from '../utils/theme';
 
-interface TVFocusableProps {
+export interface TVFocusableHandle {
+  focus: () => void;
+}
+import { IS_TV } from '../utils/tvDetect';
+import { addFocusListener } from '../../modules/tv-focus';
+
+const RING_W     = IS_TV ? 4 : 3;
+const RING_COLOR = '#a78bfa';
+const RING_BG    = 'rgba(124,58,237,0.22)';
+
+export interface TVFocusableProps {
   children: React.ReactNode;
   onPress?: () => void;
   onLongPress?: () => void;
@@ -18,13 +41,13 @@ interface TVFocusableProps {
   hasTVPreferredFocus?: boolean;
   accessible?: boolean;
   accessibilityLabel?: string;
+  disabled?: boolean;
+  borderRadius?: number;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
-/**
- * A pressable component optimized for TV remote/D-pad navigation.
- * Renders with visible focus ring on TV, standard press feedback on mobile.
- */
-export default function TVFocusable({
+const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(function TVFocusable({
   children,
   onPress,
   onLongPress,
@@ -33,84 +56,75 @@ export default function TVFocusable({
   hasTVPreferredFocus = false,
   accessible = true,
   accessibilityLabel,
-}: TVFocusableProps) {
+  disabled = false,
+  borderRadius = 10,
+  onFocus: onFocusProp,
+  onBlur:  onBlurProp,
+}, ref) {
+  const pressableRef = useRef<View>(null);
   const [isFocused, setIsFocused] = useState(false);
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const glowAnim = useRef(new Animated.Value(0)).current;
 
-  const handleFocus = useCallback(() => {
-    setIsFocused(true);
-    Animated.parallel([
-      Animated.spring(scaleAnim, { toValue: 1.07, useNativeDriver: true, speed: 20 }),
-      Animated.timing(glowAnim, { toValue: 1, duration: 150, useNativeDriver: false }),
-    ]).start();
-  }, [scaleAnim, glowAnim]);
+  useImperativeHandle(ref, () => ({
+    focus: () => { (pressableRef.current as any)?.focus?.(); },
+  }));
 
-  const handleBlur = useCallback(() => {
-    setIsFocused(false);
-    Animated.parallel([
-      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, speed: 20 }),
-      Animated.timing(glowAnim, { toValue: 0, duration: 150, useNativeDriver: false }),
-    ]).start();
-  }, [scaleAnim, glowAnim]);
+  useEffect(() => {
+    if (!IS_TV) return;
 
-  const borderColor = glowAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [colors.border, colors.accent2],
-  });
+    const sub = addFocusListener((event) => {
+      const myTag = findNodeHandle(pressableRef.current);
+      if (myTag == null) return;
 
-  const shadowOpacity = glowAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 0.8],
-  });
+      if (event.newViewTag === myTag) {
+        setIsFocused(true);
+        onFocusProp?.();
+      } else if (event.oldViewTag === myTag) {
+        setIsFocused(false);
+        onBlurProp?.();
+      }
+    });
+
+    return () => {
+      sub?.remove();
+      // Limpa estado ao desmontar (ex: troca de tela)
+      setIsFocused(false);
+    };
+  }, [onFocusProp, onBlurProp]);
 
   return (
-    <Animated.View
-      style={[
-        { transform: [{ scale: scaleAnim }] },
-        isFocused && styles.focusGlow,
-      ]}
+    <Pressable
+      ref={pressableRef as any}
+      onPress={disabled ? undefined : onPress}
+      onLongPress={disabled ? undefined : onLongPress}
+      style={[style, isFocused && focusStyle]}
+      accessible={accessible}
+      accessibilityLabel={accessibilityLabel}
+      {...({
+        focusable:           !disabled,
+        hasTVPreferredFocus: hasTVPreferredFocus && !disabled,
+        isTVSelectable:      !disabled,
+        collapsable:         false,
+      } as any)}
     >
-      <Animated.View
-        style={[
-          styles.focusBorder,
-          { borderColor, shadowOpacity },
-          isFocused && (focusStyle || styles.defaultFocusStyle),
-        ]}
-      >
-        <TouchableOpacity
-          onPress={onPress}
-          onLongPress={onLongPress}
-          style={style}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          hasTVPreferredFocus={hasTVPreferredFocus}
-          accessible={accessible}
-          accessibilityLabel={accessibilityLabel}
-          activeOpacity={0.85}
-          {...(Platform.isTV ? { isTVSelectable: true } : {})}
-        >
-          {children}
-        </TouchableOpacity>
-      </Animated.View>
-    </Animated.View>
-  );
-}
+      {children}
 
-const styles = StyleSheet.create({
-  focusBorder: {
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: 'transparent',
-    shadowColor: colors.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 12,
-    elevation: 0,
-  },
-  focusGlow: {
-    elevation: 12,
-  },
-  defaultFocusStyle: {
-    borderColor: colors.accent2,
-  },
+      {/* Overlay branco de foco — por cima de tudo */}
+      {isFocused && (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              borderRadius,
+              borderWidth:     RING_W,
+              borderColor:     RING_COLOR,
+              backgroundColor: RING_BG,
+            },
+          ]}
+        />
+      )}
+    </Pressable>
+  );
 });
+
+export default TVFocusable;

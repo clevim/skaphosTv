@@ -1,22 +1,36 @@
 export const colors = {
-  bg0: '#0a0a0f',
-  bg1: '#12111a',
-  bg2: '#1a1826',
-  bg3: '#231f35',
-  accent: '#7c3aed',
-  accent2: '#a855f7',
-  accent3: '#c084fc',
-  border: 'rgba(124,58,237,0.25)',
-  borderHover: 'rgba(168,85,247,0.5)',
-  text1: '#e8e4f0',
-  text2: '#9d97b8',
-  text3: '#5f5a7a',
+  // Neutrals (cool zinc with violet whisper — from design)
+  bg0: '#0a0810',
+  bg1: '#14111c',
+  bg2: '#1a1626',
+  bg3: '#28232f',
+  bgSoft: '#1c1a23',
+
+  // Accent (deep violet, matching the logo)
+  accent: '#a78bfa',
+  accent2: '#c4b5fd',
+  accent3: '#7c3aed',
+  accentSoft: 'rgba(167,139,250,0.16)',
+
+  border: '#28232f',
+  borderSoft: '#1c1a23',
+  borderHover: 'rgba(167,139,250,0.5)',
+
+  text1: '#f4f4f5',
+  text2: '#a1a1aa',
+  text3: '#5b5b63',
+
+  // Status
   red: '#ef4444',
   green: '#22c55e',
-  yellow: '#eab308',
+  yellow: '#f59e0b',
   blue: '#3b82f6',
   white: '#ffffff',
   black: '#000000',
+
+  // Live
+  live: '#ef4444',
+
   overlay: 'rgba(0,0,0,0.7)',
   overlayDark: 'rgba(0,0,0,0.9)',
 };
@@ -28,6 +42,7 @@ export const spacing = {
   lg: 16,
   xl: 24,
   xxl: 32,
+  xxxl: 48,
 };
 
 export const radius = {
@@ -48,12 +63,20 @@ export const fontSize = {
   hero: 36,
 };
 
+// Geist font family — carregada via useGeistFonts() no App.tsx
+export const fontFamily = {
+  regular:  'Geist-Regular',
+  medium:   'Geist-Medium',
+  semiBold: 'Geist-SemiBold',
+  bold:     'Geist-Bold',
+} as const;
+
 export const TV_FOCUS_STYLE = {
-  transform: [{ scale: 1.08 }],
-  borderColor: colors.accent2,
+  transform: [{ scale: 1.06 }],
+  borderColor: colors.accent,
   borderWidth: 2,
   shadowColor: colors.accent,
-  shadowOpacity: 0.6,
-  shadowRadius: 12,
+  shadowOpacity: 0.5,
+  shadowRadius: 13,
   elevation: 10,
 };
