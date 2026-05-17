@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./assets/icon.png" width="120" alt="SkaphosTV icon" />
+![SkaphosTV](./assets/icon.png)
 
 # SkaphosTV
 
