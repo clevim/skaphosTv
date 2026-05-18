@@ -199,32 +199,18 @@ function TVPanel({
 }) {
   if (category === 'reproducao') {
     return (
-      <>
-        <SettingsGroup title="Reprodução">
-          <SettingsRow icon="play-outline"           label="Qualidade do streaming"    value="Auto · até 4K" />
-          <SettingsRow icon="download-outline"        label="Qualidade dos downloads"   value="HD" />
-          <SettingsRow icon="chatbox-ellipses-outline" label="Legendas e áudio"         value="Português" />
-          <SettingsRow
-            icon="sparkles-outline"
-            label="Reprodução automática"
-            toggle
-            on={settings.autoPlay}
-            onToggle={v => updateSettings({ autoPlay: v })}
-          />
-          <SettingsRow
-            icon="volume-high-outline"
-            label="Normalizar volume"
-            toggle
-            on={false}
-            onToggle={() => {}}
-          />
-        </SettingsGroup>
-        <SettingsGroup title="Player">
-          <SettingsRow icon="resize-outline"   label="Modo de tela padrão" value="Ajustar" />
-          <SettingsRow icon="time-outline"     label="Buffer de streaming"  value="3s" />
-          <SettingsRow icon="stats-chart-outline" label="Exibir bitrate"    toggle on={false} onToggle={() => {}} />
-        </SettingsGroup>
-      </>
+      <SettingsGroup title="Reprodução">
+        <SettingsRow icon="play-outline"             label="Qualidade do streaming"  value="Auto · até 4K" />
+        <SettingsRow icon="download-outline"          label="Qualidade dos downloads" value="HD" />
+        <SettingsRow icon="chatbox-ellipses-outline"  label="Legendas e áudio"        value="Português" />
+        <SettingsRow
+          icon="sparkles-outline"
+          label="Reprodução automática"
+          toggle
+          on={settings.autoPlay}
+          onToggle={v => updateSettings({ autoPlay: v })}
+        />
+      </SettingsGroup>
     );
   }
 
@@ -255,11 +241,8 @@ function TVPanel({
   // sistema
   return (
     <SettingsGroup title="Sistema">
-      <SettingsRow icon="language-outline"      label="Idioma"           value={settings.language || 'pt-BR'} />
-      <SettingsRow icon="notifications-outline" label="Notificações"     toggle on={false} onToggle={() => {}} />
-      <SettingsRow icon="cloud-upload-outline"  label="Backup automático" toggle on={false} onToggle={() => {}} />
-      <SettingsRow icon="refresh-outline"       label="Limpar cache" />
-      <SettingsRow icon="information-circle-outline" label="Versão" value="v4.2.1 · build 1124" />
+      <SettingsRow icon="language-outline"           label="Idioma"   value={settings.language || 'pt-BR'} />
+      <SettingsRow icon="information-circle-outline" label="Versão"   value="v4.2.1 · build 1124" />
     </SettingsGroup>
   );
 }
@@ -288,44 +271,38 @@ export default function SettingsScreen() {
     });
   }, [sources]);
 
-  // ── TV Layout ────────────────────────────────────────────────────────────
+  // ── TV Layout ───────────────────────────────────────────────────────────
   if (IS_TV) {
     return (
       <View style={tvStyles.root}>
-        {/* Left sidebar */}
+        {/* Sidebar */}
         <View style={tvStyles.sidebar}>
-          {/* Category list */}
           <View style={tvStyles.categoryList}>
-            {TV_CATEGORIES.map(cat => {
+            {TV_CATEGORIES.map((cat, i) => {
               const active = cat.key === activeCategory;
               return (
                 <TVFocusable
                   key={cat.key}
                   onPress={() => setActiveCategory(cat.key)}
                   style={[tvStyles.categoryItem, active && tvStyles.categoryItemActive]}
-                  hasTVPreferredFocus={cat.key === 'reproducao'}
+                  hasTVPreferredFocus={i === 0}
                 >
-                  <Ionicons
-                    name={cat.icon as any}
-                    size={18}
-                    color={active ? colors.accent : colors.text3}
-                  />
+                  {active && <View style={tvStyles.categoryActiveBar} />}
+                  <Ionicons name={cat.icon as any} size={18} color={active ? colors.accent : colors.text3} />
                   <Text style={[tvStyles.categoryLabel, active && tvStyles.categoryLabelActive]}>
                     {cat.label}
                   </Text>
-                  {active && <View style={tvStyles.categoryActiveBar} />}
                 </TVFocusable>
               );
             })}
           </View>
 
-          {/* Back button at bottom */}
           <View style={tvStyles.sidebarFooter}>
+            <Text style={tvStyles.madeBy}>made by clevs · v4.2.1</Text>
             <TVFocusable onPress={() => navigation.goBack()} style={tvStyles.backBtn}>
-              <Ionicons name="chevron-back" size={16} color={colors.text2} />
+              <Ionicons name="chevron-back" size={14} color={colors.text2} />
               <Text style={tvStyles.backBtnText}>Voltar</Text>
             </TVFocusable>
-            <Text style={tvStyles.madeBy}>made by clevs</Text>
           </View>
         </View>
 
@@ -336,10 +313,7 @@ export default function SettingsScreen() {
               {TV_CATEGORIES.find(c => c.key === activeCategory)?.label}
             </Text>
           </View>
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={tvStyles.panelContent}
-          >
+          <ScrollView contentContainerStyle={tvStyles.panelContent}>
             <TVPanel
               category={activeCategory}
               settings={settings}

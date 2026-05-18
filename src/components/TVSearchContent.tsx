@@ -59,24 +59,29 @@ export default function TVSearchContent({ query, onQueryChange, results, onResul
       <View style={styles.leftPanel}>
         <Text style={styles.panelTitle}>Buscar</Text>
 
-        <View style={styles.inputWrap}>
-          <Ionicons name="search-outline" size={18} color={colors.text3} />
-          <TextInput
-            ref={inputRef}
-            value={query}
-            onChangeText={onQueryChange}
-            placeholder="Canais, filmes, séries..."
-            placeholderTextColor={colors.text3}
-            style={styles.input}
-            autoFocus
-            returnKeyType="search"
-          />
-          {query.length > 0 && (
-            <TVFocusable onPress={() => onQueryChange('')} style={styles.clearBtn} borderRadius={999}>
-              <Ionicons name="close-circle" size={16} color={colors.text3} />
-            </TVFocusable>
-          )}
-        </View>
+        <TVFocusable
+          hasTVPreferredFocus
+          onPress={() => inputRef.current?.focus()}
+          style={styles.inputWrapFocusable}
+          borderRadius={radius.lg}
+        >
+          <View style={styles.inputWrap}>
+            <Ionicons name="search-outline" size={18} color={colors.text3} />
+            <TextInput
+              ref={inputRef}
+              value={query}
+              onChangeText={onQueryChange}
+              placeholder="Canais, filmes, séries..."
+              placeholderTextColor={colors.text3}
+              style={styles.input}
+              returnKeyType="search"
+              {...({ focusable: false } as any)}
+            />
+            {query.length > 0 && (
+              <Ionicons name="close-circle" size={16} color={colors.text3} onPress={() => onQueryChange('')} />
+            )}
+          </View>
+        </TVFocusable>
 
         <View style={styles.stateArea}>
           {isEmpty ? (
@@ -105,12 +110,11 @@ export default function TVSearchContent({ query, onQueryChange, results, onResul
         {isEmpty ? (
           <>
             <Text style={styles.sectionLabel}>SUGESTÕES</Text>
-            {SUGGESTIONS.map((s, i) => (
+            {SUGGESTIONS.map((s) => (
               <TVFocusable
                 key={s}
                 onPress={() => onQueryChange(s)}
                 style={styles.suggestionItem}
-                hasTVPreferredFocus={i === 0}
               >
                 <Ionicons name="trending-up-outline" size={14} color={colors.text3} />
                 <Text style={styles.suggestionText}>{s}</Text>
@@ -160,6 +164,9 @@ const styles = StyleSheet.create({
     color: colors.text1,
     letterSpacing: -0.6,
   },
+  inputWrapFocusable: {
+    borderRadius: radius.lg,
+  },
   inputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -176,9 +183,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     color: colors.text1,
     height: '100%',
-  },
-  clearBtn: {
-    padding: 4,
   },
   stateArea: {
     flex: 1,

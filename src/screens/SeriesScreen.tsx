@@ -4,7 +4,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Image,
-  StatusBar, FlatList, ActivityIndicator, Share,
+  StatusBar, FlatList, ActivityIndicator, Share, useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -78,6 +78,11 @@ const thumbStyles = StyleSheet.create({
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function SeriesScreen() {
+  const { width: sw, height: sh } = useWindowDimensions();
+  const tvStyles = useMemo(() => makeTvStyles(sw, sh), [sw, sh]);
+  const epCardW  = IS_TV ? Math.round(sw / 1920 * 210) : 0;
+  const epCardH  = IS_TV ? Math.round(epCardW * 9 / 16) : 0;
+
   const navigation = useNavigation<Nav>();
   const route = useRoute<SeriesRoute>();
   const { seriesName, channels: routeChannels } = route.params;
@@ -394,7 +399,7 @@ export default function SeriesScreen() {
                     hasTVPreferredFocus={isFirst}
                   >
                     <View style={tvStyles.epThumbWrap}>
-                      <EpThumb logo={item.logo} size={{ w: 268, h: 150 }} />
+                      <EpThumb logo={item.logo} size={{ w: epCardW, h: epCardH }} />
                       {focused && (
                         <View style={tvStyles.epPlayOverlay}>
                           <View style={tvStyles.epPlayBtn}>
@@ -641,154 +646,66 @@ const loadStyles = StyleSheet.create({
   backBtnText: { fontSize: 14, fontWeight: '600', color: colors.text1 },
 });
 
-// ── TV Styles ────────────────────────────────────────────────────────────────
-const tvStyles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg0 },
+// ── TV Styles (responsive) ────────────────────────────────────────────────────
+function makeTvStyles(sw: number, sh: number) {
+  const s  = (v: number) => Math.round(sw / 1920 * v);
+  const sv = (v: number) => Math.round(sh / 1080 * v);
+  const epCardW = s(210);
+  const epCardH = Math.round(epCardW * 9 / 16);
 
-  backdrop: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-  },
-
-  content: {
-    flex: 1,
-    justifyContent: 'space-between',
-    paddingTop: 80,
-  },
-  bottom: {
-    paddingBottom: 40,
-  },
-  gradV: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-  },
-  gradH: {
-    position: 'absolute',
-    top: 0, left: 0, bottom: 0,
-    width: '80%',
-  },
-
-  backBtn: {
-    position: 'absolute',
-    top: 28, left: 48,
-    width: 36, height: 36, borderRadius: radius.full,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderWidth: 1, borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
-    zIndex: 10,
-  },
-
-  titleBlock: {
-    paddingLeft: 48,
-    width: 580,
-  },
-  origBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10, paddingVertical: 4,
-    borderRadius: 4,
-    backgroundColor: colors.accentSoft,
-    borderWidth: 1, borderColor: colors.accent,
-    marginBottom: 14,
-  },
-  origBadgeText: {
-    fontSize: 11, fontWeight: '700', color: colors.accent, letterSpacing: 0.6,
-  },
-  title: {
-    fontSize: 52, fontFamily: fontFamily.semiBold,
-    color: colors.text1, letterSpacing: -1.3, lineHeight: 56,
-  },
-  metaRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 12,
-  },
-  metaAcc: { fontSize: 14, fontWeight: '600', color: colors.accent },
-  ratingBadge: {
-    borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4,
-  },
-  ratingText: { fontSize: 11, color: colors.text2 },
-  synopsis: {
-    fontSize: 14.5, color: colors.text1, opacity: 0.85,
-    marginTop: 14, lineHeight: 22, maxWidth: 480,
-  },
-
-  seasonRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingLeft: 48, paddingBottom: 16,
-  },
-  seasonPill: {
-    paddingHorizontal: 18, paddingVertical: 8, borderRadius: radius.full,
-    backgroundColor: 'transparent',
-    borderWidth: 1, borderColor: colors.border,
-  },
-  seasonPillActive: {
-    backgroundColor: colors.text1,
-    borderColor: colors.text1,
-  },
-  seasonPillText: {
-    fontSize: 13, fontWeight: '500', color: colors.text2,
-  },
-  seasonPillTextActive: {
-    color: '#0a0a0b', fontWeight: '600',
-  },
-  epCount: {
-    fontSize: 11, color: colors.text3,
-    letterSpacing: 0.4, marginLeft: 14,
-    fontFamily: fontFamily.medium,
-  },
-
-  rail: {
-    flexShrink: 0,
-  },
-  railContent: {
-    paddingHorizontal: 48,
-    gap: 18,
-  },
-  epCard: {
-    width: 268,
-  },
-  epCardFocused: {
-    transform: [{ translateY: -6 }],
-  },
-  epThumbWrap: {
-    position: 'relative',
-    borderRadius: 10,
-    overflow: 'hidden',
-    width: 268, height: 150,
-  },
-  epPlayOverlay: {
-    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  epPlayBtn: {
-    width: 60, height: 60, borderRadius: 30,
-    backgroundColor: 'rgba(255,255,255,0.95)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  epMeta: {
-    flexDirection: 'row', gap: 8, alignItems: 'baseline',
-    marginTop: 12,
-  },
-  epCode: {
-    fontSize: 11, color: colors.text3,
-    fontFamily: fontFamily.medium, letterSpacing: 0.4,
-  },
-  epTitle: {
-    fontSize: 14, fontWeight: '500', color: colors.text2,
-    flex: 1, overflow: 'hidden',
-  },
-  epTitleFocused: {
-    fontWeight: '600', color: colors.text1,
-  },
-  epSynopsis: {
-    fontSize: 12, color: colors.text3,
-    lineHeight: 17, marginTop: 6, maxWidth: 268,
-  },
-  epDur: {
-    fontSize: 10, color: colors.text3, marginTop: 6, letterSpacing: 0.3,
-    fontFamily: fontFamily.regular,
-  },
-});
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: colors.bg0 },
+    backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+    content: { flex: 1, justifyContent: 'space-between', paddingTop: sv(60) },
+    bottom: { paddingBottom: sv(24) },
+    gradV: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+    gradH: { position: 'absolute', top: 0, left: 0, bottom: 0, width: '80%' as any },
+    backBtn: {
+      position: 'absolute',
+      top: sv(28), left: s(48),
+      width: s(36), height: s(36), borderRadius: radius.full,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      borderWidth: 1, borderColor: colors.border,
+      alignItems: 'center', justifyContent: 'center',
+      zIndex: 10,
+    },
+    titleBlock: { paddingLeft: s(48), width: s(500) },
+    origBadge: {
+      alignSelf: 'flex-start',
+      paddingHorizontal: s(8), paddingVertical: sv(3),
+      borderRadius: 4,
+      backgroundColor: colors.accentSoft,
+      borderWidth: 1, borderColor: colors.accent,
+      marginBottom: sv(10),
+    },
+    origBadgeText: { fontSize: s(10), fontWeight: '700', color: colors.accent, letterSpacing: 0.6 },
+    title: { fontSize: s(36), fontFamily: fontFamily.semiBold, color: colors.text1, letterSpacing: -0.8, lineHeight: s(40) },
+    metaRow: { flexDirection: 'row', alignItems: 'center', gap: s(10), marginTop: sv(8) },
+    metaAcc: { fontSize: s(12), fontWeight: '600', color: colors.accent },
+    ratingBadge: { borderWidth: 1, borderColor: colors.border, paddingHorizontal: s(6), paddingVertical: sv(2), borderRadius: 4 },
+    ratingText: { fontSize: s(10), color: colors.text2 },
+    synopsis: { fontSize: s(12), color: colors.text1, opacity: 0.85, marginTop: sv(10), lineHeight: s(19), maxWidth: s(440) },
+    seasonRow: { flexDirection: 'row', alignItems: 'center', gap: s(8), paddingLeft: s(48), paddingBottom: sv(12) },
+    seasonPill: { paddingHorizontal: s(14), paddingVertical: sv(6), borderRadius: radius.full, backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border },
+    seasonPillActive: { backgroundColor: colors.text1, borderColor: colors.text1 },
+    seasonPillText: { fontSize: s(12), fontWeight: '500', color: colors.text2 },
+    seasonPillTextActive: { color: '#0a0a0b', fontWeight: '600' },
+    epCount: { fontSize: s(10), color: colors.text3, letterSpacing: 0.4, marginLeft: s(10), fontFamily: fontFamily.medium },
+    rail: { flexShrink: 0 },
+    railContent: { paddingHorizontal: s(48), gap: s(14) },
+    epCard: { width: epCardW },
+    epCardFocused: { transform: [{ translateY: -sv(4) }] },
+    epThumbWrap: { position: 'relative', borderRadius: 8, overflow: 'hidden', width: epCardW, height: epCardH },
+    epPlayOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' },
+    epPlayBtn: { width: s(44), height: s(44), borderRadius: s(22), backgroundColor: 'rgba(255,255,255,0.95)', alignItems: 'center', justifyContent: 'center' },
+    epMeta: { flexDirection: 'row', gap: s(6), alignItems: 'baseline', marginTop: sv(8) },
+    epCode: { fontSize: s(10), color: colors.text3, fontFamily: fontFamily.medium, letterSpacing: 0.4 },
+    epTitle: { fontSize: s(14), fontWeight: '500', color: colors.text2, flex: 1, overflow: 'hidden' },
+    epTitleFocused: { fontWeight: '600', color: colors.text1 },
+    epSynopsis: { fontSize: s(12), color: colors.text3, lineHeight: s(17), marginTop: sv(6), maxWidth: s(268) },
+    epDur: { fontSize: s(10), color: colors.text3, marginTop: sv(6), letterSpacing: 0.3, fontFamily: fontFamily.regular },
+  });
+}
 
 // ── Mobile Styles ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({

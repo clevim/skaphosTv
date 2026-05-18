@@ -15,7 +15,7 @@ class TvFocusModule : Module() {
   private var isSetup = false
   private val mainHandler = Handler(Looper.getMainLooper())
 
-  private val SCALE_FOCUSED = 1.08f
+  private val SCALE_FOCUSED = 1.0f
   private val SCALE_NORMAL = 1.0f
   private val ANIM_DURATION = 150L
 
