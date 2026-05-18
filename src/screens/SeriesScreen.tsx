@@ -1,10 +1,11 @@
 // SeriesScreen.tsx — Detalhe da série com temporadas e episódios
 // Xtream: busca episódios via get_series_info ao abrir
 // M3U: usa episódios já agrupados passados por parâmetro
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Image,
-  StatusBar, FlatList, ActivityIndicator, Share, useWindowDimensions,
+  StatusBar, FlatList, ActivityIndicator, Share,
+  useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -55,12 +56,13 @@ function seasonLabel(n: number) {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function EpThumb({ logo, size }: { logo?: string; size: { w: number; h: number } }) {
-  if (logo) {
-    return <Image source={{ uri: logo }} style={{ width: size.w, height: size.h, borderRadius: 8 }} resizeMode="cover" />;
-  }
   return (
     <View style={[thumbStyles.ph, { width: size.w, height: size.h }]}>
-      <Ionicons name="play" size={size.w * 0.18} color="rgba(255,255,255,0.25)" />
+      {logo ? (
+        <Image source={{ uri: logo }} style={StyleSheet.absoluteFill} resizeMode="contain" />
+      ) : (
+        <Ionicons name="play" size={size.w * 0.18} color="rgba(255,255,255,0.25)" />
+      )}
     </View>
   );
 }
@@ -78,15 +80,13 @@ const thumbStyles = StyleSheet.create({
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function SeriesScreen() {
-  const { width: sw, height: sh } = useWindowDimensions();
-  const tvStyles = useMemo(() => makeTvStyles(sw, sh), [sw, sh]);
-  const epCardW  = IS_TV ? Math.round(sw / 1920 * 210) : 0;
-  const epCardH  = IS_TV ? Math.round(epCardW * 9 / 16) : 0;
-
   const navigation = useNavigation<Nav>();
   const route = useRoute<SeriesRoute>();
   const { seriesName, channels: routeChannels } = route.params;
   const { setCurrentChannel, toggleFavorite, favorites, recentChannels } = useStore();
+
+  // Hook de dimensões — reage a rotação/redimensionamento em tempo real
+  const { width: sw, height: sh } = useWindowDimensions();
 
   // Detecta se é série Xtream (uma entrada por série, sem episódios embutidos)
   const seriesChannel = routeChannels[0];
@@ -96,11 +96,11 @@ export default function SeriesScreen() {
   const [loadingEpisodes, setLoadingEpisodes] = useState(isXtreamSeries);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  // Busca episódios via API para séries Xtream
-  useEffect(() => {
+  const doFetchEpisodes = useCallback(() => {
     if (!isXtreamSeries) return;
 
-    let cancelled = false;
+    setFetchError(null);
+    setLoadingEpisodes(true);
 
     const creds = parseSeriesCredentials(seriesChannel.url);
     if (!creds) {
@@ -109,7 +109,6 @@ export default function SeriesScreen() {
       return;
     }
 
-    // tvgId preferencial; fallback: extrai do path da URL ({host}/series/{user}/{pass}/{id})
     const seriesId = seriesChannel.tvgId
       || seriesChannel.url.match(/\/series\/[^/]+\/[^/]+\/([^/?#]+)/)?.[1]
       || null;
@@ -121,10 +120,7 @@ export default function SeriesScreen() {
 
     fetchSeriesInfo(creds.host, creds.user, creds.pass, seriesId)
       .then(info => {
-        if (cancelled) return;
-
         const episodeList: Channel[] = [];
-        // Normaliza: alguns servidores retornam episodes como array flat em vez de objeto por temporada
         const rawEpisodes = info.episodes || {};
         const seasonsData: Record<string, typeof rawEpisodes[string]> =
           Array.isArray(rawEpisodes)
@@ -165,13 +161,12 @@ export default function SeriesScreen() {
         setLoadingEpisodes(false);
       })
       .catch(e => {
-        if (cancelled) return;
         setFetchError(e.message || 'Erro ao carregar episódios');
         setLoadingEpisodes(false);
       });
-
-    return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { doFetchEpisodes(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const baseName = isXtreamSeries ? seriesName : getSeriesBaseName(seriesName);
   const heroChannel = seriesChannel;
@@ -270,6 +265,10 @@ export default function SeriesScreen() {
         <StatusBar hidden />
         <Ionicons name="warning-outline" size={48} color={colors.red} />
         <Text style={loadStyles.errorText}>{fetchError}</Text>
+        <TVFocusable onPress={doFetchEpisodes} style={loadStyles.retryBtn} hasTVPreferredFocus>
+          <Ionicons name="refresh-outline" size={16} color={colors.white} />
+          <Text style={loadStyles.retryBtnText}>Tentar novamente</Text>
+        </TVFocusable>
         <TVFocusable onPress={() => navigation.goBack()} style={loadStyles.backBtn}>
           <Text style={loadStyles.backBtnText}>Voltar</Text>
         </TVFocusable>
@@ -284,6 +283,10 @@ export default function SeriesScreen() {
         <Ionicons name="tv-outline" size={48} color={colors.text3} />
         <Text style={loadStyles.errorText}>Nenhum episódio disponível</Text>
         <Text style={loadStyles.sub}>{baseName}</Text>
+        <TVFocusable onPress={doFetchEpisodes} style={loadStyles.retryBtn} hasTVPreferredFocus>
+          <Ionicons name="refresh-outline" size={16} color={colors.white} />
+          <Text style={loadStyles.retryBtnText}>Recarregar</Text>
+        </TVFocusable>
         <TVFocusable onPress={() => navigation.goBack()} style={loadStyles.backBtn}>
           <Text style={loadStyles.backBtnText}>Voltar</Text>
         </TVFocusable>
@@ -306,6 +309,11 @@ export default function SeriesScreen() {
 
   // ── TV Layout ─────────────────────────────────────────────────────────────
   if (IS_TV) {
+    // Valores responsivos calculados a partir da largura real da tela
+    const cardW = Math.round(sw * 0.195);       // ~220px em 1280 · ~268px em 1366 · ~374px em 1920
+    const cardH = Math.round(cardW * (9 / 16)); // proporção 16:9 sempre
+    const pH    = Math.round(sw * 0.035);       // padding horizontal geral
+
     return (
       <View style={tvStyles.root}>
         <StatusBar hidden />
@@ -326,39 +334,76 @@ export default function SeriesScreen() {
           style={tvStyles.gradH}
         />
 
-        <TVFocusable onPress={() => navigation.goBack()} style={tvStyles.backBtn} hasTVPreferredFocus>
-          <Ionicons name="chevron-back" size={18} color={colors.text1} />
+        <TVFocusable
+          onPress={() => navigation.goBack()}
+          style={[tvStyles.backBtn, { top: Math.round(sh * 0.04), left: pH }]}
+          hasTVPreferredFocus
+        >
+          <Ionicons name="chevron-back" size={Math.round(sw * 0.013)} color={colors.text1} />
         </TVFocusable>
 
         {/* Flex column: empurra título para cima e rail para baixo */}
         <View style={tvStyles.content}>
           {/* Título + meta */}
-          <View style={tvStyles.titleBlock}>
+          <View style={[tvStyles.titleBlock, { paddingLeft: pH, width: Math.round(sw * 0.42) }]}>
             <View style={tvStyles.origBadge}>
-              <Text style={tvStyles.origBadgeText}>
+              <Text style={[tvStyles.origBadgeText, { fontSize: Math.round(sw * 0.008) }]}>
                 SÉRIE · {seasonKeys.length} TEMPORADA{seasonKeys.length !== 1 ? 'S' : ''}
               </Text>
             </View>
-            <Text style={tvStyles.title} numberOfLines={2}>{baseName}</Text>
+            <Text
+              style={[
+                tvStyles.title,
+                {
+                  fontSize: Math.round(sw * 0.038),
+                  lineHeight: Math.round(sw * 0.044),
+                },
+              ]}
+              numberOfLines={2}
+            >
+              {baseName}
+            </Text>
             <View style={tvStyles.metaRow}>
-              <Text style={tvStyles.metaAcc}>{allEpisodes.length} episódios</Text>
+              <Text style={[tvStyles.metaAcc, { fontSize: Math.round(sw * 0.010) }]}>
+                {allEpisodes.length} episódios
+              </Text>
               {seriesChannel?.rating ? (
-                <View style={tvStyles.ratingBadge}><Text style={tvStyles.ratingText}>{seriesChannel.rating}</Text></View>
+                <View style={tvStyles.ratingBadge}>
+                  <Text style={[tvStyles.ratingText, { fontSize: Math.round(sw * 0.008) }]}>
+                    {seriesChannel.rating}
+                  </Text>
+                </View>
               ) : (
-                <View style={tvStyles.ratingBadge}><Text style={tvStyles.ratingText}>TV-MA</Text></View>
+                <View style={tvStyles.ratingBadge}>
+                  <Text style={[tvStyles.ratingText, { fontSize: Math.round(sw * 0.008) }]}>TV-MA</Text>
+                </View>
               )}
               {heroChannel?.quality && (
-                <View style={tvStyles.ratingBadge}><Text style={tvStyles.ratingText}>{heroChannel.quality}</Text></View>
+                <View style={tvStyles.ratingBadge}>
+                  <Text style={[tvStyles.ratingText, { fontSize: Math.round(sw * 0.008) }]}>
+                    {heroChannel.quality}
+                  </Text>
+                </View>
               )}
             </View>
-            <Text style={tvStyles.synopsis} numberOfLines={2}>
+            <Text
+              style={[
+                tvStyles.synopsis,
+                {
+                  fontSize: Math.round(sw * 0.011),
+                  lineHeight: Math.round(sw * 0.016),
+                  maxWidth: Math.round(sw * 0.34),
+                },
+              ]}
+              numberOfLines={2}
+            >
               {displayPlot || displayGenre}
             </Text>
           </View>
 
           {/* Pills de temporada + rail de episódios */}
           <View style={tvStyles.bottom}>
-            <View style={tvStyles.seasonRow}>
+            <View style={[tvStyles.seasonRow, { paddingLeft: pH }]}>
               {seasonKeys.map((s) => {
                 const active = s === selectedSeason;
                 return (
@@ -367,13 +412,21 @@ export default function SeriesScreen() {
                     onPress={() => { setSelectedSeason(s); setFocusedEp(0); }}
                     style={[tvStyles.seasonPill, active && tvStyles.seasonPillActive]}
                   >
-                    <Text style={[tvStyles.seasonPillText, active && tvStyles.seasonPillTextActive]}>
+                    <Text
+                      style={[
+                        tvStyles.seasonPillText,
+                        active && tvStyles.seasonPillTextActive,
+                        { fontSize: Math.round(sw * 0.009) },
+                      ]}
+                    >
                       {seasonLabel(s)}
                     </Text>
                   </TVFocusable>
                 );
               })}
-              <Text style={tvStyles.epCount}>{episodes.length} EPISÓDIOS</Text>
+              <Text style={[tvStyles.epCount, { fontSize: Math.round(sw * 0.007) }]}>
+                {episodes.length} EPISÓDIOS
+              </Text>
             </View>
 
             <FlatList
@@ -381,7 +434,10 @@ export default function SeriesScreen() {
               data={episodes}
               keyExtractor={item => item.id}
               style={tvStyles.rail}
-              contentContainerStyle={tvStyles.railContent}
+              contentContainerStyle={[
+                tvStyles.railContent,
+                { paddingHorizontal: pH, gap: Math.round(sw * 0.013) },
+              ]}
               showsHorizontalScrollIndicator={false}
               initialScrollIndex={0}
               renderItem={({ item, index }) => {
@@ -395,33 +451,53 @@ export default function SeriesScreen() {
                 return (
                   <TVFocusable
                     onPress={() => { setFocusedEp(index); handlePlay(item); }}
-                    style={[tvStyles.epCard, focused && tvStyles.epCardFocused]}
+                    style={[tvStyles.epCard, { width: cardW }, focused && tvStyles.epCardFocused]}
                     hasTVPreferredFocus={isFirst}
                   >
-                    <View style={tvStyles.epThumbWrap}>
-                      <EpThumb logo={item.logo} size={{ w: epCardW, h: epCardH }} />
+                    <View style={[tvStyles.epThumbWrap, { width: cardW, height: cardH }]}>
+                      <EpThumb logo={item.logo} size={{ w: cardW, h: cardH }} />
                       {focused && (
                         <View style={tvStyles.epPlayOverlay}>
-                          <View style={tvStyles.epPlayBtn}>
-                            <Ionicons name="play" size={22} color="#0a0a0b" />
+                          <View
+                            style={[
+                              tvStyles.epPlayBtn,
+                              {
+                                width: Math.round(cardW * 0.22),
+                                height: Math.round(cardW * 0.22),
+                                borderRadius: Math.round(cardW * 0.11),
+                              },
+                            ]}
+                          >
+                            <Ionicons name="play" size={Math.round(cardW * 0.08)} color="#0a0a0b" />
                           </View>
                         </View>
                       )}
                     </View>
                     <View style={tvStyles.epMeta}>
-                      <Text style={tvStyles.epCode}>{label}</Text>
-                      <Text style={[tvStyles.epTitle, focused && tvStyles.epTitleFocused]} numberOfLines={1}>
+                      <Text style={[tvStyles.epCode, { fontSize: Math.round(sw * 0.008) }]}>{label}</Text>
+                      <Text
+                        style={[
+                          tvStyles.epTitle,
+                          focused && tvStyles.epTitleFocused,
+                          { fontSize: Math.round(sw * 0.010) },
+                        ]}
+                        numberOfLines={1}
+                      >
                         {epName}
                       </Text>
                     </View>
-                    {focused && item.plot ? (
-                      <Text style={tvStyles.epSynopsis} numberOfLines={2}>{item.plot}</Text>
-                    ) : focused ? (
-                      <Text style={tvStyles.epSynopsis} numberOfLines={2}>
-                        {displayGenre}
+                    {focused ? (
+                      <Text
+                        style={[
+                          tvStyles.epSynopsis,
+                          { fontSize: Math.round(sw * 0.008), maxWidth: cardW },
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {item.plot || displayGenre}
                       </Text>
                     ) : null}
-                    <Text style={tvStyles.epDur}>
+                    <Text style={[tvStyles.epDur, { fontSize: Math.round(sw * 0.007) }]}>
                       {item.quality ? `${item.quality} · ` : ''}{item.name.match(/\d+\s*min/)?.[0] || '~50min'}
                     </Text>
                   </TVFocusable>
@@ -636,6 +712,14 @@ const loadStyles = StyleSheet.create({
   text: { fontSize: 16, color: colors.text2, marginTop: 8 },
   sub: { fontSize: 13, color: colors.text3 },
   errorText: { fontSize: 14, color: colors.text2, textAlign: 'center', maxWidth: 300 },
+  retryBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 24, paddingVertical: 10,
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+  },
+  retryBtnText: { fontSize: 14, fontWeight: '600', color: colors.white },
   backBtn: {
     marginTop: 8,
     paddingHorizontal: 24, paddingVertical: 10,
@@ -646,66 +730,169 @@ const loadStyles = StyleSheet.create({
   backBtnText: { fontSize: 14, fontWeight: '600', color: colors.text1 },
 });
 
-// ── TV Styles (responsive) ────────────────────────────────────────────────────
-function makeTvStyles(sw: number, sh: number) {
-  const s  = (v: number) => Math.round(sw / 1920 * v);
-  const sv = (v: number) => Math.round(sh / 1080 * v);
-  const epCardW = s(210);
-  const epCardH = Math.round(epCardW * 9 / 16);
+// ── TV Styles ─────────────────────────────────────────────────────────────────
+// Apenas valores que NÃO dependem da resolução ficam aqui.
+// Tudo que escala com a tela é calculado inline no JSX usando sw/sh/cardW/cardH.
+const tvStyles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg0 },
 
-  return StyleSheet.create({
-    root: { flex: 1, backgroundColor: colors.bg0 },
-    backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-    content: { flex: 1, justifyContent: 'space-between', paddingTop: sv(60) },
-    bottom: { paddingBottom: sv(24) },
-    gradV: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-    gradH: { position: 'absolute', top: 0, left: 0, bottom: 0, width: '80%' as any },
-    backBtn: {
-      position: 'absolute',
-      top: sv(28), left: s(48),
-      width: s(36), height: s(36), borderRadius: radius.full,
-      backgroundColor: 'rgba(0,0,0,0.5)',
-      borderWidth: 1, borderColor: colors.border,
-      alignItems: 'center', justifyContent: 'center',
-      zIndex: 10,
-    },
-    titleBlock: { paddingLeft: s(48), width: s(500) },
-    origBadge: {
-      alignSelf: 'flex-start',
-      paddingHorizontal: s(8), paddingVertical: sv(3),
-      borderRadius: 4,
-      backgroundColor: colors.accentSoft,
-      borderWidth: 1, borderColor: colors.accent,
-      marginBottom: sv(10),
-    },
-    origBadgeText: { fontSize: s(10), fontWeight: '700', color: colors.accent, letterSpacing: 0.6 },
-    title: { fontSize: s(36), fontFamily: fontFamily.semiBold, color: colors.text1, letterSpacing: -0.8, lineHeight: s(40) },
-    metaRow: { flexDirection: 'row', alignItems: 'center', gap: s(10), marginTop: sv(8) },
-    metaAcc: { fontSize: s(12), fontWeight: '600', color: colors.accent },
-    ratingBadge: { borderWidth: 1, borderColor: colors.border, paddingHorizontal: s(6), paddingVertical: sv(2), borderRadius: 4 },
-    ratingText: { fontSize: s(10), color: colors.text2 },
-    synopsis: { fontSize: s(12), color: colors.text1, opacity: 0.85, marginTop: sv(10), lineHeight: s(19), maxWidth: s(440) },
-    seasonRow: { flexDirection: 'row', alignItems: 'center', gap: s(8), paddingLeft: s(48), paddingBottom: sv(12) },
-    seasonPill: { paddingHorizontal: s(14), paddingVertical: sv(6), borderRadius: radius.full, backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border },
-    seasonPillActive: { backgroundColor: colors.text1, borderColor: colors.text1 },
-    seasonPillText: { fontSize: s(12), fontWeight: '500', color: colors.text2 },
-    seasonPillTextActive: { color: '#0a0a0b', fontWeight: '600' },
-    epCount: { fontSize: s(10), color: colors.text3, letterSpacing: 0.4, marginLeft: s(10), fontFamily: fontFamily.medium },
-    rail: { flexShrink: 0 },
-    railContent: { paddingHorizontal: s(48), gap: s(14) },
-    epCard: { width: epCardW },
-    epCardFocused: { transform: [{ translateY: -sv(4) }] },
-    epThumbWrap: { position: 'relative', borderRadius: 8, overflow: 'hidden', width: epCardW, height: epCardH },
-    epPlayOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' },
-    epPlayBtn: { width: s(44), height: s(44), borderRadius: s(22), backgroundColor: 'rgba(255,255,255,0.95)', alignItems: 'center', justifyContent: 'center' },
-    epMeta: { flexDirection: 'row', gap: s(6), alignItems: 'baseline', marginTop: sv(8) },
-    epCode: { fontSize: s(10), color: colors.text3, fontFamily: fontFamily.medium, letterSpacing: 0.4 },
-    epTitle: { fontSize: s(14), fontWeight: '500', color: colors.text2, flex: 1, overflow: 'hidden' },
-    epTitleFocused: { fontWeight: '600', color: colors.text1 },
-    epSynopsis: { fontSize: s(12), color: colors.text3, lineHeight: s(17), marginTop: sv(6), maxWidth: s(268) },
-    epDur: { fontSize: s(10), color: colors.text3, marginTop: sv(6), letterSpacing: 0.3, fontFamily: fontFamily.regular },
-  });
-}
+  backdrop: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+  },
+
+  content: {
+    flex: 1,
+    justifyContent: 'space-between',
+    paddingTop: 80,
+  },
+  bottom: {
+    paddingBottom: 40,
+  },
+  gradV: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+  },
+  gradH: {
+    position: 'absolute',
+    top: 0, left: 0, bottom: 0,
+    width: '80%',
+  },
+
+  backBtn: {
+    position: 'absolute',
+    width: 36, height: 36, borderRadius: radius.full,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+    zIndex: 10,
+  },
+
+  titleBlock: {
+    // width e paddingLeft vêm do JSX (responsivos)
+  },
+  origBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: 4,
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1, borderColor: colors.accent,
+    marginBottom: 14,
+  },
+  origBadgeText: {
+    // fontSize vem do JSX
+    fontWeight: '700', color: colors.accent, letterSpacing: 0.6,
+  },
+  title: {
+    // fontSize e lineHeight vêm do JSX
+    fontFamily: fontFamily.semiBold,
+    color: colors.text1, letterSpacing: -1.3,
+  },
+  metaRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 12,
+  },
+  metaAcc: {
+    // fontSize vem do JSX
+    fontWeight: '600', color: colors.accent,
+  },
+  ratingBadge: {
+    borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4,
+  },
+  ratingText: {
+    // fontSize vem do JSX
+    color: colors.text2,
+  },
+  synopsis: {
+    // fontSize, lineHeight e maxWidth vêm do JSX
+    color: colors.text1, opacity: 0.85,
+    marginTop: 14,
+  },
+
+  seasonRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    // paddingLeft vem do JSX
+    paddingBottom: 16,
+  },
+  seasonPill: {
+    paddingHorizontal: 18, paddingVertical: 8, borderRadius: radius.full,
+    backgroundColor: 'transparent',
+    borderWidth: 1, borderColor: colors.border,
+  },
+  seasonPillActive: {
+    backgroundColor: colors.text1,
+    borderColor: colors.text1,
+  },
+  seasonPillText: {
+    // fontSize vem do JSX
+    fontWeight: '500', color: colors.text2,
+  },
+  seasonPillTextActive: {
+    color: '#0a0a0b', fontWeight: '600',
+  },
+  epCount: {
+    // fontSize vem do JSX
+    color: colors.text3,
+    letterSpacing: 0.4, marginLeft: 14,
+    fontFamily: fontFamily.medium,
+  },
+
+  rail: {
+    flexShrink: 0,
+  },
+  railContent: {
+    // paddingHorizontal e gap vêm do JSX
+  },
+  epCard: {
+    // width vem do JSX
+  },
+  epCardFocused: {
+    transform: [{ translateY: -6 }],
+  },
+  epThumbWrap: {
+    // width e height vêm do JSX
+    position: 'relative',
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  epPlayOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  epPlayBtn: {
+    // width, height e borderRadius vêm do JSX
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  epMeta: {
+    flexDirection: 'row', gap: 8, alignItems: 'baseline',
+    marginTop: 12,
+  },
+  epCode: {
+    // fontSize vem do JSX
+    color: colors.text3,
+    fontFamily: fontFamily.medium, letterSpacing: 0.4,
+  },
+  epTitle: {
+    // fontSize vem do JSX
+    fontWeight: '500', color: colors.text2,
+    flex: 1, overflow: 'hidden',
+  },
+  epTitleFocused: {
+    fontWeight: '600', color: colors.text1,
+  },
+  epSynopsis: {
+    // fontSize e maxWidth vêm do JSX
+    color: colors.text3,
+    lineHeight: 17, marginTop: 6,
+  },
+  epDur: {
+    // fontSize vem do JSX
+    color: colors.text3, marginTop: 6, letterSpacing: 0.3,
+    fontFamily: fontFamily.regular,
+  },
+});
 
 // ── Mobile Styles ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
