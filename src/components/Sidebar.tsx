@@ -259,7 +259,7 @@ function SearchInput({
         autoCapitalize="none"
       />
       {value.length > 0 && (
-        <TVFocusable onPress={() => onChange('')} style={styles.clearBtn}>
+        <TVFocusable onPress={() => onChange('')} style={styles.clearBtn} borderRadius={999}>
           <Ionicons name="close-circle" size={13} color={colors.text3} />
         </TVFocusable>
       )}

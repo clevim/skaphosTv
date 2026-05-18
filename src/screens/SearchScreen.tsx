@@ -64,7 +64,7 @@ export function SearchScreen() {
             autoFocus={!IS_TV}
           />
           {query.length > 0 && (
-            <TVFocusable onPress={() => setQuery('')}>
+            <TVFocusable onPress={() => setQuery('')} borderRadius={999}>
               <Ionicons name="close-circle" size={18} color={colors.text3} />
             </TVFocusable>
           )}

@@ -359,26 +359,35 @@ export default function SetupScreen() {
             inputRef={xNameRef} />
         </>
       ) : (
-        <View style={styles.formRow}>
-          <View style={{ flex: 1 }}>
-            <FormField label="USUARIO" value={xUser} onChangeText={setXUser} placeholder="seu_usuario" returnKeyType="next" />
+        <>
+          <View style={styles.formRow}>
+            <View style={{ flex: 1 }}>
+              <FormField label="USUARIO" value={xUser} onChangeText={setXUser} placeholder="seu_usuario" returnKeyType="next" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <FormField
+                label="SENHA"
+                value={xPass}
+                onChangeText={setXPass}
+                placeholder="sua_senha"
+                secureTextEntry={!showPassword}
+                returnKeyType="next"
+                trailing={
+                  <Pressable onPress={() => setShowPassword(!showPassword)} style={{ padding: 4 }}>
+                    <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={16} color={colors.text3} />
+                  </Pressable>
+                }
+              />
+            </View>
           </View>
-          <View style={{ flex: 1 }}>
-            <FormField
-              label="SENHA"
-              value={xPass}
-              onChangeText={setXPass}
-              placeholder="sua_senha"
-              secureTextEntry={!showPassword}
-              returnKeyType="done"
-              trailing={
-                <Pressable onPress={() => setShowPassword(!showPassword)} style={{ padding: 4 }}>
-                  <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={16} color={colors.text3} />
-                </Pressable>
-              }
-            />
-          </View>
-        </View>
+          <FormField
+            label="APELIDO (OPCIONAL)"
+            value={xName}
+            onChangeText={setXName}
+            placeholder="Ex: Minha TV, Casa..."
+            returnKeyType="done"
+          />
+        </>
       )}
 
       {connectionResult?.success && (

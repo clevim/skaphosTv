@@ -28,9 +28,9 @@ export interface TVFocusableHandle {
 import { IS_TV } from '../utils/tvDetect';
 import { addFocusListener } from '../../modules/tv-focus';
 
-const RING_W     = IS_TV ? 4 : 3;
+const RING_W     = IS_TV ? 2.5 : 2;
 const RING_COLOR = '#a78bfa';
-const RING_BG    = 'rgba(124,58,237,0.22)';
+const RING_BG    = 'rgba(124,58,237,0.18)';
 
 export interface TVFocusableProps {
   children: React.ReactNode;

@@ -325,99 +325,106 @@ export default function SeriesScreen() {
           <Ionicons name="chevron-back" size={18} color={colors.text1} />
         </TVFocusable>
 
-        <View style={tvStyles.titleBlock}>
-          <View style={tvStyles.origBadge}>
-            <Text style={tvStyles.origBadgeText}>
-              SÉRIE · {seasonKeys.length} TEMPORADA{seasonKeys.length !== 1 ? 'S' : ''}
+        {/* Flex column: empurra título para cima e rail para baixo */}
+        <View style={tvStyles.content}>
+          {/* Título + meta */}
+          <View style={tvStyles.titleBlock}>
+            <View style={tvStyles.origBadge}>
+              <Text style={tvStyles.origBadgeText}>
+                SÉRIE · {seasonKeys.length} TEMPORADA{seasonKeys.length !== 1 ? 'S' : ''}
+              </Text>
+            </View>
+            <Text style={tvStyles.title} numberOfLines={2}>{baseName}</Text>
+            <View style={tvStyles.metaRow}>
+              <Text style={tvStyles.metaAcc}>{allEpisodes.length} episódios</Text>
+              {seriesChannel?.rating ? (
+                <View style={tvStyles.ratingBadge}><Text style={tvStyles.ratingText}>{seriesChannel.rating}</Text></View>
+              ) : (
+                <View style={tvStyles.ratingBadge}><Text style={tvStyles.ratingText}>TV-MA</Text></View>
+              )}
+              {heroChannel?.quality && (
+                <View style={tvStyles.ratingBadge}><Text style={tvStyles.ratingText}>{heroChannel.quality}</Text></View>
+              )}
+            </View>
+            <Text style={tvStyles.synopsis} numberOfLines={2}>
+              {displayPlot || displayGenre}
             </Text>
           </View>
-          <Text style={tvStyles.title} numberOfLines={2}>{baseName}</Text>
-          <View style={tvStyles.metaRow}>
-            <Text style={tvStyles.metaAcc}>{allEpisodes.length} episódios</Text>
-            {seriesChannel?.rating ? (
-              <View style={tvStyles.ratingBadge}><Text style={tvStyles.ratingText}>{seriesChannel.rating}</Text></View>
-            ) : (
-              <View style={tvStyles.ratingBadge}><Text style={tvStyles.ratingText}>TV-MA</Text></View>
-            )}
-            {heroChannel?.quality && (
-              <View style={tvStyles.ratingBadge}><Text style={tvStyles.ratingText}>{heroChannel.quality}</Text></View>
-            )}
-          </View>
-          <Text style={tvStyles.synopsis} numberOfLines={2}>
-            {displayPlot || displayGenre}
-          </Text>
-        </View>
 
-        <View style={tvStyles.seasonRow}>
-          {seasonKeys.map((s) => {
-            const active = s === selectedSeason;
-            return (
-              <TVFocusable
-                key={s}
-                onPress={() => { setSelectedSeason(s); setFocusedEp(0); }}
-                style={[tvStyles.seasonPill, active && tvStyles.seasonPillActive]}
-              >
-                <Text style={[tvStyles.seasonPillText, active && tvStyles.seasonPillTextActive]}>
-                  {seasonLabel(s)}
-                </Text>
-              </TVFocusable>
-            );
-          })}
-          <Text style={tvStyles.epCount}>{episodes.length} EPISÓDIOS</Text>
-        </View>
+          {/* Pills de temporada + rail de episódios */}
+          <View style={tvStyles.bottom}>
+            <View style={tvStyles.seasonRow}>
+              {seasonKeys.map((s) => {
+                const active = s === selectedSeason;
+                return (
+                  <TVFocusable
+                    key={s}
+                    onPress={() => { setSelectedSeason(s); setFocusedEp(0); }}
+                    style={[tvStyles.seasonPill, active && tvStyles.seasonPillActive]}
+                  >
+                    <Text style={[tvStyles.seasonPillText, active && tvStyles.seasonPillTextActive]}>
+                      {seasonLabel(s)}
+                    </Text>
+                  </TVFocusable>
+                );
+              })}
+              <Text style={tvStyles.epCount}>{episodes.length} EPISÓDIOS</Text>
+            </View>
 
-        <FlatList
-          horizontal
-          data={episodes}
-          keyExtractor={item => item.id}
-          style={tvStyles.rail}
-          contentContainerStyle={tvStyles.railContent}
-          showsHorizontalScrollIndicator={false}
-          initialScrollIndex={0}
-          renderItem={({ item, index }) => {
-            const focused = index === focusedEp;
-            const label = epLabel(item.name, index);
-            const isFirst = index === 0;
-            const epName = item.name
-              .replace(/\s*[-–]?\s*S\d+\s*E\d+.*$/i, '')
-              .replace(baseName, '')
-              .trim() || item.name;
-            return (
-              <TVFocusable
-                onPress={() => { setFocusedEp(index); handlePlay(item); }}
-                style={[tvStyles.epCard, focused && tvStyles.epCardFocused]}
-                hasTVPreferredFocus={isFirst}
-              >
-                <View style={tvStyles.epThumbWrap}>
-                  <EpThumb logo={item.logo} size={{ w: 268, h: 150 }} />
-                  {focused && (
-                    <View style={tvStyles.epPlayOverlay}>
-                      <View style={tvStyles.epPlayBtn}>
-                        <Ionicons name="play" size={22} color="#0a0a0b" />
-                      </View>
+            <FlatList
+              horizontal
+              data={episodes}
+              keyExtractor={item => item.id}
+              style={tvStyles.rail}
+              contentContainerStyle={tvStyles.railContent}
+              showsHorizontalScrollIndicator={false}
+              initialScrollIndex={0}
+              renderItem={({ item, index }) => {
+                const focused = index === focusedEp;
+                const label = epLabel(item.name, index);
+                const isFirst = index === 0;
+                const epName = item.name
+                  .replace(/\s*[-–]?\s*S\d+\s*E\d+.*$/i, '')
+                  .replace(baseName, '')
+                  .trim() || item.name;
+                return (
+                  <TVFocusable
+                    onPress={() => { setFocusedEp(index); handlePlay(item); }}
+                    style={[tvStyles.epCard, focused && tvStyles.epCardFocused]}
+                    hasTVPreferredFocus={isFirst}
+                  >
+                    <View style={tvStyles.epThumbWrap}>
+                      <EpThumb logo={item.logo} size={{ w: 268, h: 150 }} />
+                      {focused && (
+                        <View style={tvStyles.epPlayOverlay}>
+                          <View style={tvStyles.epPlayBtn}>
+                            <Ionicons name="play" size={22} color="#0a0a0b" />
+                          </View>
+                        </View>
+                      )}
                     </View>
-                  )}
-                </View>
-                <View style={tvStyles.epMeta}>
-                  <Text style={tvStyles.epCode}>{label}</Text>
-                  <Text style={[tvStyles.epTitle, focused && tvStyles.epTitleFocused]} numberOfLines={1}>
-                    {epName}
-                  </Text>
-                </View>
-                {focused && item.plot ? (
-                  <Text style={tvStyles.epSynopsis} numberOfLines={2}>{item.plot}</Text>
-                ) : focused ? (
-                  <Text style={tvStyles.epSynopsis} numberOfLines={2}>
-                    {displayGenre}
-                  </Text>
-                ) : null}
-                <Text style={tvStyles.epDur}>
-                  {item.quality ? `${item.quality} · ` : ''}{item.name.match(/\d+\s*min/)?.[0] || '~50min'}
-                </Text>
-              </TVFocusable>
-            );
-          }}
-        />
+                    <View style={tvStyles.epMeta}>
+                      <Text style={tvStyles.epCode}>{label}</Text>
+                      <Text style={[tvStyles.epTitle, focused && tvStyles.epTitleFocused]} numberOfLines={1}>
+                        {epName}
+                      </Text>
+                    </View>
+                    {focused && item.plot ? (
+                      <Text style={tvStyles.epSynopsis} numberOfLines={2}>{item.plot}</Text>
+                    ) : focused ? (
+                      <Text style={tvStyles.epSynopsis} numberOfLines={2}>
+                        {displayGenre}
+                      </Text>
+                    ) : null}
+                    <Text style={tvStyles.epDur}>
+                      {item.quality ? `${item.quality} · ` : ''}{item.name.match(/\d+\s*min/)?.[0] || '~50min'}
+                    </Text>
+                  </TVFocusable>
+                );
+              }}
+            />
+          </View>
+        </View>
       </View>
     );
   }
@@ -512,24 +519,30 @@ export default function SeriesScreen() {
               : `Série do gênero ${displayGenre}.`}
           </Text>
           <View style={styles.metaGrid}>
-            <Text style={styles.metaKey}>Gênero</Text>
-            <Text style={styles.metaVal}>{displayGenre}</Text>
+            <View style={styles.metaItem}>
+              <Text style={styles.metaKey}>Gênero</Text>
+              <Text style={styles.metaVal}>{displayGenre}</Text>
+            </View>
             {isXtreamSeries && seriesChannel?.cast ? (
-              <>
+              <View style={styles.metaItem}>
                 <Text style={styles.metaKey}>Elenco</Text>
-                <Text style={styles.metaVal} numberOfLines={2}>{seriesChannel.cast}</Text>
-              </>
+                <Text style={styles.metaVal}>{seriesChannel.cast}</Text>
+              </View>
             ) : null}
             {isXtreamSeries && seriesChannel?.director ? (
-              <>
+              <View style={styles.metaItem}>
                 <Text style={styles.metaKey}>Direção</Text>
                 <Text style={styles.metaVal}>{seriesChannel.director}</Text>
-              </>
+              </View>
             ) : null}
-            <Text style={styles.metaKey}>Temporadas</Text>
-            <Text style={styles.metaVal}>{seasonKeys.length}</Text>
-            <Text style={styles.metaKey}>Episódios</Text>
-            <Text style={styles.metaVal}>{allEpisodes.length}</Text>
+            <View style={styles.metaItem}>
+              <Text style={styles.metaKey}>Temporadas</Text>
+              <Text style={styles.metaVal}>{seasonKeys.length}</Text>
+            </View>
+            <View style={styles.metaItem}>
+              <Text style={styles.metaKey}>Episódios</Text>
+              <Text style={styles.metaVal}>{allEpisodes.length}</Text>
+            </View>
           </View>
         </View>
 
@@ -636,6 +649,15 @@ const tvStyles = StyleSheet.create({
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
   },
+
+  content: {
+    flex: 1,
+    justifyContent: 'space-between',
+    paddingTop: 80,
+  },
+  bottom: {
+    paddingBottom: 40,
+  },
   gradV: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
@@ -657,8 +679,7 @@ const tvStyles = StyleSheet.create({
   },
 
   titleBlock: {
-    position: 'absolute',
-    top: 110, left: 48,
+    paddingLeft: 48,
     width: 580,
   },
   origBadge: {
@@ -691,9 +712,8 @@ const tvStyles = StyleSheet.create({
   },
 
   seasonRow: {
-    position: 'absolute',
-    top: 370, left: 48,
     flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingLeft: 48, paddingBottom: 16,
   },
   seasonPill: {
     paddingHorizontal: 18, paddingVertical: 8, borderRadius: radius.full,
@@ -717,9 +737,7 @@ const tvStyles = StyleSheet.create({
   },
 
   rail: {
-    position: 'absolute',
-    bottom: 60,
-    left: 0, right: 0,
+    flexShrink: 0,
   },
   railContent: {
     paddingHorizontal: 48,
@@ -831,9 +849,14 @@ const styles = StyleSheet.create({
 
   synopsisBlock: { padding: 22, paddingTop: 22, gap: 14 },
   synopsis: { fontSize: 13.5, color: colors.text1, lineHeight: 21 },
-  metaGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  metaKey: { width: 92, fontSize: 12, color: colors.text3, paddingVertical: 4 },
-  metaVal: { flex: 1, fontSize: 12, color: colors.text1, paddingVertical: 4 },
+  metaGrid: { gap: 2 },
+  metaItem: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    paddingVertical: 7,
+    borderBottomWidth: 1, borderBottomColor: colors.borderSoft,
+  },
+  metaKey: { width: 100, fontSize: 12, color: colors.text3 },
+  metaVal: { flex: 1, fontSize: 12, color: colors.text1 },
 
   seasonTabsRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

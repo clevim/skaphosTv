@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Image,
-  Platform, StatusBar,
+  Platform, StatusBar, Share,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -48,13 +48,34 @@ export default function DetailScreen() {
     navigation.navigate('Player', { channel });
   };
 
+  const handleShare = async () => {
+    const id = channel.tvgId || channel.id;
+    const contentType = type === 'movies' ? 'movie' : type === 'series' ? 'series' : 'live';
+    const link = `com.skaphostv.app://open?type=${contentType}&id=${encodeURIComponent(id)}&name=${encodeURIComponent(displayName)}`;
+    try {
+      await Share.share({
+        message: `${displayName}\n\nAbrir no SkaphosTV:\n${link}`,
+        title: displayName,
+      });
+    } catch (_) {}
+  };
+
   // ── Shared: tab content (about + related grid) ──────────────────────────────
   const tabContent = (
     <>
-      <View style={styles.tabBar}>
+      <View style={IS_TV ? tvStyles.tabBar : styles.tabBar}>
         {TABS.map(tab => {
           const on = tab === activeTab;
-          return (
+          return IS_TV ? (
+            <TVFocusable
+              key={tab}
+              onPress={() => setActiveTab(tab)}
+              style={[tvStyles.tabPill, on && tvStyles.tabPillActive]}
+              borderRadius={99}
+            >
+              <Text style={[tvStyles.tabText, on && tvStyles.tabTextActive]}>{tab}</Text>
+            </TVFocusable>
+          ) : (
             <TVFocusable key={tab} onPress={() => setActiveTab(tab)} style={styles.tab}>
               <Text style={[styles.tabText, on && styles.tabTextActive]}>{tab}</Text>
               {on && <View style={styles.tabIndicator} />}
@@ -75,28 +96,40 @@ export default function DetailScreen() {
 
           {/* Metadata grid */}
           <View style={styles.metaGrid}>
-            {displayGenre ? (<>
-              <Text style={styles.metaKey}>Gênero</Text>
-              <Text style={styles.metaVal}>{displayGenre}</Text>
-            </>) : null}
-            {displayYear ? (<>
-              <Text style={styles.metaKey}>Ano</Text>
-              <Text style={styles.metaVal}>{displayYear}</Text>
-            </>) : null}
-            {displayRating ? (<>
-              <Text style={styles.metaKey}>Avaliação</Text>
-              <Text style={styles.metaVal}>{displayRating}</Text>
-            </>) : null}
-            {channel.director ? (<>
-              <Text style={styles.metaKey}>Diretor</Text>
-              <Text style={styles.metaVal}>{channel.director}</Text>
-            </>) : null}
-            {channel.cast ? (<>
-              <Text style={styles.metaKey}>Elenco</Text>
-              <Text style={styles.metaVal} numberOfLines={2}>{channel.cast}</Text>
-            </>) : null}
-            <Text style={styles.metaKey}>Qualidade</Text>
-            <Text style={styles.metaVal}>{channel.quality || 'HD'}</Text>
+            {displayGenre ? (
+              <View style={styles.metaItem}>
+                <Text style={styles.metaKey}>Gênero</Text>
+                <Text style={styles.metaVal}>{displayGenre}</Text>
+              </View>
+            ) : null}
+            {displayYear ? (
+              <View style={styles.metaItem}>
+                <Text style={styles.metaKey}>Ano</Text>
+                <Text style={styles.metaVal}>{displayYear}</Text>
+              </View>
+            ) : null}
+            {displayRating ? (
+              <View style={styles.metaItem}>
+                <Text style={styles.metaKey}>Avaliação</Text>
+                <Text style={styles.metaVal}>{displayRating}</Text>
+              </View>
+            ) : null}
+            {channel.director ? (
+              <View style={styles.metaItem}>
+                <Text style={styles.metaKey}>Diretor</Text>
+                <Text style={styles.metaVal}>{channel.director}</Text>
+              </View>
+            ) : null}
+            {channel.cast ? (
+              <View style={styles.metaItem}>
+                <Text style={styles.metaKey}>Elenco</Text>
+                <Text style={styles.metaVal}>{channel.cast}</Text>
+              </View>
+            ) : null}
+            <View style={styles.metaItem}>
+              <Text style={styles.metaKey}>Qualidade</Text>
+              <Text style={styles.metaVal}>{channel.quality || 'HD'}</Text>
+            </View>
           </View>
         </View>
       ) : (
@@ -208,7 +241,7 @@ export default function DetailScreen() {
               label="Minha lista"
               onPress={() => toggleFavorite(channel.id)}
             />
-            <GlassButton icon="share-outline" label="Compartilhar" />
+            <GlassButton icon="share-outline" label="Indicar" onPress={handleShare} />
           </View>
 
           {/* Tabs + content */}
@@ -279,8 +312,7 @@ export default function DetailScreen() {
               label="Minha lista"
               onPress={() => toggleFavorite(channel.id)}
             />
-            <GlassButton icon="download-outline" label="Baixar" />
-            <GlassButton icon="share-outline" label="Compartilhar" />
+            <GlassButton icon="share-outline" label="Indicar" onPress={handleShare} />
           </View>
         </View>
 
@@ -427,6 +459,33 @@ const tvStyles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+
+  tabBar: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingBottom: 16,
+  },
+  tabPill: {
+    paddingHorizontal: 20,
+    paddingVertical: 9,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: 'transparent',
+  },
+  tabPillActive: {
+    backgroundColor: colors.text1,
+    borderColor: colors.text1,
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.text2,
+  },
+  tabTextActive: {
+    color: '#0a0a0b',
+    fontWeight: '600',
+  },
 });
 
 // ── Mobile Styles ────────────────────────────────────────────────────────────
@@ -510,11 +569,14 @@ const styles = StyleSheet.create({
 
   about: { padding: 22, gap: 16 },
   synopsis: { fontSize: 14, color: colors.text1, lineHeight: 22 },
-  metaGrid: {
-    display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 0,
+  metaGrid: { gap: 2 },
+  metaItem: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    paddingVertical: 7,
+    borderBottomWidth: 1, borderBottomColor: colors.borderSoft,
   },
-  metaKey: { width: 88, fontSize: 12, color: colors.text3, paddingVertical: 4 },
-  metaVal: { flex: 1, fontSize: 12, color: colors.text1, paddingVertical: 4 },
+  metaKey: { width: 100, fontSize: 12, color: colors.text3 },
+  metaVal: { flex: 1, fontSize: 12, color: colors.text1 },
 
   relatedGrid: {
     flexDirection: 'row', flexWrap: 'wrap',

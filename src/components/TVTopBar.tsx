@@ -12,7 +12,6 @@ const TV_NAV_ITEMS = [
   { key: 'movies',   label: 'Filmes' },
   { key: 'series',   label: 'Séries' },
   { key: 'year',     label: String(LAUNCH_YEAR) },
-  { key: 'favorites', label: 'Biblioteca' },
   { key: 'search',   label: 'Buscar' },
 ];
 

@@ -61,6 +61,13 @@ function handleDeepLink(url: string | null) {
         });
       }
     }
+
+    if (type === 'movie') {
+      const channel = channels.find(c => c.tvgId === id || c.id === id);
+      if (channel) {
+        navigationRef.navigate('Detail', { channel });
+      }
+    }
   } catch (_) {}
 }
 

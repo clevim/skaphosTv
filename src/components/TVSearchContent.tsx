@@ -1,8 +1,7 @@
-// TVSearchContent.tsx — TV voice/text search UI with pulsing animation
-import React, { useRef, useEffect, useState } from 'react';
+// TVSearchContent.tsx — TV search UI, two-panel layout
+import React, { useRef } from 'react';
 import {
   View, Text, StyleSheet, TextInput, ScrollView, Image,
-  Animated, Easing,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Channel } from '../types';
@@ -21,75 +20,7 @@ const TYPE_LABEL: Record<string, string> = {
   live: 'CANAL', movies: 'FILME', series: 'SÉRIE',
 };
 
-/** Concentric pulsing rings shown when query is empty */
-function PulsingRings() {
-  const ring1 = useRef(new Animated.Value(0)).current;
-  const ring2 = useRef(new Animated.Value(0)).current;
-  const ring3 = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const makeAnim = (val: Animated.Value, delay: number) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(delay),
-          Animated.timing(val, {
-            toValue: 1,
-            duration: 1600,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
-          }),
-          Animated.timing(val, { toValue: 0, duration: 0, useNativeDriver: true }),
-        ])
-      );
-    const a1 = makeAnim(ring1, 0);
-    const a2 = makeAnim(ring2, 500);
-    const a3 = makeAnim(ring3, 1000);
-    a1.start(); a2.start(); a3.start();
-    return () => { a1.stop(); a2.stop(); a3.stop(); };
-  }, [ring1, ring2, ring3]);
-
-  const ringStyle = (val: Animated.Value) => ({
-    position: 'absolute' as const,
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 1,
-    borderColor: colors.accent,
-    opacity: val.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] }),
-    transform: [{ scale: val.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] }) }],
-  });
-
-  return (
-    <View style={rings.container}>
-      <Animated.View style={ringStyle(ring1)} />
-      <Animated.View style={ringStyle(ring2)} />
-      <Animated.View style={ringStyle(ring3)} />
-      {/* Center mic icon */}
-      <View style={rings.center}>
-        <Ionicons name="mic" size={32} color={colors.accent} />
-      </View>
-    </View>
-  );
-}
-
-const rings = StyleSheet.create({
-  container: {
-    width: 120,
-    height: 120,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  center: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: colors.accentSoft,
-    borderWidth: 1,
-    borderColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+const SUGGESTIONS = ['Ao Vivo', 'Filmes', 'Séries', 'Lançamentos 2026'];
 
 function ResultItem({ channel, onPress }: { channel: Channel; onPress: () => void }) {
   const type = detectType(channel.group || '', channel.name);
@@ -108,10 +39,9 @@ function ResultItem({ channel, onPress }: { channel: Channel; onPress: () => voi
         )}
       </View>
       <View style={styles.resultMeta}>
+        <Text style={styles.resultType}>{TYPE_LABEL[type] || 'CONTEÚDO'}</Text>
         <Text style={styles.resultName} numberOfLines={1}>{displayName}</Text>
-        <Text style={styles.resultSub} numberOfLines={1}>
-          {TYPE_LABEL[type] || 'CONTEÚDO'}{groupClean ? ` · ${groupClean}` : ''}
-        </Text>
+        {groupClean ? <Text style={styles.resultSub} numberOfLines={1}>{groupClean}</Text> : null}
       </View>
       <Ionicons name="play-circle-outline" size={22} color={colors.text3} />
     </TVFocusable>
@@ -125,55 +55,71 @@ export default function TVSearchContent({ query, onQueryChange, results, onResul
 
   return (
     <View style={styles.root}>
-      {/* Left panel: search input + pulsing animation */}
+      {/* Left panel: input + state */}
       <View style={styles.leftPanel}>
-        {/* Search input */}
+        <Text style={styles.panelTitle}>Buscar</Text>
+
         <View style={styles.inputWrap}>
-          <Ionicons name="search-outline" size={18} color={colors.text3} style={styles.inputIcon} />
+          <Ionicons name="search-outline" size={18} color={colors.text3} />
           <TextInput
             ref={inputRef}
             value={query}
             onChangeText={onQueryChange}
-            placeholder="Buscar canais, filmes, séries..."
+            placeholder="Canais, filmes, séries..."
             placeholderTextColor={colors.text3}
             style={styles.input}
             autoFocus
             returnKeyType="search"
           />
           {query.length > 0 && (
-            <TVFocusable onPress={() => onQueryChange('')} style={styles.clearBtn}>
+            <TVFocusable onPress={() => onQueryChange('')} style={styles.clearBtn} borderRadius={999}>
               <Ionicons name="close-circle" size={16} color={colors.text3} />
             </TVFocusable>
           )}
         </View>
 
-        {/* Pulsing animation area */}
-        <View style={styles.animArea}>
+        <View style={styles.stateArea}>
           {isEmpty ? (
             <>
-              <PulsingRings />
-              <Text style={styles.promptText}>Falar agora ou digitar</Text>
-              <Text style={styles.promptSub}>Busque canais, filmes e séries</Text>
+              <Ionicons name="search" size={44} color={colors.text3} style={{ opacity: 0.4 }} />
+              <Text style={styles.stateTitle}>Busque por canais</Text>
+              <Text style={styles.stateSub}>Digite o nome ou categoria</Text>
             </>
           ) : hasResults ? (
-            <View style={styles.statsBlock}>
+            <>
               <Text style={styles.statsCount}>{results.length}</Text>
-              <Text style={styles.statsLabel}>resultados encontrados</Text>
-            </View>
+              <Text style={styles.statsLabel}>resultado{results.length !== 1 ? 's' : ''} encontrado{results.length !== 1 ? 's' : ''}</Text>
+            </>
           ) : (
-            <View style={styles.noResults}>
-              <Ionicons name="search-outline" size={40} color={colors.text3} />
-              <Text style={styles.noResultsText}>Nenhum resultado para "{query}"</Text>
-            </View>
+            <>
+              <Ionicons name="alert-circle-outline" size={44} color={colors.text3} style={{ opacity: 0.4 }} />
+              <Text style={styles.stateTitle}>Sem resultados</Text>
+              <Text style={styles.stateSub}>Tente outro termo de busca</Text>
+            </>
           )}
         </View>
       </View>
 
-      {/* Right panel: results list */}
+      {/* Right panel: suggestions or results */}
       <View style={styles.rightPanel}>
-        {hasResults && (
+        {isEmpty ? (
           <>
-            <Text style={styles.resultsHeader}>
+            <Text style={styles.sectionLabel}>SUGESTÕES</Text>
+            {SUGGESTIONS.map((s, i) => (
+              <TVFocusable
+                key={s}
+                onPress={() => onQueryChange(s)}
+                style={styles.suggestionItem}
+                hasTVPreferredFocus={i === 0}
+              >
+                <Ionicons name="trending-up-outline" size={14} color={colors.text3} />
+                <Text style={styles.suggestionText}>{s}</Text>
+              </TVFocusable>
+            ))}
+          </>
+        ) : hasResults ? (
+          <>
+            <Text style={styles.sectionLabel}>
               {results.length} RESULTADO{results.length !== 1 ? 'S' : ''}
             </Text>
             <ScrollView showsVerticalScrollIndicator={false}>
@@ -186,24 +132,7 @@ export default function TVSearchContent({ query, onQueryChange, results, onResul
               ))}
             </ScrollView>
           </>
-        )}
-
-        {isEmpty && (
-          <View style={styles.suggestions}>
-            <Text style={styles.suggestionsTitle}>Sugestões</Text>
-            {['Ao Vivo', 'Filmes', 'Séries', 'Lançamentos 2026'].map((s, i) => (
-              <TVFocusable
-                key={s}
-                onPress={() => onQueryChange(s)}
-                style={styles.suggestionItem}
-                hasTVPreferredFocus={i === 0}
-              >
-                <Ionicons name="trending-up-outline" size={14} color={colors.text3} />
-                <Text style={styles.suggestionText}>{s}</Text>
-              </TVFocusable>
-            ))}
-          </View>
-        )}
+        ) : null}
       </View>
     </View>
   );
@@ -213,17 +142,23 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     flexDirection: 'row',
-    paddingTop: 88, // clear TVTopBar
+    paddingTop: 88,
   },
 
   // Left panel
   leftPanel: {
-    width: '45%',
+    width: '40%',
     borderRightWidth: 1,
     borderRightColor: colors.border,
     paddingHorizontal: spacing.xxxl,
     paddingTop: spacing.xl,
-    gap: spacing.xl,
+    gap: spacing.lg,
+  },
+  panelTitle: {
+    fontSize: 28,
+    fontWeight: '600',
+    color: colors.text1,
+    letterSpacing: -0.6,
   },
   inputWrap: {
     flexDirection: 'row',
@@ -236,7 +171,6 @@ const styles = StyleSheet.create({
     height: 48,
     gap: 10,
   },
-  inputIcon: {},
   input: {
     flex: 1,
     fontSize: fontSize.md,
@@ -246,46 +180,35 @@ const styles = StyleSheet.create({
   clearBtn: {
     padding: 4,
   },
-  animArea: {
+  stateArea: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.lg,
+    gap: spacing.sm,
   },
-  promptText: {
-    fontSize: fontSize.lg,
+  stateTitle: {
+    fontSize: fontSize.md,
     fontWeight: '600',
     color: colors.text1,
-    letterSpacing: -0.3,
+    marginTop: spacing.sm,
   },
-  promptSub: {
-    fontSize: fontSize.sm,
+  stateSub: {
+    fontSize: fontSize.xs,
     color: colors.text3,
-  },
-  statsBlock: {
-    alignItems: 'center',
-    gap: 4,
+    textAlign: 'center',
   },
   statsCount: {
-    fontSize: 64,
+    fontSize: 72,
     fontWeight: '700',
     color: colors.accent,
     letterSpacing: -2,
+    lineHeight: 78,
   },
   statsLabel: {
-    fontSize: fontSize.sm,
+    fontSize: fontSize.xs,
     color: colors.text3,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
-  },
-  noResults: {
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  noResultsText: {
-    fontSize: fontSize.sm,
-    color: colors.text3,
-    textAlign: 'center',
   },
 
   // Right panel
@@ -294,13 +217,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xl,
   },
-  resultsHeader: {
+  sectionLabel: {
     fontSize: 10,
     fontWeight: '600',
     color: colors.text3,
     letterSpacing: 0.6,
+    textTransform: 'uppercase',
     marginBottom: spacing.sm,
   },
+
+  // Result items
   resultItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -323,36 +249,22 @@ const styles = StyleSheet.create({
     width: '100%', height: '100%',
     alignItems: 'center', justifyContent: 'center',
   },
-  resultThumbText: {
-    fontSize: 12, fontWeight: '700', color: colors.text3,
-  },
+  resultThumbText: { fontSize: 12, fontWeight: '700', color: colors.text3 },
   resultMeta: { flex: 1 },
-  resultName: {
-    fontSize: fontSize.sm, fontWeight: '600', color: colors.text1,
-  },
-  resultSub: {
-    fontSize: 10, color: colors.text3, marginTop: 2,
-  },
+  resultType: { fontSize: 9, color: colors.text3, letterSpacing: 0.6, fontWeight: '600' },
+  resultName: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text1, marginTop: 1 },
+  resultSub: { fontSize: 10, color: colors.text3, marginTop: 2 },
 
   // Suggestions
-  suggestions: {
-    gap: spacing.sm,
-  },
-  suggestionsTitle: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.text3,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    marginBottom: spacing.xs,
-  },
   suggestionItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: radius.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSoft,
   },
   suggestionText: {
     fontSize: fontSize.sm,

@@ -125,9 +125,10 @@ function XtreamSourceCard({ source, authInfo }: {
   const isLoading = authInfo === 'loading';
   const isError   = authInfo === 'error';
   const info      = typeof authInfo === 'object' ? authInfo : null;
+  const displayName = source.name.replace(/^Xtream:\s*/i, '') || source.host || 'Lista';
 
   return (
-    <SettingsGroup title={source.name}>
+    <SettingsGroup title={`XTREAM: ${displayName}`}>
       <SettingsRow icon="server-outline"      label="Servidor" value={source.host ?? '—'} />
       <SettingsRow icon="person-outline"      label="Usuário"  value={source.username ?? '—'} />
       <SettingsRow icon="lock-closed-outline" label="Senha"    value={'•'.repeat(Math.min(source.password?.length ?? 0, 10))} />
@@ -386,12 +387,7 @@ export default function SettingsScreen() {
         </SettingsGroup>
 
         {sources.filter(s => s.type === 'xtream').map(s => (
-          <SettingsGroup key={s.id} title={s.name}>
-            <SettingsRow icon="server-outline"      label="Servidor" value={s.host ?? '—'} />
-            <SettingsRow icon="person-outline"      label="Usuário"  value={s.username ?? '—'} />
-            <SettingsRow icon="lock-closed-outline" label="Senha"    value={'•'.repeat(Math.min(s.password?.length ?? 0, 10))} />
-            <SettingsRow icon="layers-outline"      label="Canais"   value={`${s.channelCount ?? 0} itens`} />
-          </SettingsGroup>
+          <XtreamSourceCard key={s.id} source={s} authInfo={authInfoMap[s.id]} />
         ))}
 
         {sources.filter(s => s.type === 'm3u').map(s => (

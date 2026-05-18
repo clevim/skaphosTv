@@ -41,6 +41,7 @@ yarn-error.*
 .vscode/
 .idea/
 .claude/
+TODO.md
 *.swp
 *.swo
 
