@@ -345,6 +345,7 @@ export default function HomeScreen() {
           groups={filteredGroups}
           selectedGroup={selectedGroup}
           onGroupSelect={setSelectedGroup}
+          onReload={handleRefresh}
         >
           <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
             <FlatList

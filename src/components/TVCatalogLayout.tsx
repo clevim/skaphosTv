@@ -1,6 +1,7 @@
 // TVCatalogLayout.tsx — Two-panel TV browse layout: left sidebar + right grid
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
 
@@ -10,19 +11,27 @@ interface Props {
   groups: string[];
   selectedGroup: string | null;
   onGroupSelect: (g: string | null) => void;
+  onReload?: () => void;
   children: React.ReactNode;
 }
 
 export default function TVCatalogLayout({
-  title, count, groups, selectedGroup, onGroupSelect, children,
+  title, count, groups, selectedGroup, onGroupSelect, onReload, children,
 }: Props) {
   return (
     <View style={styles.root}>
       {/* Left sidebar */}
       <View style={styles.sidebar}>
         <View style={styles.sidebarHeader}>
-          <Text style={styles.sidebarTitle}>{title}</Text>
-          <Text style={styles.sidebarCount}>{count} itens</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.sidebarTitle}>{title}</Text>
+            <Text style={styles.sidebarCount}>{count} itens</Text>
+          </View>
+          {onReload && (
+            <TVFocusable onPress={onReload} style={styles.reloadBtn} borderRadius={8}>
+              <Ionicons name="refresh-outline" size={16} color={colors.text2} />
+            </TVFocusable>
+          )}
         </View>
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -89,11 +98,21 @@ const styles = StyleSheet.create({
     borderRightColor: colors.border,
   },
   sidebarHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xl,
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSoft,
+  },
+  reloadBtn: {
+    width: 32, height: 32,
+    borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.bg2,
+    borderWidth: 1, borderColor: colors.border,
+    marginTop: 2,
   },
   sidebarTitle: {
     fontSize: 22,

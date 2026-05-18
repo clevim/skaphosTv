@@ -29,8 +29,8 @@ import { IS_TV } from '../utils/tvDetect';
 import { addFocusListener } from '../../modules/tv-focus';
 
 const RING_W     = IS_TV ? 2.5 : 2;
-const RING_COLOR = 'transparent';
-const RING_BG    = 'transparent';
+const RING_COLOR = IS_TV ? 'rgba(167,139,250,0.85)' : 'transparent';
+const RING_BG    = IS_TV ? 'rgba(167,139,250,0.06)' : 'transparent';
 
 export interface TVFocusableProps {
   children: React.ReactNode;

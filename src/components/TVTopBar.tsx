@@ -1,6 +1,6 @@
 // TVTopBar.tsx — TV horizontal top nav with proper D-pad focus
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, radius, fontFamily } from '../utils/theme';
@@ -48,8 +48,8 @@ function NavItem({
       <Text
         style={[
           styles.navLabel,
-          active    && styles.navLabelActive,
-          focused   && styles.navLabelFocused,
+          focused && styles.navLabelFocused,
+          active  && styles.navLabelActive,
         ]}
       >
         {item.label}
@@ -160,10 +160,10 @@ const styles = StyleSheet.create({
   },
   navLabelActive: {
     fontFamily: fontFamily.semiBold,
-    color: colors.text1,
+    color: colors.accent,
   },
   navLabelFocused: {
-    color: colors.white,
+    color: 'rgba(196,181,253,0.85)',
     fontFamily: fontFamily.semiBold,
   },
   activeDot: {
@@ -173,7 +173,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
   },
   activeDotFocused: {
-    backgroundColor: colors.white,
+    backgroundColor: 'rgba(196,181,253,0.85)',
   },
 
   // Right
