@@ -1,0 +1,46 @@
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java
+index bb09f1a..e4f930f 100644
+--- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java
+@@ -1658,7 +1658,7 @@ public class ReactExoplayerView extends FrameLayout implements
+             disableTrack(rendererIndex);
+             return;
+         } else if (type.equals("language")) {
+-            for (int i = 0; i < groups.length; ++i) {
++            if (value != null) for (int i = 0; i < groups.length; ++i) {
+                 Format format = groups.get(i).getFormat(0);
+                 if (format.language != null && format.language.equals(value.asString())) {
+                     groupIndex = i;
+@@ -1666,7 +1666,7 @@ public class ReactExoplayerView extends FrameLayout implements
+                 }
+             }
+         } else if (type.equals("title")) {
+-            for (int i = 0; i < groups.length; ++i) {
++            if (value != null) for (int i = 0; i < groups.length; ++i) {
+                 Format format = groups.get(i).getFormat(0);
+                 if (format.id != null && format.id.equals(value.asString())) {
+                     groupIndex = i;
+@@ -1674,10 +1674,21 @@ public class ReactExoplayerView extends FrameLayout implements
+                 }
+             }
+         } else if (type.equals("index")) {
+-            if (value.asInt() < groups.length) {
+-                groupIndex = value.asInt();
++            if (value != null) {
++                try {
++                    // JS envia números como ReadableType.Number (double) pelo bridge — usar asDouble()
++                    int idx = (int) value.asDouble();
++                    if (idx >= 0 && idx < groups.length) groupIndex = idx;
++                } catch (Exception e) {
++                    // fallback: tenta asInt() para casos onde o bridge serializa como Int
++                    try {
++                        int idx = value.asInt();
++                        if (idx >= 0 && idx < groups.length) groupIndex = idx;
++                    } catch (Exception ignored) {}
++                }
+             }
+         } else if (type.equals("resolution")) {
++            if (value == null) return;
+             int height = value.asInt();
+             for (int i = 0; i < groups.length; ++i) { // Search for the exact height
+                 TrackGroup group = groups.get(i);

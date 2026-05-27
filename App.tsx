@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as KeepAwake from 'expo-keep-awake';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import * as Updates from 'expo-updates';
 import { Platform, Linking } from 'react-native';
 import { useStore } from './src/store/useStore';
 import { useGeistFonts } from './src/hooks/useGeistFonts';
@@ -80,6 +81,17 @@ export default function App() {
     useThemeStore.getState().loadTheme();
 
     KeepAwake.activateKeepAwakeAsync();
+
+    // OTA auto-update (só roda em builds de produção, não no dev)
+    if (!__DEV__) {
+      Updates.checkForUpdateAsync()
+        .then(({ isAvailable }) => {
+          if (isAvailable) {
+            Updates.fetchUpdateAsync().then(() => Updates.reloadAsync()).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
 
     if (IS_TV) {
       setTimeout(() => activateTvFocus(), 500);

@@ -8,6 +8,7 @@
     "ios": "expo run:ios",
     "build:apk": "eas build --platform android --profile preview",
     "build:aab": "eas build --platform android --profile production",
+    "build:firestick": "rm -rf node_modules/.cache $TMPDIR/metro-* $TMPDIR/haste-map-* && eas build --platform android --profile firestick --local",
     "postinstall": "npx patch-package"
   },
   "dependencies": {
