@@ -19,6 +19,7 @@ import { RootStackParamList, Channel } from '../types';
 import axios from 'axios';
 import { parseM3U } from '../utils/m3uParser';
 import { loadXtreamChannels } from '../utils/xtreamLoader';
+import { loadJellyfinContent } from '../utils/jellyfinLoader';
 import { usePaginatedList } from '../hooks/usePaginatedList';
 import { useChannelFilter } from '../hooks/useChannelFilter';
 import SkeletonCard from '@/components/SkeletonCard';
@@ -29,6 +30,7 @@ import TVCatalogLayout from '../components/TVCatalogLayout';
 import TVSearchContent from '../components/TVSearchContent';
 
 import { IS_TV } from '../utils/tvDetect';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 const IS_MOBILE = !IS_TV && Platform.OS !== 'web';
 
@@ -40,6 +42,7 @@ export default function HomeScreen() {
     sources, favorites, recentChannels, currentChannel,
     setChannels, setSelectedGroup, setLoading, setLoadError,
     setCurrentChannel, toggleFavorite, loadFromStorage, channelIndex,
+    appendChannels,
   } = useStore();
 
   const [navKey, setNavKey]         = useState('home');
@@ -52,6 +55,7 @@ export default function HomeScreen() {
   const chipScrollRef    = useRef<ScrollView>(null);
   const chipLayoutsRef   = useRef<Record<string, { x: number; width: number }>>({});
   const chipScrollWRef   = useRef(0);
+  const isLoadingSourcesRef = useRef(false);
 
   // Quando a categoria ativa muda, centraliza o chip correspondente
   useEffect(() => {
@@ -75,56 +79,85 @@ export default function HomeScreen() {
       await loadFromStorage();
       const state = useStore.getState();
       if (state.channels.length === 0 && state.sources.length > 0) {
-        loadSourceChannels(state.sources[0]);
+        loadAllSources(state.sources);
+      } else if (state.channels.length > 0) {
+        // Sempre atualiza fontes Jellyfin em background (API rápida; appendChannels deduplica por id)
+        const jfSources = state.sources.filter(s => s.type === 'jellyfin');
+        for (const src of jfSources) {
+          loadOneSource(src)
+            .then(({ channels: chs, groups: grps }) => {
+              if (chs.length > 0) appendChannels(chs, grps);
+            })
+            .catch(() => {});
+        }
       }
     };
     init();
   }, []);
 
-  const loadSourceChannels = async (source: any, forceRefresh = false) => {
-    const state = useStore.getState();
-    if (!forceRefresh && state.channels.length > 0) return;
+  const loadOneSource = async (source: any): Promise<{ channels: Channel[]; groups: string[] }> => {
+    if (source.type === 'xtream') {
+      const host = source.host?.replace(/\/$/, '') || '';
+      return loadXtreamChannels(host, source.username || '', source.password || '');
+    }
+    if (source.type === 'jellyfin') {
+      const host = source.host?.replace(/\/$/, '') || '';
+      return loadJellyfinContent(host, source.apiKey!, source.userId!, source.serverName || source.name);
+    }
+    // M3U
+    const response = await axios.get(source.url, {
+      timeout: 60000,
+      headers: { 'User-Agent': 'okhttp/4.9.0' },
+    });
+    return parseM3U(response.data);
+  };
+
+  const loadAllSources = async (sourcesToLoad: any[], forceRefresh = false) => {
+    if (!forceRefresh && useStore.getState().channels.length > 0) return;
+    if (isLoadingSourcesRef.current) return;
+    isLoadingSourcesRef.current = true;
+    setLoading(true);
+    setLoadError(null);
     try {
-      setLoading(true);
-      setLoadError(null);
-
-      let result: { channels: Channel[]; groups: string[] };
-
-      if (source.type === 'xtream') {
-        // Use JSON API (parallel requests) — much faster than full M3U download
-        const host = source.host?.replace(/\/$/, '') || '';
-        const user = source.username || '';
-        const pass = source.password || '';
-        result = await loadXtreamChannels(host, user, pass);
-      } else {
-        // Plain M3U URL
-        const response = await axios.get(source.url, {
-          timeout: 60000,
-          headers: { 'User-Agent': 'okhttp/4.9.0' },
-        });
-        result = parseM3U(response.data);
+      // Carrega todas as fontes em paralelo
+      const results = await Promise.allSettled(sourcesToLoad.map(loadOneSource));
+      let first = true;
+      let anyLoaded = false;
+      for (const res of results) {
+        if (res.status === 'rejected') continue;
+        const { channels: chs, groups: grps } = res.value;
+        if (chs.length === 0) continue;
+        if (first) {
+          setChannels(chs, grps);
+          first = false;
+        } else {
+          appendChannels(chs, grps);
+        }
+        anyLoaded = true;
       }
-
-      if (result.channels.length === 0) throw new Error('Nenhum canal encontrado na lista');
-      setChannels(result.channels, result.groups);
-    } catch (e: any) {
-      setLoadError(e.message || 'Erro ao carregar lista');
+      if (!anyLoaded) setLoadError('Nenhum canal encontrado nas fontes configuradas');
     } finally {
       setLoading(false);
+      isLoadingSourcesRef.current = false;
     }
   };
 
   const handleRefresh = useCallback(() => {
     const state = useStore.getState();
-    if (state.sources.length > 0) loadSourceChannels(state.sources[0], true);
+    if (state.sources.length > 0) loadAllSources(state.sources, true);
   }, []);
+
+  const jellyfinSources = useMemo(
+    () => sources.filter(s => s.type === 'jellyfin'),
+    [sources],
+  );
 
   const {
     filteredGroups,
     filteredChannels,
     favoritesSet,
     episodeCountMap,
-  } = useChannelFilter({ navKey, selectedGroup, channels, groups, favorites, categorySearch, channelIndex });
+  } = useChannelFilter({ navKey, selectedGroup, channels, groups, favorites, categorySearch, channelIndex, sources });
 
   const { visibleItems, hasMore, loadMore, reset } = usePaginatedList(filteredChannels);
 
@@ -164,13 +197,17 @@ export default function HomeScreen() {
   }, [channels, searchQuery, navKey]);
 
   const handleChannelPress = useCallback((channel: Channel) => {
-    // Xtream phased loader define streamType explicitamente — tem precedência sobre heurística
-    const isXtreamSeries = channel.streamType === 'series';
-    const type = isXtreamSeries ? 'series' : detectType(channel.group || '', channel.name);
+    // Xtream/Jellyfin definem streamType explicitamente — tem precedência sobre heurística
+    const isSingleEpisodeSeries = channel.streamType === 'series';
+    const type = isSingleEpisodeSeries
+      ? 'series'
+      : channel.streamType === 'movie'
+        ? 'movies'
+        : detectType(channel.group || '', channel.name);
 
     if (type === 'series') {
-      if (isXtreamSeries) {
-        // Xtream: um canal por série, SeriesScreen busca os episódios via API
+      if (isSingleEpisodeSeries) {
+        // Xtream/Jellyfin: um canal por série, SeriesScreen busca episódios via API
         navigation.navigate('Series', { seriesName: channel.name, channels: [channel] });
         return;
       }
@@ -191,14 +228,21 @@ export default function HomeScreen() {
     }
 
     if (type === 'movies') {
-      const related = channels
-        .filter(c => c.id !== channel.id && c.group === channel.group && detectType(c.group || '', c.name) === 'movies')
-        .slice(0, 9);
+      const isJellyfinMovie = channel.id?.startsWith('jf-') && channel.streamType === 'movie';
+      const related = isJellyfinMovie
+        ? channels.filter(c => c.id !== channel.id && c.group === channel.group).slice(0, 9)
+        : channels
+            .filter(c => c.id !== channel.id && c.group === channel.group && detectType(c.group || '', c.name) === 'movies')
+            .slice(0, 9);
       navigation.navigate('Detail', { channel, relatedChannels: related });
       return;
     }
 
     setCurrentChannel(channel);
+    // Inicia o lock de orientação antes de navegar para evitar a rotação visível ao entrar no player
+    if (Platform.OS !== 'web') {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+    }
     navigation.navigate('Player', { channel });
   }, [navigation, setCurrentChannel, channels]);
 
@@ -222,7 +266,11 @@ export default function HomeScreen() {
 
   const renderCard = useCallback(
     (item: Channel, index: number) => {
-      const type = detectType(item.group || '', item.name);
+      const type: 'live' | 'movies' | 'series' =
+        item.streamType === 'movie'  ? 'movies'
+        : item.streamType === 'series' ? 'series'
+        : item.streamType === 'live'   ? 'live'
+        : detectType(item.group || '', item.name);
       const isSeries = type === 'series';
       const baseName = isSeries ? getSeriesBaseName(item.name) : item.name;
       const epCount = isSeries ? (episodeCountMap.get(baseName) || 0) : 0;
@@ -333,6 +381,11 @@ export default function HomeScreen() {
           <Ionicons name="tv-outline" size={64} color={colors.text3} />
           <Text style={styles.emptyTitle}>Nenhum item encontrado</Text>
           <Text style={styles.emptySubtitle}>Tente outro filtro ou categoria</Text>
+          {navKey.startsWith('jf-') && (
+            <TVFocusable onPress={handleRefresh} style={styles.retryBtn}>
+              <Text style={styles.retryBtnText}>Recarregar</Text>
+            </TVFocusable>
+          )}
         </View>
       );
     }
@@ -477,12 +530,13 @@ export default function HomeScreen() {
           clock={clock}
           onNavPress={handleNavPress}
           onSettingsPress={() => navigation.navigate('Settings')}
+          jellyfinSources={jellyfinSources}
         />
       )}
 
       {/* Bottom tab bar — mobile only */}
       {IS_MOBILE && (
-        <BottomTabBar active={navKey} onPress={handleNavPress} />
+        <BottomTabBar active={navKey} onPress={handleNavPress} jellyfinSources={jellyfinSources} />
       )}
 
       {/* Remote hints — TV only */}

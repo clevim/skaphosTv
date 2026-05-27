@@ -2,7 +2,7 @@
 // Mobile: vertical scroll layout
 // TV: two-panel (left sidebar with categories + right panel with settings)
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Switch, ActivityIndicator, TextInput, Alert } from 'react-native';
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -63,6 +63,20 @@ function statusLabel(status: string): string {
   }
 }
 
+// ── Opções de idioma Jellyfin ────────────────────────────────────────────────
+
+const LANG_OPTIONS = [
+  { value: 'pt-BR', label: 'Português (Brasil)' },
+  { value: 'en',    label: 'English' },
+  { value: 'es',    label: 'Español' },
+  { value: 'fr',    label: 'Français' },
+  { value: '',      label: 'Padrão Jellyfin' },
+] as const;
+
+function langLabel(value: string): string {
+  return LANG_OPTIONS.find(o => o.value === value)?.label ?? 'Padrão Jellyfin';
+}
+
 // ── SettingsGroup / SettingsRow ─────────────────────────────────────────────
 
 function SettingsGroup({ title, children }: { title: string; children: React.ReactNode }) {
@@ -114,6 +128,36 @@ function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle
     );
   }
   return content;
+}
+
+function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
+  icon: string; label: string; sub?: string;
+  options: readonly { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const current = options.find(o => o.value === value) ?? options[0];
+  const cycle = () => {
+    const idx = options.findIndex(o => o.value === value);
+    onChange(options[(idx + 1) % options.length].value);
+  };
+  return (
+    <TVFocusable onPress={cycle} style={{ borderRadius: 0 }}>
+      <View style={styles.row}>
+        <View style={styles.rowIcon}>
+          <Ionicons name={icon as any} size={16} color={colors.text2} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.rowLabel}>{label}</Text>
+          {sub && <Text style={styles.rowSub}>{sub}</Text>}
+        </View>
+        <View style={styles.rowValueWrap}>
+          <Text style={styles.rowValue}>{current.label}</Text>
+          <Ionicons name="swap-horizontal-outline" size={12} color={colors.text3} />
+        </View>
+      </View>
+    </TVFocusable>
+  );
 }
 
 // ── XtreamSourceCard ────────────────────────────────────────────────────────
@@ -175,6 +219,49 @@ function XtreamSourceCard({ source, authInfo }: {
   );
 }
 
+// ── JellyfinSourceCard ──────────────────────────────────────────────────────
+
+function JellyfinSourceCard({ source }: {
+  source: { id: string; name: string; host?: string; serverName?: string; apiKey?: string; channelCount?: number };
+}) {
+  const [serverInfo, setServerInfo] = useState<{ Version?: string; ServerName?: string } | 'loading' | 'error'>('loading');
+
+  useEffect(() => {
+    if (!source.host || !source.apiKey) { setServerInfo('error'); return; }
+    axios.get(`${source.host}/System/Info`, {
+      timeout: 8_000,
+      headers: { 'X-Emby-Token': source.apiKey },
+    })
+      .then(res => setServerInfo(res.data ?? 'error'))
+      .catch(() => setServerInfo('error'));
+  }, [source.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const info = typeof serverInfo === 'object' ? serverInfo : null;
+
+  return (
+    <SettingsGroup title={`JELLYFIN: ${source.serverName || source.name}`}>
+      <SettingsRow icon="server-outline"    label="Servidor"  value={source.host ?? '—'} />
+      <SettingsRow icon="layers-outline"    label="Conteúdo"  value={`${source.channelCount ?? 0} itens`} />
+      {serverInfo === 'loading' && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10 }}>
+          <ActivityIndicator size="small" color="#00a4dc" />
+          <Text style={{ fontSize: 12, color: colors.text3 }}>Verificando servidor...</Text>
+        </View>
+      )}
+      {serverInfo === 'error' && (
+        <SettingsRow icon="warning-outline" label="Status" value="Sem resposta" valueColor={colors.text3} />
+      )}
+      {info && (
+        <>
+          <SettingsRow icon="checkmark-circle-outline" label="Status"  value="Conectado"   valueColor="#22c55e" />
+          {info.ServerName && <SettingsRow icon="tv-outline"         label="Nome"    value={info.ServerName} />}
+          {info.Version    && <SettingsRow icon="code-slash-outline" label="Versão"  value={`v${info.Version}`} />}
+        </>
+      )}
+    </SettingsGroup>
+  );
+}
+
 // ── TV category definitions ─────────────────────────────────────────────────
 
 type CategoryKey = 'reproducao' | 'conta' | 'sistema';
@@ -199,18 +286,37 @@ function TVPanel({
 }) {
   if (category === 'reproducao') {
     return (
-      <SettingsGroup title="Reprodução">
-        <SettingsRow icon="play-outline"             label="Qualidade do streaming"  value="Auto · até 4K" />
-        <SettingsRow icon="download-outline"          label="Qualidade dos downloads" value="HD" />
-        <SettingsRow icon="chatbox-ellipses-outline"  label="Legendas e áudio"        value="Português" />
-        <SettingsRow
-          icon="sparkles-outline"
-          label="Reprodução automática"
-          toggle
-          on={settings.autoPlay}
-          onToggle={v => updateSettings({ autoPlay: v })}
-        />
-      </SettingsGroup>
+      <>
+        <SettingsGroup title="Reprodução">
+          <SettingsRow icon="play-outline"            label="Qualidade do streaming"  value="Auto · até 4K" />
+          <SettingsRow icon="download-outline"         label="Qualidade dos downloads" value="HD" />
+          <SettingsRow
+            icon="sparkles-outline"
+            label="Reprodução automática"
+            toggle
+            on={settings.autoPlay}
+            onToggle={v => updateSettings({ autoPlay: v })}
+          />
+        </SettingsGroup>
+        <SettingsGroup title="Jellyfin · Preferências">
+          <SettingsRowSelect
+            icon="musical-note-outline"
+            label="Áudio preferido"
+            sub="Idioma pré-selecionado ao abrir conteúdo"
+            options={LANG_OPTIONS}
+            value={settings.jellyfinPreferredAudio}
+            onChange={v => updateSettings({ jellyfinPreferredAudio: v })}
+          />
+          <SettingsRowSelect
+            icon="chatbox-ellipses-outline"
+            label="Legenda preferida"
+            sub="Idioma pré-selecionado ao abrir conteúdo"
+            options={LANG_OPTIONS}
+            value={settings.jellyfinPreferredSubtitle}
+            onChange={v => updateSettings({ jellyfinPreferredSubtitle: v })}
+          />
+        </SettingsGroup>
+      </>
     );
   }
 
@@ -234,16 +340,30 @@ function TVPanel({
             <SettingsRow icon="layers-outline" label="Canais" value={`${s.channelCount ?? 0} itens`} />
           </SettingsGroup>
         ))}
+        {sources.filter(s => s.type === 'jellyfin').map(s => (
+          <JellyfinSourceCard key={s.id} source={s} />
+        ))}
       </>
     );
   }
 
   // sistema
   return (
-    <SettingsGroup title="Sistema">
-      <SettingsRow icon="language-outline"           label="Idioma"   value={settings.language || 'pt-BR'} />
-      <SettingsRow icon="information-circle-outline" label="Versão"   value="v4.2.1 · build 1124" />
-    </SettingsGroup>
+    <>
+      <SettingsGroup title="Sistema">
+        <SettingsRow icon="language-outline"           label="Idioma"   value={settings.language || 'pt-BR'} />
+        <SettingsRow icon="information-circle-outline" label="Versão"   value="v4.2.1 · build 1124" />
+      </SettingsGroup>
+      <SettingsGroup title="Integrações">
+        <SettingsRow
+          icon="film-outline"
+          label="TMDB API Key"
+          sub="Para enriquecer filmes e séries com metadata do TMDB"
+          value={settings.tmdbApiKey ? '••••••••' : 'Não configurado'}
+          valueColor={settings.tmdbApiKey ? '#22c55e' : colors.text3}
+        />
+      </SettingsGroup>
+    </>
   );
 }
 
@@ -340,14 +460,32 @@ export default function SettingsScreen() {
 
       <ScrollView style={styles.content} contentContainerStyle={styles.inner}>
         <SettingsGroup title="Reprodução">
-          <SettingsRow icon="play-outline"            label="Qualidade do streaming"  value="Auto · até 4K" />
-          <SettingsRow icon="download-outline"         label="Qualidade dos downloads" value="HD" />
-          <SettingsRow icon="chatbox-ellipses-outline" label="Legendas e áudio"        value="Português" />
+          <SettingsRow icon="play-outline"   label="Qualidade do streaming"  value="Auto · até 4K" />
+          <SettingsRow icon="download-outline" label="Qualidade dos downloads" value="HD" />
           <SettingsRow
             icon="sparkles-outline"
             label="Reprodução automática"
             toggle on={settings.autoPlay}
             onToggle={v => updateSettings({ autoPlay: v })}
+          />
+        </SettingsGroup>
+
+        <SettingsGroup title="Jellyfin · Preferências">
+          <SettingsRowSelect
+            icon="musical-note-outline"
+            label="Áudio preferido"
+            sub="Idioma pré-selecionado ao abrir conteúdo"
+            options={LANG_OPTIONS}
+            value={settings.jellyfinPreferredAudio}
+            onChange={v => updateSettings({ jellyfinPreferredAudio: v })}
+          />
+          <SettingsRowSelect
+            icon="chatbox-ellipses-outline"
+            label="Legenda preferida"
+            sub="Idioma pré-selecionado ao abrir conteúdo"
+            options={LANG_OPTIONS}
+            value={settings.jellyfinPreferredSubtitle}
+            onChange={v => updateSettings({ jellyfinPreferredSubtitle: v })}
           />
         </SettingsGroup>
 
@@ -370,6 +508,33 @@ export default function SettingsScreen() {
             <SettingsRow icon="layers-outline" label="Canais" value={`${s.channelCount ?? 0} itens`} />
           </SettingsGroup>
         ))}
+
+        {sources.filter(s => s.type === 'jellyfin').map(s => (
+          <JellyfinSourceCard key={s.id} source={s} />
+        ))}
+
+        <SettingsGroup title="Integrações">
+          <View style={styles.row}>
+            <View style={styles.rowIcon}>
+              <Ionicons name="film-outline" size={16} color={colors.text2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowLabel}>TMDB API Key</Text>
+              <Text style={styles.rowSub}>Para metadata de filmes e séries</Text>
+            </View>
+          </View>
+          <View style={[styles.row, { paddingTop: 4, paddingBottom: 12 }]}>
+            <TextInput
+              style={styles.tmdbInput}
+              value={settings.tmdbApiKey}
+              onChangeText={v => updateSettings({ tmdbApiKey: v.trim() })}
+              placeholder="Cole sua API key aqui"
+              placeholderTextColor={colors.text3}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+        </SettingsGroup>
 
         <View style={styles.footer}>
           <View style={styles.footerLogoRow}>
@@ -549,4 +714,16 @@ const styles = StyleSheet.create({
   footerLogoText: { fontSize: 11, fontWeight: '600', color: colors.text3, letterSpacing: 0.4 },
   footerVersion: { fontSize: 10, color: colors.text3, letterSpacing: 0.4 },
   footerBy: { fontSize: 10, color: colors.text3, letterSpacing: 0.4, marginTop: 2 },
+  tmdbInput: {
+    flex: 1,
+    height: 38,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg2,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    color: colors.text1,
+    marginLeft: 36,
+  },
 });
