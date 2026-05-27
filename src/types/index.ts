@@ -17,11 +17,36 @@ export interface Channel {
   rating?: string;
   releaseDate?: string;
   backdrop?: string;
+  // Jellyfin: posição de retomada em ticks de 100ns (dividir por 10_000_000 para segundos)
+  resumePositionTicks?: number;
+}
+
+/** Shape compartilhado das faixas de legenda Jellyfin (evita importação circular com jellyfinLoader) */
+export interface SubtitleTrack {
+  index: number;
+  displayTitle: string;
+  language: string;
+  isExternal: boolean;
+  vttUrl: string;
+}
+
+/** Shape compartilhado das faixas de áudio Jellyfin (evita importação circular com jellyfinLoader) */
+export interface AudioTrack {
+  index: number;
+  displayTitle: string;
+  language: string;
+  isDefault: boolean;
 }
 
 export type RootStackParamList = {
   Home: undefined;
-  Player: { channel: Channel };
+  Player: {
+    channel: Channel;
+    initialSubtitleIndex?: number | null;
+    initialSubtitleTracks?: SubtitleTrack[];
+    initialAudioIndex?: number | null;
+    initialAudioTracks?: AudioTrack[];
+  };
   Setup: undefined;
   Search: undefined;
   Favorites: undefined;
