@@ -1,18 +1,21 @@
 // TVTopBar.tsx — TV horizontal top nav with proper D-pad focus
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, radius, fontFamily } from '../utils/theme';
 import { LAUNCH_YEAR } from '../utils/channelUtils';
 
-const TV_NAV_ITEMS = [
-  { key: 'home',      label: 'Início' },
-  { key: 'live',      label: 'Ao vivo' },
-  { key: 'movies',   label: 'Filmes' },
-  { key: 'series',   label: 'Séries' },
-  { key: 'year',     label: String(LAUNCH_YEAR) },
-  { key: 'search',   label: 'Buscar' },
+const TV_NAV_STATIC_BEFORE = [
+  { key: 'home',    label: 'Início'  },
+  { key: 'live',    label: 'Ao vivo' },
+  { key: 'movies',  label: 'Filmes'  },
+  { key: 'series',  label: 'Séries'  },
+];
+
+const TV_NAV_STATIC_AFTER = [
+  { key: 'year',   label: String(LAUNCH_YEAR) },
+  { key: 'search', label: 'Buscar'            },
 ];
 
 interface Props {
@@ -20,48 +23,40 @@ interface Props {
   clock: string;
   onNavPress: (key: string) => void;
   onSettingsPress?: () => void;
+  jellyfinSources?: Array<{ id: string; serverName?: string; name: string }>;
 }
 
-/**
- * Nav item usando TVFocusable — recebe o cursor global ao focar,
- * e expõe onFocus/onBlur para atualizar o estilo do texto.
- */
 function NavItem({
   item,
   active,
   onPress,
 }: {
-  item: typeof TV_NAV_ITEMS[0];
+  item: { key: string; label: string };
   active: boolean;
   onPress: () => void;
 }) {
-  const [focused, setFocused] = useState(false);
-
   return (
     <TVFocusable
       onPress={onPress}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
       style={styles.navItem}
+      focusStyle={styles.navItemFocused}
       borderRadius={radius.full}
     >
-      <Text
-        style={[
-          styles.navLabel,
-          focused && styles.navLabelFocused,
-          active  && styles.navLabelActive,
-        ]}
-      >
+      <Text style={[styles.navLabel, active && styles.navLabelActive]}>
         {item.label}
       </Text>
-      {active && (
-        <View style={[styles.activeDot, focused && styles.activeDotFocused]} />
-      )}
+      {active && <View style={styles.activeDot} />}
     </TVFocusable>
   );
 }
 
-export default function TVTopBar({ active, clock, onNavPress, onSettingsPress }: Props) {
+export default function TVTopBar({ active, clock, onNavPress, onSettingsPress, jellyfinSources }: Props) {
+  const navItems = [
+    ...TV_NAV_STATIC_BEFORE,
+    ...(jellyfinSources ?? []).map(s => ({ key: `jf-${s.id}`, label: s.serverName || s.name })),
+    ...TV_NAV_STATIC_AFTER,
+  ];
+
   return (
     <View style={styles.container}>
       {/* Wordmark */}
@@ -76,7 +71,7 @@ export default function TVTopBar({ active, clock, onNavPress, onSettingsPress }:
 
       {/* Nav items */}
       <View style={styles.navItems}>
-        {TV_NAV_ITEMS.map(item => (
+        {navItems.map(item => (
           <NavItem
             key={item.key}
             item={item}
@@ -152,28 +147,24 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     gap: 4,
   },
+  navItemFocused: {
+    backgroundColor: 'rgba(167,139,250,0.15)',
+  },
   navLabel: {
-    fontSize: 14,
+    fontSize: 18,
     fontFamily: fontFamily.medium,
     color: colors.text2,
     letterSpacing: -0.2,
   },
   navLabelActive: {
-    fontFamily: fontFamily.semiBold,
+    fontFamily: fontFamily.bold,
     color: colors.accent,
-  },
-  navLabelFocused: {
-    color: 'rgba(196,181,253,0.85)',
-    fontFamily: fontFamily.semiBold,
   },
   activeDot: {
     width: 4,
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.accent,
-  },
-  activeDotFocused: {
-    backgroundColor: 'rgba(196,181,253,0.85)',
   },
 
   // Right

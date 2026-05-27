@@ -5,11 +5,12 @@
  * TvFocus (modules/tv-focus/) via ViewPropertyAnimator — sem JS,
  * sem jank, funciona mesmo com JS thread ocupado.
  *
- * O módulo também emite 'onTvFocusChanged' para JS, que usamos
- * para mostrar/esconder o overlay branco de foco.
+ * Detecção de foco usa dois mecanismos em paralelo:
+ *   1. addFocusListener (ViewTreeObserver da Activity) — funciona em telas normais
+ *   2. Pressable onFocus/onBlur — fallback para dentro de Modal
+ *      (Modal cria uma Window separada, fora do ViewTreeObserver da Activity)
  *
- * Anel de foco DENTRO do Pressable para posição correta relativa
- * ao card (não na área de margin entre cards).
+ * Ambos escrevem no mesmo estado isFocused, de forma idempotente.
  */
 
 import React, { useRef, useEffect, useState, useImperativeHandle } from 'react';
@@ -64,38 +65,47 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
   const pressableRef = useRef<View>(null);
   const [isFocused, setIsFocused] = useState(false);
 
+  // Refs para callbacks — permite que o useEffect abaixo use deps=[] (subscription estável)
+  // sem closure stale, independente de re-renders do componente pai.
+  const onFocusPropRef = useRef(onFocusProp);
+  const onBlurPropRef  = useRef(onBlurProp);
+  onFocusPropRef.current = onFocusProp;
+  onBlurPropRef.current  = onBlurProp;
+
   useImperativeHandle(ref, () => ({
     focus: () => { (pressableRef.current as any)?.focus?.(); },
   }));
 
+  // Mecanismo 1: ViewTreeObserver da Activity principal (não funciona dentro de Modal)
+  // deps=[] → subscription estável, cleanup apenas no unmount, sem reset acidental de isFocused
   useEffect(() => {
     if (!IS_TV) return;
-
     const sub = addFocusListener((event) => {
       const myTag = findNodeHandle(pressableRef.current);
       if (myTag == null) return;
-
       if (event.newViewTag === myTag) {
         setIsFocused(true);
-        onFocusProp?.();
+        onFocusPropRef.current?.();
       } else if (event.oldViewTag === myTag) {
         setIsFocused(false);
-        onBlurProp?.();
+        onBlurPropRef.current?.();
       }
     });
-
     return () => {
       sub?.remove();
-      // Limpa estado ao desmontar (ex: troca de tela)
       setIsFocused(false);
     };
-  }, [onFocusProp, onBlurProp]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Pressable
       ref={pressableRef as any}
-      onPress={disabled ? undefined : onPress}
+      onPress={disabled ? undefined : () => { setIsFocused(false); onPress?.(); }}
       onLongPress={disabled ? undefined : onLongPress}
+      // Mecanismo 2: Pressable onFocus/onBlur — fallback para Modal
+      // (Modal cria Window separada, ViewTreeObserver não alcança)
+      onFocus={IS_TV ? () => { setIsFocused(true);  onFocusPropRef.current?.(); } : undefined}
+      onBlur ={IS_TV ? () => { setIsFocused(false); onBlurPropRef.current?.();  } : undefined}
       style={[style, isFocused && focusStyle]}
       accessible={accessible}
       accessibilityLabel={accessibilityLabel}
@@ -108,7 +118,7 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
     >
       {children}
 
-      {/* Overlay branco de foco — por cima de tudo */}
+      {/* Anel de foco — por cima de tudo */}
       {isFocused && (
         <View
           pointerEvents="none"
