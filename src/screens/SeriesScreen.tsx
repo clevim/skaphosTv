@@ -18,7 +18,11 @@ import { colors, radius, fontFamily } from '../utils/theme';
 import { Channel, RootStackParamList } from '../types';
 import { getSeriesBaseName } from '../utils/channelUtils';
 import { fetchSeriesInfo, parseSeriesCredentials } from '../utils/xtreamApi';
+import { parseJellyfinSeriesUrl, fetchJellyfinEpisodes, parseJellyfinVideoUrl } from '../utils/jellyfinLoader';
 import { IS_TV } from '../utils/tvDetect';
+import * as ScreenOrientation from 'expo-screen-orientation';
+import { fetchTmdbSeries, TmdbMeta } from '../utils/tmdbApi';
+import JellyfinTrackSheet from '../components/JellyfinTrackSheet';
 
 type SeriesRoute = RouteProp<RootStackParamList, 'Series'>;
 type Nav = StackNavigationProp<RootStackParamList>;
@@ -83,7 +87,7 @@ export default function SeriesScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<SeriesRoute>();
   const { seriesName, channels: routeChannels } = route.params;
-  const { setCurrentChannel, toggleFavorite, favorites, recentChannels } = useStore();
+  const { setCurrentChannel, toggleFavorite, favorites, recentChannels, settings } = useStore();
 
   // Hook de dimensões — reage a rotação/redimensionamento em tempo real
   const { width: sw, height: sh } = useWindowDimensions();
@@ -95,6 +99,9 @@ export default function SeriesScreen() {
   const [allEpisodes, setAllEpisodes] = useState<Channel[]>(isXtreamSeries ? [] : routeChannels);
   const [loadingEpisodes, setLoadingEpisodes] = useState(isXtreamSeries);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [tmdb, setTmdb] = useState<TmdbMeta | null>(null);
+  const [trackSheetUrl, setTrackSheetUrl] = useState<string | null>(null);
+  const pendingEpRef = useRef<Channel | null>(null);
 
   const doFetchEpisodes = useCallback(() => {
     if (!isXtreamSeries) return;
@@ -102,6 +109,22 @@ export default function SeriesScreen() {
     setFetchError(null);
     setLoadingEpisodes(true);
 
+    // Jellyfin series — pseudo-URL path
+    const jellyfinCreds = parseJellyfinSeriesUrl(seriesChannel.url);
+    if (jellyfinCreds) {
+      fetchJellyfinEpisodes(jellyfinCreds.host, jellyfinCreds.apiKey, jellyfinCreds.userId, jellyfinCreds.seriesId)
+        .then(eps => {
+          setAllEpisodes(eps);
+          setLoadingEpisodes(false);
+        })
+        .catch(e => {
+          setFetchError(e.message || 'Erro ao carregar episódios');
+          setLoadingEpisodes(false);
+        });
+      return;
+    }
+
+    // Xtream series
     const creds = parseSeriesCredentials(seriesChannel.url);
     if (!creds) {
       setFetchError('URL da série inválida');
@@ -168,6 +191,13 @@ export default function SeriesScreen() {
 
   useEffect(() => { doFetchEpisodes(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // TMDB enrichment para séries sem metadados (M3U sem info)
+  useEffect(() => {
+    const key = settings.tmdbApiKey;
+    if (!key || seriesChannel?.plot || seriesChannel?.backdrop) return;
+    fetchTmdbSeries(seriesName, key).then(setTmdb);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const baseName = isXtreamSeries ? seriesName : getSeriesBaseName(seriesName);
   const heroChannel = seriesChannel;
 
@@ -230,9 +260,45 @@ export default function SeriesScreen() {
   const currentEpLbl = currentEp ? epLabel(currentEp.name, currentEpIdx) : 'E01';
   const seasonNum = selectedSeason;
 
-  const handlePlay = (ch: Channel) => {
+  const lockAndNavigate = (
+    ch: Channel,
+    subtitleIndex: number | null = null,
+    subtitleTracks: import('../types').SubtitleTrack[] = [],
+    audioIndex: number | null = null,
+    audioTracks: import('../types').AudioTrack[] = [],
+  ) => {
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
     setCurrentChannel(ch);
-    navigation.navigate('Player', { channel: ch });
+    navigation.navigate('Player', {
+      channel: ch,
+      initialSubtitleIndex: subtitleIndex,
+      initialSubtitleTracks: subtitleTracks,
+      initialAudioIndex: audioIndex,
+      initialAudioTracks: audioTracks,
+    });
+  };
+
+  const handlePlay = (ch: Channel) => {
+    if (parseJellyfinVideoUrl(ch.url)) {
+      pendingEpRef.current = ch;
+      setTrackSheetUrl(ch.url);
+      return;
+    }
+    lockAndNavigate(ch);
+  };
+
+  const handleTrackConfirm = (
+    _url: string,
+    subtitleIndex: number | null,
+    subtitleTracks: import('../types').SubtitleTrack[],
+    audioIndex: number | null,
+    audioTracks: import('../types').AudioTrack[],
+  ) => {
+    const ch = pendingEpRef.current;
+    setTrackSheetUrl(null);
+    pendingEpRef.current = null;
+    if (!ch) return;
+    lockAndNavigate(ch, subtitleIndex, subtitleTracks, audioIndex, audioTracks);
   };
 
   // ── Loading / Error ───────────────────────────────────────────────────────
@@ -295,17 +361,24 @@ export default function SeriesScreen() {
   }
 
   // ── Metadados para exibição ───────────────────────────────────────────────
-  const displayPlot = isXtreamSeries
-    ? (seriesChannel?.plot || seriesChannel?.genre || '')
-    : (heroChannel?.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || '');
+  const groupClean = heroChannel?.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || '';
 
-  const displayGenre = isXtreamSeries
-    ? (seriesChannel?.genre || heroChannel?.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || 'Drama')
-    : (heroChannel?.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || 'Drama');
+  const displayPlot = seriesChannel?.plot || tmdb?.plot
+    || (isXtreamSeries ? (seriesChannel?.genre || '') : groupClean);
 
-  const backdropUri = isXtreamSeries
-    ? (seriesChannel?.backdrop || seriesChannel?.logo)
-    : heroChannel?.logo;
+  const displayGenre = seriesChannel?.genre || tmdb?.genre || groupClean || 'Drama';
+
+  const backdropUri = seriesChannel?.backdrop || seriesChannel?.logo
+    || tmdb?.backdrop || tmdb?.poster || heroChannel?.logo;
+
+  const trackSheet = (
+    <JellyfinTrackSheet
+      visible={trackSheetUrl !== null}
+      channelUrl={trackSheetUrl ?? ''}
+      onConfirm={handleTrackConfirm}
+      onCancel={() => { setTrackSheetUrl(null); pendingEpRef.current = null; }}
+    />
+  );
 
   // ── TV Layout ─────────────────────────────────────────────────────────────
   if (IS_TV) {
@@ -317,7 +390,7 @@ export default function SeriesScreen() {
     return (
       <View style={tvStyles.root}>
         <StatusBar hidden />
-
+        {trackSheet}
         {backdropUri ? (
           <Image source={{ uri: backdropUri }} style={tvStyles.backdrop} resizeMode="cover" />
         ) : (
@@ -514,6 +587,7 @@ export default function SeriesScreen() {
   return (
     <View style={styles.root}>
       <StatusBar hidden />
+      {trackSheet}
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
 
         <View style={styles.hero}>

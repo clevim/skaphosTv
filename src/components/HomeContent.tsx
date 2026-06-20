@@ -64,9 +64,9 @@ function ContinueCard({ channel, onPress }: { channel: Channel; onPress: () => v
 }
 
 const cStyles = StyleSheet.create({
-  card: { width: IS_TV ? 232 : 168 },
+  card: { width: IS_TV ? 160 : 116 },
   poster: {
-    height: IS_TV ? 130 : 96,
+    aspectRatio: 2 / 3,
     borderRadius: 10,
     overflow: 'hidden',
     backgroundColor: colors.bg3,
@@ -98,6 +98,7 @@ const cStyles = StyleSheet.create({
 
 // ── Live Card ─────────────────────────────────────────────────
 function LiveCard({ channel, onPress }: { channel: Channel; onPress: () => void }) {
+  const isJellyfin = channel.id?.startsWith('jf-');
   return (
     <TVFocusable onPress={onPress} style={lStyles.card}>
       <View style={lStyles.poster}>
@@ -108,11 +109,17 @@ function LiveCard({ channel, onPress }: { channel: Channel; onPress: () => void 
             <Text style={lStyles.posterInitials}>{channel.name.slice(0, 2).toUpperCase()}</Text>
           </View>
         )}
-        {/* LIVE badge */}
-        <View style={lStyles.liveBadge}>
-          <PulsingDot size={6} color={colors.live} />
-          <Text style={lStyles.liveText}>LIVE</Text>
-        </View>
+        {isJellyfin ? (
+          <View style={[lStyles.badge, lStyles.jellyBadge]}>
+            <View style={lStyles.jellyDot} />
+            <Text style={lStyles.badgeText}>JELLY</Text>
+          </View>
+        ) : (
+          <View style={lStyles.badge}>
+            <PulsingDot size={6} color={colors.live} />
+            <Text style={lStyles.badgeText}>LIVE</Text>
+          </View>
+        )}
       </View>
       <Text style={lStyles.title} numberOfLines={1}>{channel.name}</Text>
       <Text style={lStyles.sub} numberOfLines={1}>
@@ -123,18 +130,12 @@ function LiveCard({ channel, onPress }: { channel: Channel; onPress: () => void 
 }
 
 const lStyles = StyleSheet.create({
-  card: {
-    width: IS_TV ? 192 : 152,
-    borderLeftWidth: 2,
-    borderLeftColor: colors.live,
+  card: { width: IS_TV ? 160 : 116 },
+  poster: {
+    aspectRatio: 2 / 3,
     borderRadius: 10,
     overflow: 'hidden',
-  },
-  poster: {
-    height: IS_TV ? 108 : 86,
     backgroundColor: colors.bg3,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   posterImg: { width: '100%', height: '100%' },
   posterFallback: {
@@ -143,13 +144,21 @@ const lStyles = StyleSheet.create({
     backgroundColor: colors.bg2,
   },
   posterInitials: { fontSize: 16, fontWeight: '800', color: colors.accent, letterSpacing: 2 },
-  liveBadge: {
+  badge: {
     position: 'absolute', top: 8, left: 8,
     flexDirection: 'row', alignItems: 'center', gap: 5,
     paddingHorizontal: 6, paddingVertical: 2,
     borderRadius: 4, backgroundColor: 'rgba(0,0,0,0.6)',
   },
-  liveText: { fontSize: 9, fontWeight: '600', color: '#fff' },
+  jellyBadge: {
+    backgroundColor: 'rgba(167,139,250,0.18)',
+    borderWidth: 1, borderColor: 'rgba(167,139,250,0.4)',
+  },
+  jellyDot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: colors.accent,
+  },
+  badgeText: { fontSize: 9, fontWeight: '600', color: '#fff' },
   title: { fontSize: 12, fontWeight: '600', color: colors.text1, marginTop: 8 },
   sub: { fontSize: 11, color: colors.text2, marginTop: 2 },
 });
@@ -196,9 +205,11 @@ function Row({ children }: { children: React.ReactNode }) {
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
+      // paddingVertical dá espaço pro card ampliado (zoom de foco) não ser recortado.
       contentContainerStyle={{
         gap: IS_TV ? 14 : 12,
         paddingHorizontal: IS_TV ? spacing.xxxl : 22,
+        paddingVertical: IS_TV ? 16 : 8,
       }}
     >
       {children}
@@ -299,12 +310,20 @@ export default function HomeContent({
     channels[0] ||
     null;
 
+  // streamType tem precedência sobre heurística — Jellyfin define isso explicitamente
   const heroType = heroChannel
-    ? detectType(heroChannel.group || '', heroChannel.name)
+    ? (heroChannel.streamType === 'movie'  ? 'movies'
+       : heroChannel.streamType === 'series' ? 'series'
+       : heroChannel.streamType === 'live'   ? 'live'
+       : detectType(heroChannel.group || '', heroChannel.name))
     : 'live';
 
-  const heroBadgeLabel =
-    heroType === 'movies' ? 'FILME' : heroType === 'series' ? 'SÉRIE' : 'AO VIVO';
+  const isHeroJellyfin = Boolean(heroChannel?.id?.startsWith('jf-'));
+
+  const heroBadgeLabel = isHeroJellyfin ? 'JELLY'
+    : heroType === 'movies' ? 'FILME'
+    : heroType === 'series' ? 'SÉRIE'
+    : 'AO VIVO';
 
   if (isEmpty && sourcesEmpty) {
     return (
@@ -386,8 +405,13 @@ export default function HomeContent({
               style={styles.heroGradient}
             />
             {/* Type badge */}
-            <View style={[styles.heroLiveBadge, heroType !== 'live' && styles.heroVodBadge]}>
-              {heroType === 'live' && <PulsingDot size={6} color={colors.live} />}
+            <View style={[
+              styles.heroLiveBadge,
+              isHeroJellyfin ? styles.heroJellyBadge : (heroType !== 'live' && styles.heroVodBadge),
+            ]}>
+              {isHeroJellyfin
+                ? <View style={styles.heroJellyDot} />
+                : heroType === 'live' ? <PulsingDot size={6} color={colors.live} /> : null}
               <Text style={styles.heroLiveText}>{heroBadgeLabel}</Text>
             </View>
             {/* Bottom content */}
@@ -515,7 +539,7 @@ export default function HomeContent({
 const styles = StyleSheet.create({
   content: {
     // TV: push content below the absolutely-positioned top bar (24px padding + ~20px text + 24px padding ≈ 88px)
-    paddingTop: IS_TV ? 88 : 6,
+    paddingTop: IS_TV ? 72 : 6,
   },
 
   // Hero — mobile (rounded card)
@@ -568,6 +592,14 @@ const styles = StyleSheet.create({
   heroVodBadge: {
     backgroundColor: 'rgba(167,139,250,0.15)',
     borderColor: 'rgba(167,139,250,0.35)',
+  },
+  heroJellyBadge: {
+    backgroundColor: 'rgba(167,139,250,0.18)',
+    borderColor: 'rgba(167,139,250,0.45)',
+  },
+  heroJellyDot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: colors.accent,
   },
   heroLiveText: { fontSize: 10, fontWeight: '700', color: '#fff', letterSpacing: 1 },
   heroBottom: {

@@ -1,5 +1,5 @@
 // SearchScreen.tsx — matches MobileSearch design exactly
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, TextInput, StyleSheet, FlatList,
   Image, Platform,
@@ -18,6 +18,33 @@ const TYPE_LABEL: Record<string, string> = {
   series: 'SÉRIE',
 };
 
+const SearchRow = React.memo(function SearchRow({
+  item, onPress,
+}: { item: Channel; onPress: (ch: Channel) => void }) {
+  const handlePress = useCallback(() => onPress(item), [onPress, item]);
+  return (
+    <TVFocusable onPress={handlePress} style={styles.resultRow}>
+      <View style={styles.resultThumb}>
+        {item.logo ? (
+          <Image source={{ uri: item.logo }} style={styles.resultThumbImg} resizeMode="cover" />
+        ) : (
+          <View style={[styles.resultThumbFallback, { backgroundColor: colors.accentSoft }]}>
+            <Text style={styles.resultThumbText}>{item.name.slice(0, 2).toUpperCase()}</Text>
+          </View>
+        )}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.resultType}>{TYPE_LABEL['live']}</Text>
+        <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.resultSub} numberOfLines={1}>
+          {item.group ? item.group.replace(/[♦◆️]\s*/g, '').trim() : ''}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={14} color={colors.text3} />
+    </TVFocusable>
+  );
+});
+
 export function SearchScreen() {
   const navigation = useNavigation();
   const { channels, setCurrentChannel } = useStore();
@@ -34,10 +61,19 @@ export function SearchScreen() {
   const bestMatch = results.length > 0 ? results[0] : null;
   const otherResults = results.slice(1);
 
-  const playChannel = (ch: Channel) => {
+  const playChannel = useCallback((ch: Channel) => {
     setCurrentChannel(ch);
     (navigation as any).navigate('Player', { channel: ch });
-  };
+  }, [navigation, setCurrentChannel]);
+
+  const keyExtractor = useCallback((c: Channel) => c.id, []);
+
+  const renderSearchItem = useCallback(({ item, index }: { item: Channel; index: number }) => {
+    if (index === 0) return null;
+    return (
+      <SearchRow item={item} onPress={playChannel} />
+    );
+  }, [playChannel]);
 
   return (
     <View style={styles.root}>
@@ -95,8 +131,9 @@ export function SearchScreen() {
       ) : (
         <FlatList
           data={results}
-          keyExtractor={c => c.id}
+          keyExtractor={keyExtractor}
           contentContainerStyle={styles.listContent}
+          renderItem={renderSearchItem}
           ListHeaderComponent={
             bestMatch ? (
               <View style={styles.bestMatchSection}>
@@ -142,35 +179,6 @@ export function SearchScreen() {
               </View>
             ) : null
           }
-          renderItem={({ item, index }) => {
-            if (index === 0) return null; // best match already shown
-            return (
-              <TVFocusable
-                onPress={() => playChannel(item)}
-                style={styles.resultRow}
-              >
-                <View style={styles.resultThumb}>
-                  {item.logo ? (
-                    <Image source={{ uri: item.logo }} style={styles.resultThumbImg} resizeMode="cover" />
-                  ) : (
-                    <View style={[styles.resultThumbFallback, { backgroundColor: colors.accentSoft }]}>
-                      <Text style={styles.resultThumbText}>{item.name.slice(0, 2).toUpperCase()}</Text>
-                    </View>
-                  )}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.resultType}>
-                    {TYPE_LABEL['live']}
-                  </Text>
-                  <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
-                  <Text style={styles.resultSub} numberOfLines={1}>
-                    {item.group ? item.group.replace(/[♦◆️]\s*/g, '').trim() : ''}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={14} color={colors.text3} />
-              </TVFocusable>
-            );
-          }}
         />
       )}
     </View>

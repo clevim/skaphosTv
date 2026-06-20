@@ -1,7 +1,9 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, BackHandler } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import Video, { ResizeMode } from 'react-native-video';
+import Video, { ResizeMode, SelectedTrackType, TextTracksType } from 'react-native-video';
+import type { ISO639_1 } from 'react-native-video/src/types/language';
+// ^^ ISO639_1 usado como cast de tipo no externalTextTracks — TS precisa do import explícito
 import { Ionicons } from '@expo/vector-icons';
 
 import { useStore } from '../store/useStore';
@@ -11,6 +13,8 @@ import { MAX_RETRIES, RETRY_DELAYS, usePlayer } from '@/hooks/usePlayer';
 import PlayerOSD from '@/components/PlayerOSD';
 import PlayerSidebar from '@/components/PlayerSidebar';
 import PlayerError from '@/components/PlayerError';
+import SubtitleSheet from '@/components/SubtitleSheet';
+import AudioTrackSheet from '@/components/AudioTrackSheet';
 import { fixStreamUrl } from '../utils/m3uParser';
 
 // Teclas do controle FireTV / Android TV
@@ -33,10 +37,16 @@ type PlayerRoute = RouteProp<RootStackParamList, 'Player'>;
 export default function PlayerScreen() {
   const navigation = useNavigation();
   const route = useRoute<PlayerRoute>();
-  const { channel } = route.params;
+  const {
+    channel,
+    initialSubtitleIndex = null,
+    initialSubtitleTracks = [],
+    initialAudioIndex = null,
+    initialAudioTracks = [],
+  } = route.params;
 
   const { channels } = useStore();
-  const player = usePlayer(channel);
+  const player = usePlayer(channel, initialSubtitleIndex, initialSubtitleTracks, initialAudioIndex, initialAudioTracks);
 
   const {
     videoRef, osdAnim, videoKey, paused,
@@ -44,8 +54,11 @@ export default function PlayerScreen() {
     isMuted, volume, error,
     retryCount, retryingIn,
     position, duration,
-    showOSD, showSidebar,
+    showOSD, showSidebar, seekHint,
     isLive, currentIndex,
+    subtitleTracks, selectedSubtitleIndex,
+    vttSubtitleIndex, switchSubtitleTrack,
+    audioTracks, currentAudioIndex, audioReady, switchAudioTrack,
     setVolume, setIsMuted, setShowSidebar,
     handleScreenTap, showOSDTemporarily,
     togglePlay, playChannel, prevChannel, nextChannel,
@@ -53,47 +66,146 @@ export default function PlayerScreen() {
     onLoad, onProgress, onBuffer, onError, onEnd,
   } = player;
 
+  const [showSubtitleSheet, setShowSubtitleSheet] = useState(false);
+  const [showAudioSheet, setShowAudioSheet] = useState(false);
+
+  // ── Track selection ───────────────────────────────────────────────────────────
+  //
+  // ÁUDIO — LANGUAGE confirmado funcionando. audioReady guard evita aplicar antes
+  // do onLoad (grupos ExoPlayer precisam existir).
+  const iso639: Record<string, string> = {
+    por: 'pt', eng: 'en', spa: 'es', fra: 'fr', deu: 'de',
+    ita: 'it', jpn: 'ja', zho: 'zh', kor: 'ko', ara: 'ar', rus: 'ru',
+    nld: 'nl', pol: 'pl', tur: 'tr', swe: 'sv', nor: 'no', dan: 'da',
+    fin: 'fi', heb: 'he', hin: 'hi', tha: 'th', vie: 'vi', ind: 'id',
+  };
+  const toLang2 = (code: string): string => {
+    if (!code) return '';
+    const lc = code.toLowerCase();
+    if (lc.length === 2) return lc;
+    return iso639[lc] ?? lc.slice(0, 2);
+  };
+
+  const selectedAudioTrack = useMemo(() => {
+    if (!audioReady || currentAudioIndex === null || audioTracks.length === 0) return undefined;
+    const track = audioTracks.find(t => t.index === currentAudioIndex);
+    if (!track) return undefined;
+    const lang = toLang2(track.language);
+    if (lang && lang !== 'und') return { type: SelectedTrackType.LANGUAGE, value: lang };
+    // Fallback INDEX para idiomas desconhecidos
+    const sorted = [...audioTracks].sort((a, b) => a.index - b.index);
+    const exoIdx = sorted.findIndex(t => t.index === currentAudioIndex);
+    return exoIdx >= 0 ? { type: SelectedTrackType.INDEX, value: exoIdx } : undefined;
+  }, [audioReady, currentAudioIndex, audioTracks]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // LEGENDA — carrega SOMENTE a legenda ativa (vttSubtitleIndex) como VTT (1 arquivo).
+  //
+  // Por quê apenas 1:
+  //  • setTextTracks() → reloadSource() no Java: reinicia o player. Mudar mid-playback
+  //    é viável pois switchSubtitleTrack salva a posição em pendingSeekRef antes.
+  //  • N VTTs simultâneos causam MergingMediaSource pesado → seek trava infinitamente.
+  //  • 1 VTT pequeno (SRT típico: 10–100 KB) não afeta o seek.
+  //
+  // Seleção: LANGUAGE com ID único jf-sub-{index} — matching exato no Java (.equals()).
+  const activeVttTrack = useMemo(() => {
+    if (vttSubtitleIndex === null) return [];
+    const track = subtitleTracks.find(t => t.index === vttSubtitleIndex);
+    if (!track?.vttUrl) return [];
+    return [{
+      title:    track.displayTitle,
+      language: `jf-sub-${track.index}` as ISO639_1,
+      uri:      track.vttUrl,
+      type:     TextTracksType.VTT,
+    }];
+  }, [vttSubtitleIndex, subtitleTracks]);
+
+  const selectedTextTrack = useMemo(() => {
+    if (!audioReady || selectedSubtitleIndex === null) return { type: SelectedTrackType.DISABLED };
+    const track = subtitleTracks.find(t => t.index === selectedSubtitleIndex);
+    if (!track) return { type: SelectedTrackType.DISABLED };
+
+    // Legenda cujo VTT está carregado → LANGUAGE com ID único (matching garantido)
+    if (track.index === vttSubtitleIndex && track.vttUrl) {
+      return { type: SelectedTrackType.LANGUAGE, value: `jf-sub-${track.index}` };
+    }
+
+    return { type: SelectedTrackType.DISABLED };
+  }, [audioReady, selectedSubtitleIndex, subtitleTracks, vttSubtitleIndex]);
+
   const groupChannels = channels.filter(c => c.group === playingChannel.group);
   const sidebarChannels = groupChannels.length > 0 ? groupChannels : channels;
 
-  const streamUrl = fixStreamUrl(playingChannel.url);
+  // URL estável — não varia com audioIndex/subtitleIndex.
+  // Para Direct Play (static=true) o servidor ignora audioStreamIndex de qualquer forma;
+  // a seleção de faixa é feita pelas props selectedAudioTrack / selectedTextTrack do player.
+  const streamUrl = useMemo(
+    () => fixStreamUrl(playingChannel.url),
+    [playingChannel.url], // só muda ao trocar de canal — nunca ao trocar faixa
+  );
 
   useEffect(() => {
     const handler = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showSubtitleSheet) { setShowSubtitleSheet(false); return true; }
+      if (showAudioSheet) { setShowAudioSheet(false); return true; }
       if (showSidebar) { setShowSidebar(false); return true; }
       navigation.goBack();
       return true;
     });
     return () => handler.remove();
-  }, [navigation, showSidebar]);
+  }, [navigation, showSidebar, showSubtitleSheet, showAudioSheet]);
 
   // Refs para evitar closure stale nos callbacks de key event
-  const showOSDRef    = useRef(showOSD);
-  const showSidebarRef = useRef(showSidebar);
-  const isLiveRef     = useRef(isLive);
-  useEffect(() => { showOSDRef.current    = showOSD;    }, [showOSD]);
+  const showOSDRef       = useRef(showOSD);
+  const showSidebarRef   = useRef(showSidebar);
+  const isLiveRef        = useRef(isLive);
+  const showSheetRef     = useRef(false);
+  // Última tecla de seek do D-pad — permite que repetições rápidas façam scrub
+  // mesmo com o OSD visível (segurar/spam = avanço acelerado).
+  const lastSeekKeyRef   = useRef({ ts: 0, dir: 0 });
+  useEffect(() => { showOSDRef.current     = showOSD;     }, [showOSD]);
   useEffect(() => { showSidebarRef.current = showSidebar; }, [showSidebar]);
-  useEffect(() => { isLiveRef.current     = isLive;     }, [isLive]);
+  useEffect(() => { isLiveRef.current      = isLive;      }, [isLive]);
+  useEffect(() => { showSheetRef.current   = showSubtitleSheet || showAudioSheet; }, [showSubtitleSheet, showAudioSheet]);
 
   // onKeyDown no Android TV: onKeyDown fires no View pai mesmo quando
   // um filho tem o foco — key events sobem na hierarquia de views.
   // useTVEventHandler NÃO existe em react-native 0.74 padrão (só em tvos).
   const handleKeyDown = useCallback((e: any) => {
     const code: number = e?.nativeEvent?.keyCode ?? 0;
+
+    // Quando algum sheet (legenda/áudio) está aberto, ignora — o Modal cuida do foco
+    if (showSheetRef.current) return;
+
+    // ── Seek por D-pad ──────────────────────────────────────────────────────────
+    // DPAD_LEFT/RIGHT: direita avança, esquerda volta. Teclas de mídia (FF/RW) sempre
+    // fazem seek. Para o D-pad: com OSD oculto, tap normal faz seek; com OSD visível,
+    // só repetições rápidas (segurar/spam) fazem scrub — tap isolado navega os botões.
+    const isMediaSeek = code === KEY.MEDIA_FAST_FWD || code === KEY.MEDIA_REWIND;
+    const dir =
+      code === KEY.DPAD_RIGHT || code === KEY.MEDIA_FAST_FWD ?  1 :
+      code === KEY.DPAD_LEFT  || code === KEY.MEDIA_REWIND   ? -1 : 0;
+
+    if (dir !== 0) {
+      showOSDTemporarily();
+      if (isLiveRef.current) return;
+      if (isMediaSeek) { seekBy(10 * dir); return; }
+
+      const now = Date.now();
+      const prev = lastSeekKeyRef.current;
+      const rapid = dir === prev.dir && now - prev.ts < 500;
+      lastSeekKeyRef.current = { ts: now, dir };
+
+      // OSD oculto → seek direto. OSD visível → só se for repetição rápida.
+      if (!showOSDRef.current || rapid) seekBy(10 * dir);
+      return;
+    }
+
     showOSDTemporarily();
 
     // Quando OSD está aberto, o D-pad navega nos botões do OSD — não fazemos seek
     if (showOSDRef.current) return;
 
     switch (code) {
-      case KEY.DPAD_LEFT:
-      case KEY.MEDIA_REWIND:
-        if (!isLiveRef.current) seekBy(-10);
-        break;
-      case KEY.DPAD_RIGHT:
-      case KEY.MEDIA_FAST_FWD:
-        if (!isLiveRef.current) seekBy(10);
-        break;
       case KEY.DPAD_CENTER:
       case KEY.MEDIA_PLAY_PAUSE:
       case KEY.MEDIA_PLAY:
@@ -112,6 +224,28 @@ export default function PlayerScreen() {
         break;
     }
   }, [seekBy, togglePlay, setVolume, setShowSidebar, showOSDTemporarily, navigation]);
+
+  // Web: o View não tem onKeyDown, então o teclado vira o "D-pad" reaproveitando
+  // a mesma lógica de seek/aceleração/indicador via um listener de window.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const webKeyMap: Record<string, number> = {
+      ArrowRight: KEY.DPAD_RIGHT,
+      ArrowLeft:  KEY.DPAD_LEFT,
+      ArrowUp:    KEY.DPAD_UP,
+      ArrowDown:  KEY.DPAD_DOWN,
+      Enter:      KEY.DPAD_CENTER,
+      ' ':        KEY.MEDIA_PLAY_PAUSE,
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      const code = webKeyMap[ev.key];
+      if (code == null) return;
+      ev.preventDefault();
+      handleKeyDown({ nativeEvent: { keyCode: code } });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleKeyDown]);
 
   return (
     // onKeyDown no root View captura todos os eventos de tecla do controle remoto.
@@ -146,6 +280,9 @@ export default function PlayerScreen() {
           ignoreSilentSwitch="ignore"
           playInBackground={false}
           playWhenInactive={false}
+          textTracks={activeVttTrack}
+          selectedTextTrack={selectedTextTrack}
+          selectedAudioTrack={selectedAudioTrack}
           onLoad={onLoad}
           onProgress={onProgress}
           onBuffer={onBuffer}
@@ -198,8 +335,36 @@ export default function PlayerScreen() {
             onToggleSidebar={() => setShowSidebar(s => !s)}
             onSeekTo={seekTo}
             onSeekBy={seekBy}
+            hasSubtitles={subtitleTracks.length > 0}
+            subtitleActive={selectedSubtitleIndex !== null}
+            onToggleSubtitles={() => setShowSubtitleSheet(true)}
+            hasAudio={audioTracks.length > 1}
+            onToggleAudio={() => setShowAudioSheet(true)}
           />
         )}
+
+        {seekHint && (
+          <View pointerEvents="none" style={styles.seekHint}>
+            <Text style={styles.seekHintText}>
+              {seekHint.dir === 'fwd' ? '⏩' : '⏪'} {seekHint.dir === 'fwd' ? '+' : '−'}{seekHint.amount}s
+            </Text>
+          </View>
+        )}
+
+        <SubtitleSheet
+          visible={showSubtitleSheet}
+          tracks={subtitleTracks}
+          selectedIndex={selectedSubtitleIndex}
+          onSelect={switchSubtitleTrack}
+          onClose={() => setShowSubtitleSheet(false)}
+        />
+        <AudioTrackSheet
+          visible={showAudioSheet}
+          tracks={audioTracks}
+          selectedIndex={currentAudioIndex}
+          onSelect={switchAudioTrack}
+          onClose={() => setShowAudioSheet(false)}
+        />
       </TouchableOpacity>
 
       {showSidebar && (
@@ -219,6 +384,7 @@ export default function PlayerScreen() {
           </View>
         </View>
       )}
+
     </View>
   );
 }
@@ -232,6 +398,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.6)', gap: 12,
   },
   bufferingText: { color: colors.text2, fontSize: fontSize.md, fontWeight: '500' },
+  seekHint: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  seekHintText: {
+    color: colors.accent,
+    fontSize: fontSize.hero,
+    fontWeight: '700',
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    overflow: 'hidden',
+  },
   retryLabel: { color: colors.accent2, fontSize: fontSize.xs },
   sidebarOverlay: {
     ...StyleSheet.absoluteFillObject,

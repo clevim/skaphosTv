@@ -1,7 +1,7 @@
 // DetailScreen.tsx — Filme/VOD detail page
 // Mobile: vertical scroll with hero top
 // TV: landscape two-panel (backdrop left 60% + metadata right 40%)
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Image,
   Platform, StatusBar, Share,
@@ -14,10 +14,13 @@ import { useStore } from '../store/useStore';
 import TVFocusable from '../components/TVFocusable';
 import PulsingDot from '../components/PulsingDot';
 import GlassButton from '../components/GlassButton';
+import JellyfinTrackSheet from '../components/JellyfinTrackSheet';
 import { colors, fontSize, radius, fontFamily } from '../utils/theme';
 import { RootStackParamList } from '../types';
 import { detectType, getSeriesBaseName } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
+import { fetchTmdbMovie, fetchTmdbSeries, TmdbMeta } from '../utils/tmdbApi';
+import { parseJellyfinVideoUrl } from '../utils/jellyfinLoader';
 
 type DetailRoute = RouteProp<RootStackParamList, 'Detail'>;
 type Nav = StackNavigationProp<RootStackParamList>;
@@ -30,22 +33,63 @@ export default function DetailScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<DetailRoute>();
   const { channel, relatedChannels = [] } = route.params;
-  const { setCurrentChannel, toggleFavorite, favorites } = useStore();
+  const { setCurrentChannel, toggleFavorite, favorites, settings } = useStore();
   const [activeTab, setActiveTab] = useState<Tab>('Sobre');
+  const [tmdb, setTmdb] = useState<TmdbMeta | null>(null);
+  const [trackSheetUrl, setTrackSheetUrl] = useState<string | null>(null);
 
   const type = detectType(channel.group || '', channel.name);
   const displayName = type === 'series' ? getSeriesBaseName(channel.name) : channel.name;
   const groupClean = channel.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || '';
   const isFav = favorites.includes(channel.id);
   const typeLabel = type === 'movies' ? 'Filme' : type === 'series' ? 'Série' : 'Canal';
-  const heroImage = channel.backdrop || channel.logo;
-  const displayGenre = channel.genre || groupClean;
-  const displayRating = channel.rating ? `⭐ ${channel.rating}` : null;
-  const displayYear = channel.releaseDate ? channel.releaseDate.slice(0, 4) : null;
+
+  // TMDB enrichment para canais sem metadados (M3U / Xtream sem info)
+  useEffect(() => {
+    const key = settings.tmdbApiKey;
+    if (!key || channel.plot || channel.backdrop) return;
+    if (type === 'movies') {
+      fetchTmdbMovie(displayName, key, channel.releaseDate?.slice(0, 4)).then(setTmdb);
+    } else if (type === 'series') {
+      fetchTmdbSeries(displayName, key).then(setTmdb);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const heroImage  = tmdb?.backdrop ?? tmdb?.poster ?? channel.backdrop ?? channel.logo;
+  const displayGenre  = channel.genre  || tmdb?.genre  || groupClean;
+  const displayRating = channel.rating ? `⭐ ${channel.rating}` : tmdb?.rating ? `⭐ ${tmdb.rating}` : null;
+  const displayYear   = channel.releaseDate?.slice(0, 4) ?? tmdb?.year ?? null;
+  const displayPlot   = channel.plot   || tmdb?.plot;
+  const displayCast   = channel.cast   || tmdb?.cast;
+  const displayDir    = channel.director || tmdb?.director;
+
+  const isJellyfin = !!parseJellyfinVideoUrl(channel.url);
 
   const handlePlay = () => {
+    if (isJellyfin) {
+      setTrackSheetUrl(channel.url);
+      return;
+    }
     setCurrentChannel(channel);
     navigation.navigate('Player', { channel });
+  };
+
+  const doPlay = (
+    _url: string,
+    subtitleIndex: number | null,
+    subtitleTracks: import('../types').SubtitleTrack[],
+    audioIndex: number | null,
+    audioTracks: import('../types').AudioTrack[],
+  ) => {
+    setTrackSheetUrl(null);
+    setCurrentChannel(channel);
+    navigation.navigate('Player', {
+      channel,
+      initialSubtitleIndex: subtitleIndex,
+      initialSubtitleTracks: subtitleTracks,
+      initialAudioIndex: audioIndex,
+      initialAudioTracks: audioTracks,
+    });
   };
 
   const handleShare = async () => {
@@ -88,7 +132,7 @@ export default function DetailScreen() {
         <View style={styles.about}>
           {/* Synopsis */}
           <Text style={styles.synopsis}>
-            {channel.plot ||
+            {displayPlot ||
               (groupClean
                 ? `Conteúdo ${typeLabel.toLowerCase()} do grupo ${groupClean}.`
                 : `Conteúdo ${typeLabel.toLowerCase()}.`)}
@@ -114,16 +158,16 @@ export default function DetailScreen() {
                 <Text style={styles.metaVal}>{displayRating}</Text>
               </View>
             ) : null}
-            {channel.director ? (
+            {displayDir ? (
               <View style={styles.metaItem}>
                 <Text style={styles.metaKey}>Diretor</Text>
-                <Text style={styles.metaVal}>{channel.director}</Text>
+                <Text style={styles.metaVal}>{displayDir}</Text>
               </View>
             ) : null}
-            {channel.cast ? (
+            {displayCast ? (
               <View style={styles.metaItem}>
                 <Text style={styles.metaKey}>Elenco</Text>
-                <Text style={styles.metaVal}>{channel.cast}</Text>
+                <Text style={styles.metaVal}>{displayCast}</Text>
               </View>
             ) : null}
             <View style={styles.metaItem}>
@@ -168,6 +212,14 @@ export default function DetailScreen() {
   if (IS_TV) {
     return (
       <View style={tvStyles.root}>
+        {trackSheetUrl !== null && (
+          <JellyfinTrackSheet
+            visible
+            channelUrl={trackSheetUrl}
+            onConfirm={doPlay}
+            onCancel={() => setTrackSheetUrl(null)}
+          />
+        )}
         <StatusBar hidden />
 
         {/* Left panel — backdrop (60%) */}
@@ -241,7 +293,7 @@ export default function DetailScreen() {
               label="Minha lista"
               onPress={() => toggleFavorite(channel.id)}
             />
-            <GlassButton icon="share-outline" label="Indicar" onPress={handleShare} />
+            {/* "Indicar" (compartilhar) não faz sentido na TV — fica só no layout mobile */}
           </View>
 
           {/* Tabs + content */}
@@ -255,6 +307,14 @@ export default function DetailScreen() {
   return (
     <View style={styles.root}>
       <StatusBar hidden />
+      {trackSheetUrl !== null && (
+        <JellyfinTrackSheet
+          visible
+          channelUrl={trackSheetUrl}
+          onConfirm={doPlay}
+          onCancel={() => setTrackSheetUrl(null)}
+        />
+      )}
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}

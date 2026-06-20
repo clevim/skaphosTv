@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     flexDirection: 'row',
-    paddingTop: 88, // space for absolute TVTopBar
+    paddingTop: 72, // space for absolute TVTopBar (14px vertical + ~14px text + 14px = ~72px)
   },
 
   // Sidebar

@@ -6,11 +6,15 @@ import { ChannelIndex, buildChannelIndex } from './channelIndex';
 export interface IPTVSource {
   id: string;
   name: string;
-  type: 'm3u' | 'xtream';
+  type: 'm3u' | 'xtream' | 'jellyfin';
   url?: string;
   host?: string;
   username?: string;
   password?: string;
+  // Jellyfin
+  apiKey?: string;
+  userId?: string;
+  serverName?: string;
   addedAt: number;
   channelCount?: number;
 }
@@ -49,6 +53,9 @@ interface AppState {
     language: string;
     subtitleEnabled: boolean;
     epgEnabled: boolean;
+    tmdbApiKey: string;
+    jellyfinPreferredAudio: string;
+    jellyfinPreferredSubtitle: string;
   };
 
   addSource: (source: IPTVSource) => void;
@@ -91,12 +98,12 @@ async function saveChannelsChunked(channels: Channel[], groups: string[]): Promi
   for (let i = 0; i < channels.length; i += CHUNK_SIZE) {
     chunks.push(channels.slice(i, i + CHUNK_SIZE));
   }
-  // Salva metadados primeiro
-  await AsyncStorage.setItem(CHANNELS_META_KEY, JSON.stringify({ chunks: chunks.length, groups }));
-  // Salva chunks sequencialmente para não OOM (Promise.all com 100+ writes explode no Firestick)
+  // Salva chunks ANTES dos metadados — se o app fechar no meio, o metadata antigo
+  // ainda aponta para chunks válidos (dados completos, possivelmente desatualizados).
   for (let i = 0; i < chunks.length; i++) {
     await AsyncStorage.setItem(`${CHANNELS_KEY}_${i}`, JSON.stringify(chunks[i]));
   }
+  await AsyncStorage.setItem(CHANNELS_META_KEY, JSON.stringify({ chunks: chunks.length, groups }));
 }
 
 async function loadChannelsChunked(): Promise<{ channels: Channel[]; groups: string[] } | null> {
@@ -143,6 +150,9 @@ export const useStore = create<AppState>((set, get) => ({
     language: 'pt-BR',
     subtitleEnabled: false,
     epgEnabled: false,
+    tmdbApiKey: '',
+    jellyfinPreferredAudio: 'pt-BR',
+    jellyfinPreferredSubtitle: 'pt-BR',
   },
 
   addSource: (source) => {
@@ -182,7 +192,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   appendChannels: (newChannels, newGroups) => {
     set(state => {
-      const merged = [...state.channels, ...newChannels];
+      // Deduplica por id — novos dados sobrescrevem os antigos (útil para re-fetch Jellyfin)
+      const newIds = new Set(newChannels.map(c => c.id));
+      const existing = state.channels.filter(c => !newIds.has(c.id));
+      const merged = [...existing, ...newChannels];
       const groupSet = new Set([...state.groups, ...newGroups]);
       const groups = Array.from(groupSet).sort();
       const channelIndex = buildChannelIndex(merged);

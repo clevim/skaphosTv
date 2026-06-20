@@ -6,13 +6,16 @@ import TVFocusable from './TVFocusable';
 import { colors, spacing, radius, fontFamily } from '../utils/theme';
 import { LAUNCH_YEAR } from '../utils/channelUtils';
 
-const TV_NAV_ITEMS = [
-  { key: 'home',      label: 'Início' },
-  { key: 'live',      label: 'Ao vivo' },
-  { key: 'movies',   label: 'Filmes' },
-  { key: 'series',   label: 'Séries' },
-  { key: 'year',     label: String(LAUNCH_YEAR) },
-  { key: 'search',   label: 'Buscar' },
+const TV_NAV_STATIC_BEFORE = [
+  { key: 'home',    label: 'Início'  },
+  { key: 'live',    label: 'Ao vivo' },
+  { key: 'movies',  label: 'Filmes'  },
+  { key: 'series',  label: 'Séries'  },
+];
+
+const TV_NAV_STATIC_AFTER = [
+  { key: 'year',   label: String(LAUNCH_YEAR) },
+  { key: 'search', label: 'Buscar'            },
 ];
 
 interface Props {
@@ -20,48 +23,52 @@ interface Props {
   clock: string;
   onNavPress: (key: string) => void;
   onSettingsPress?: () => void;
+  jellyfinSources?: Array<{ id: string; serverName?: string; name: string }>;
 }
 
-/**
- * Nav item usando TVFocusable — recebe o cursor global ao focar,
- * e expõe onFocus/onBlur para atualizar o estilo do texto.
- */
 function NavItem({
   item,
   active,
   onPress,
 }: {
-  item: typeof TV_NAV_ITEMS[0];
+  item: { key: string; label: string };
   active: boolean;
   onPress: () => void;
 }) {
   const [focused, setFocused] = useState(false);
-
   return (
     <TVFocusable
       onPress={onPress}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       style={styles.navItem}
+      focusStyle={styles.navItemFocused}
+      focusScale={1}            // sem zoom no menu inline (evita invadir vizinhos)
       borderRadius={radius.full}
     >
-      <Text
-        style={[
-          styles.navLabel,
-          focused && styles.navLabelFocused,
-          active  && styles.navLabelActive,
-        ]}
-      >
+      <Text style={[
+        styles.navLabel,
+        active && styles.navLabelActive,
+        focused && styles.navLabelFocused,
+      ]}>
         {item.label}
       </Text>
       {active && (
-        <View style={[styles.activeDot, focused && styles.activeDotFocused]} />
+        <View style={styles.activeDotWrap}>
+          <View style={styles.activeDot} />
+        </View>
       )}
     </TVFocusable>
   );
 }
 
-export default function TVTopBar({ active, clock, onNavPress, onSettingsPress }: Props) {
+export default function TVTopBar({ active, clock, onNavPress, onSettingsPress, jellyfinSources }: Props) {
+  const navItems = [
+    ...TV_NAV_STATIC_BEFORE,
+    ...(jellyfinSources ?? []).map(s => ({ key: `jf-${s.id}`, label: s.serverName || s.name })),
+    ...TV_NAV_STATIC_AFTER,
+  ];
+
   return (
     <View style={styles.container}>
       {/* Wordmark */}
@@ -76,7 +83,7 @@ export default function TVTopBar({ active, clock, onNavPress, onSettingsPress }:
 
       {/* Nav items */}
       <View style={styles.navItems}>
-        {TV_NAV_ITEMS.map(item => (
+        {navItems.map(item => (
           <NavItem
             key={item.key}
             item={item}
@@ -109,9 +116,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.xxxl,
-    paddingVertical: 20,
-    gap: 36,
+    paddingHorizontal: spacing.xxl,   // 48 → 32
+    paddingVertical: 14,              // 20 → 14
+    gap: 20,                          // 36 → 20
     backgroundColor: 'rgba(10,8,16,0.85)',
   },
 
@@ -143,37 +150,47 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 4,
+    gap: 2,
   },
   navItem: {
     alignItems: 'center',
-    paddingVertical: 7,
-    paddingHorizontal: 14,
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     borderRadius: radius.full,
-    gap: 4,
+  },
+  navItemFocused: {
+    backgroundColor: 'rgba(167,139,250,0.25)',
   },
   navLabel: {
     fontSize: 14,
     fontFamily: fontFamily.medium,
     color: colors.text2,
-    letterSpacing: -0.2,
+    letterSpacing: -0.1,
   },
   navLabelActive: {
     fontFamily: fontFamily.semiBold,
-    color: colors.accent,
+    color: colors.text1,
   },
   navLabelFocused: {
-    color: 'rgba(196,181,253,0.85)',
+    // Texto branco no item focado — contraste forte sobre a pílula
+    color: colors.text1,
     fontFamily: fontFamily.semiBold,
+  },
+  activeDotWrap: {
+    // Absoluto: não entra no fluxo — todos os itens ficam da mesma altura.
+    // left:0/right:0 + alignItems:'center' garantem centralização pixel-perfect.
+    position: 'absolute',
+    bottom: 2,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
   },
   activeDot: {
     width: 4,
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.accent,
-  },
-  activeDotFocused: {
-    backgroundColor: 'rgba(196,181,253,0.85)',
   },
 
   // Right

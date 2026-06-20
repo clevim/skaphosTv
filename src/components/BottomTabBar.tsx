@@ -7,22 +7,37 @@ import TVFocusable from './TVFocusable';
 import { colors } from '../utils/theme';
 import { LAUNCH_YEAR } from '../utils/channelUtils';
 
-const TABS = [
-  { id: 'home',      label: 'Início',   icon: 'home-outline',        activeIcon: 'home'        },
-  { id: 'live',      label: 'Ao Vivo',  icon: 'radio-outline',       activeIcon: 'radio'       },
-  { id: 'movies',    label: 'Filmes',   icon: 'film-outline',        activeIcon: 'film'        },
-  { id: 'series',    label: 'Séries',   icon: 'tv-outline',          activeIcon: 'tv'          },
-  { id: 'year',      label: LAUNCH_YEAR, icon: 'star-outline',       activeIcon: 'star'        },
-  { id: 'favorites', label: 'Favoritos', icon: 'heart-outline',      activeIcon: 'heart'       },
-  { id: 'search',   label: 'Buscar',   icon: 'search-outline',      activeIcon: 'search'      },
+const STATIC_TABS_BEFORE = [
+  { id: 'home',      label: 'Início',    icon: 'home-outline',   activeIcon: 'home'   },
+  { id: 'live',      label: 'Ao Vivo',   icon: 'radio-outline',  activeIcon: 'radio'  },
+  { id: 'movies',    label: 'Filmes',    icon: 'film-outline',   activeIcon: 'film'   },
+  { id: 'series',    label: 'Séries',    icon: 'tv-outline',     activeIcon: 'tv'     },
+];
+
+const STATIC_TABS_AFTER = [
+  { id: 'year',      label: LAUNCH_YEAR, icon: 'star-outline',   activeIcon: 'star'   },
+  { id: 'favorites', label: 'Favoritos', icon: 'heart-outline',  activeIcon: 'heart'  },
+  { id: 'search',    label: 'Buscar',    icon: 'search-outline', activeIcon: 'search' },
 ];
 
 interface Props {
   active: string;
   onPress: (id: string) => void;
+  jellyfinSources?: Array<{ id: string; serverName?: string; name: string }>;
 }
 
-export default function BottomTabBar({ active, onPress }: Props) {
+export default function BottomTabBar({ active, onPress, jellyfinSources }: Props) {
+  const tabs = [
+    ...STATIC_TABS_BEFORE,
+    ...(jellyfinSources ?? []).map(s => ({
+      id: `jf-${s.id}`,
+      label: s.serverName || s.name,
+      icon: 'play-circle-outline',
+      activeIcon: 'play-circle',
+    })),
+    ...STATIC_TABS_AFTER,
+  ];
+
   return (
     <View style={styles.container} pointerEvents="box-none">
       <LinearGradient
@@ -38,7 +53,7 @@ export default function BottomTabBar({ active, onPress }: Props) {
           contentContainerStyle={styles.scrollContent}
           bounces={false}
         >
-          {TABS.map(t => {
+          {tabs.map(t => {
             const on = t.id === active;
             return (
               <TVFocusable

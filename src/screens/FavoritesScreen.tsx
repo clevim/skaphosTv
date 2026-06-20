@@ -1,5 +1,5 @@
 // FavoritesScreen.tsx — matches MobileLibrary design exactly
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Dimensions,
   Platform, Image,
@@ -18,6 +18,40 @@ const { width } = Dimensions.get('window');
 const TABS = ['Minha Lista', 'Gravações', 'Histórico', 'Baixados'] as const;
 type Tab = typeof TABS[number];
 
+const RecRow = React.memo(function RecRow({
+  item, onPress, mode,
+}: { item: Channel; onPress: (ch: Channel) => void; mode: 'rec' | 'history' }) {
+  const handlePress = useCallback(() => onPress(item), [onPress, item]);
+  return (
+    <TVFocusable onPress={handlePress} style={styles.recRow}>
+      <View style={styles.recThumb}>
+        {item.logo ? (
+          <Image source={{ uri: item.logo }} style={styles.recThumbImg} resizeMode="cover" />
+        ) : (
+          <View style={styles.recThumbFallback}>
+            <Text style={styles.recThumbText}>{mode === 'rec' ? 'REC' : item.name.slice(0, 2).toUpperCase()}</Text>
+          </View>
+        )}
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={styles.recTitle} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.recChannel} numberOfLines={1}>
+          {item.group ? item.group.replace(/[♦◆️]\s*/g, '').trim() : ''}
+        </Text>
+        {mode === 'rec' && <Text style={styles.recMeta}>{item.quality || 'HD'} · Canal</Text>}
+      </View>
+      <Ionicons name="chevron-forward" size={14} color={colors.text3} />
+    </TVFocusable>
+  );
+});
+
+const FavCard = React.memo(function FavCard({
+  item, isFavorite, onPress,
+}: { item: Channel; isFavorite: boolean; onPress: (ch: Channel) => void }) {
+  const handlePress = useCallback(() => onPress(item), [onPress, item]);
+  return <ChannelCard channel={item} isFavorite={isFavorite} onPress={handlePress} />;
+});
+
 export function FavoritesScreen() {
   const navigation = useNavigation();
   const { channels, favorites, recentChannels, setCurrentChannel } = useStore();
@@ -28,12 +62,29 @@ export function FavoritesScreen() {
     [channels, favorites],
   );
 
-  const numCols = Math.max(1, Math.floor((width - (IS_TV ? 96 : 48)) / (IS_TV ? 214 : 152)));
+  const numCols = Math.max(1, Math.floor((width - (IS_TV ? 96 : 48)) / (IS_TV ? 172 : 118)));
 
-  const playChannel = (ch: Channel) => {
+  const playChannel = useCallback((ch: Channel) => {
     setCurrentChannel(ch);
     (navigation as any).navigate('Player', { channel: ch });
-  };
+  }, [navigation, setCurrentChannel]);
+
+  const keyExtractor = useCallback((c: Channel) => c.id, []);
+
+  const renderRec = useCallback(
+    ({ item }: { item: Channel }) => <RecRow item={item} onPress={playChannel} mode="rec" />,
+    [playChannel]
+  );
+  const renderHistory = useCallback(
+    ({ item }: { item: Channel }) => <RecRow item={item} onPress={playChannel} mode="history" />,
+    [playChannel]
+  );
+  const renderFavCard = useCallback(
+    ({ item }: { item: Channel }) => (
+      <FavCard item={item} isFavorite={favorites.includes(item.id)} onPress={playChannel} />
+    ),
+    [playChannel, favorites]
+  );
 
   // Data based on active tab
   const getData = (): Channel[] => {
@@ -107,76 +158,26 @@ export function FavoritesScreen() {
           <Text style={styles.emptySub}>{emptyConfig[activeTab].sub}</Text>
         </View>
       ) : activeTab === 'Gravações' ? (
-        /* Recording-style list for Gravações */
         <FlatList
           data={data}
-          keyExtractor={c => c.id}
+          keyExtractor={keyExtractor}
           contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => (
-            <TVFocusable onPress={() => playChannel(item)} style={styles.recRow}>
-              <View style={styles.recThumb}>
-                {item.logo ? (
-                  <Image source={{ uri: item.logo }} style={styles.recThumbImg} resizeMode="cover" />
-                ) : (
-                  <View style={styles.recThumbFallback}>
-                    <Text style={styles.recThumbText}>REC</Text>
-                  </View>
-                )}
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.recTitle} numberOfLines={1}>{item.name}</Text>
-                <Text style={styles.recChannel} numberOfLines={1}>
-                  {item.group ? item.group.replace(/[♦◆️]\s*/g, '').trim() : ''}
-                </Text>
-                <Text style={styles.recMeta}>
-                  {item.quality || 'HD'} · Canal
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={14} color={colors.text3} />
-            </TVFocusable>
-          )}
+          renderItem={renderRec}
         />
       ) : activeTab === 'Histórico' ? (
-        /* History list - same as recordings but different style */
         <FlatList
           data={data}
-          keyExtractor={c => c.id}
+          keyExtractor={keyExtractor}
           contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => (
-            <TVFocusable onPress={() => playChannel(item)} style={styles.recRow}>
-              <View style={styles.recThumb}>
-                {item.logo ? (
-                  <Image source={{ uri: item.logo }} style={styles.recThumbImg} resizeMode="cover" />
-                ) : (
-                  <View style={styles.recThumbFallback}>
-                    <Text style={styles.recThumbText}>{item.name.slice(0, 2).toUpperCase()}</Text>
-                  </View>
-                )}
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.recTitle} numberOfLines={1}>{item.name}</Text>
-                <Text style={styles.recChannel} numberOfLines={1}>
-                  {item.group ? item.group.replace(/[♦◆️]\s*/g, '').trim() : ''}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={14} color={colors.text3} />
-            </TVFocusable>
-          )}
+          renderItem={renderHistory}
         />
       ) : (
-        /* Grid view for Minha Lista and Baixados */
         <FlatList
           data={data}
-          keyExtractor={c => c.id}
+          keyExtractor={keyExtractor}
           numColumns={numCols}
           contentContainerStyle={styles.gridContent}
-          renderItem={({ item }) => (
-            <ChannelCard
-              channel={item}
-              isFavorite={favorites.includes(item.id)}
-              onPress={() => playChannel(item)}
-            />
-          )}
+          renderItem={renderFavCard}
         />
       )}
     </View>

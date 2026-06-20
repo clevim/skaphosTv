@@ -32,6 +32,11 @@ interface Props {
   onToggleSidebar: () => void;
   onSeekTo: (pct: number) => void;
   onSeekBy: (seconds: number) => void;
+  hasSubtitles?: boolean;
+  subtitleActive?: boolean;
+  onToggleSubtitles?: () => void;
+  hasAudio?: boolean;
+  onToggleAudio?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -48,6 +53,8 @@ export default function PlayerOSD({
   currentIndex, totalChannels,
   onBack, onTogglePlay, onPrevChannel, onNextChannel,
   onToggleSidebar, onSeekTo, onSeekBy,
+  hasSubtitles, subtitleActive, onToggleSubtitles,
+  hasAudio, onToggleAudio,
 }: Props) {
   const progressPct = duration > 0 ? Math.min(1, position / duration) : 0;
   const seekBarWidth = useRef(0);
@@ -82,6 +89,16 @@ export default function PlayerOSD({
         </View>
 
         <View style={styles.topActions}>
+          {hasAudio && onToggleAudio && (
+            <TVFocusable onPress={onToggleAudio} style={styles.iconBtn}>
+              <Ionicons name="musical-notes-outline" size={18} color="#fff" />
+            </TVFocusable>
+          )}
+          {hasSubtitles && onToggleSubtitles && (
+            <TVFocusable onPress={onToggleSubtitles} style={[styles.iconBtn, subtitleActive && styles.iconBtnActive]}>
+              <Ionicons name="chatbox-ellipses-outline" size={18} color={subtitleActive ? colors.accent : '#fff'} />
+            </TVFocusable>
+          )}
           <TVFocusable onPress={onToggleSidebar} style={styles.iconBtn}>
             <Ionicons name="scan-outline" size={18} color="#fff" />
           </TVFocusable>
@@ -197,6 +214,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  iconBtnActive: {
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accent,
   },
 
   // Center

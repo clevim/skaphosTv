@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     flexDirection: 'row',
-    paddingTop: 88,
+    paddingTop: 72,
   },
 
   // Left panel
