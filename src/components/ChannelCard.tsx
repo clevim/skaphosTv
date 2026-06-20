@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
 import { colors, radius, fontSize } from '../utils/theme';
@@ -64,10 +65,12 @@ function ChannelCard({
       <View style={[styles.poster, { height: H }]}>
         {channel.logo ? (
           <Image
-            source={{ uri: channel.logo }}
+            source={channel.logo}
             style={styles.posterImg}
-            resizeMode="cover"
-            fadeDuration={200}
+            contentFit="cover"
+            transition={0}
+            cachePolicy="memory-disk"
+            recyclingKey={channel.id}
           />
         ) : (
           <View style={[styles.posterFallback, { backgroundColor: preset.primary + '18' }]}>

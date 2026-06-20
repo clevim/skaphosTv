@@ -1,7 +1,8 @@
 import React from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Image,
+  View, Text, StyleSheet, ScrollView,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -38,7 +39,7 @@ function ContinueCard({ channel, onPress }: { channel: Channel; onPress: () => v
     <TVFocusable onPress={onPress} style={cStyles.card}>
       <View style={cStyles.poster}>
         {channel.logo ? (
-          <Image source={{ uri: channel.logo }} style={cStyles.posterImg} resizeMode="cover" />
+          <Image source={channel.logo} style={cStyles.posterImg} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
         ) : (
           <View style={cStyles.posterFallback}>
             <Text style={cStyles.posterInitials}>{channel.name.slice(0, 2).toUpperCase()}</Text>
@@ -103,7 +104,7 @@ function LiveCard({ channel, onPress }: { channel: Channel; onPress: () => void 
     <TVFocusable onPress={onPress} style={lStyles.card}>
       <View style={lStyles.poster}>
         {channel.logo ? (
-          <Image source={{ uri: channel.logo }} style={lStyles.posterImg} resizeMode="cover" />
+          <Image source={channel.logo} style={lStyles.posterImg} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
         ) : (
           <View style={lStyles.posterFallback}>
             <Text style={lStyles.posterInitials}>{channel.name.slice(0, 2).toUpperCase()}</Text>
@@ -228,7 +229,7 @@ function VodCard({ channel, onPress, displayName, isNew }: {
     <TVFocusable onPress={onPress} style={vStyles.card}>
       <View style={vStyles.poster}>
         {channel.logo ? (
-          <Image source={{ uri: channel.logo }} style={vStyles.posterImg} resizeMode="cover" />
+          <Image source={channel.logo} style={vStyles.posterImg} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
         ) : (
           <View style={vStyles.posterFallback}>
             <Text style={vStyles.posterInitials}>{name.slice(0, 3).toUpperCase()}</Text>
@@ -381,7 +382,7 @@ export default function HomeContent({
         <View style={IS_TV ? styles.heroWrapTV : styles.heroWrap}>
           <View style={IS_TV ? styles.heroTV : styles.hero}>
             {heroChannel.logo ? (
-              <Image source={{ uri: heroChannel.logo }} style={styles.heroImg} resizeMode="cover" />
+              <Image source={heroChannel.logo} style={styles.heroImg} contentFit="cover" transition={150} />
             ) : (
               <View style={styles.heroFallback}>
                 <Text style={styles.heroInitials}>{heroChannel.name.slice(0, 3).toUpperCase()}</Text>

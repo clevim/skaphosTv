@@ -3,9 +3,10 @@
 // TV: landscape two-panel (backdrop left 60% + metadata right 40%)
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Image,
+  View, Text, StyleSheet, ScrollView,
   Platform, StatusBar, Share,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -189,7 +190,7 @@ export default function DetailScreen() {
               >
                 <View style={styles.relPoster}>
                   {ch.logo ? (
-                    <Image source={{ uri: ch.logo }} style={styles.relPosterImg} resizeMode="cover" />
+                    <Image source={ch.logo} style={styles.relPosterImg} contentFit="cover" transition={0} recyclingKey={ch.id} />
                   ) : (
                     <View style={styles.relPosterFallback}>
                       <Text style={styles.relPosterInitials}>{rName.slice(0, 2).toUpperCase()}</Text>
@@ -225,7 +226,7 @@ export default function DetailScreen() {
         {/* Left panel — backdrop (60%) */}
         <View style={tvStyles.leftPanel}>
           {heroImage ? (
-            <Image source={{ uri: heroImage }} style={tvStyles.backdrop} resizeMode="cover" />
+            <Image source={heroImage} style={tvStyles.backdrop} contentFit="cover" transition={150} />
           ) : (
             <View style={[tvStyles.backdrop, tvStyles.backdropFallback]}>
               <Text style={tvStyles.backdropInitials}>{displayName.slice(0, 3).toUpperCase()}</Text>
@@ -323,7 +324,7 @@ export default function DetailScreen() {
         {/* Hero */}
         <View style={styles.hero}>
           {heroImage ? (
-            <Image source={{ uri: heroImage }} style={styles.heroImg} resizeMode="cover" />
+            <Image source={heroImage} style={styles.heroImg} contentFit="cover" transition={150} />
           ) : (
             <View style={styles.heroFallback}>
               <Text style={styles.heroInitials}>{displayName.slice(0, 3).toUpperCase()}</Text>

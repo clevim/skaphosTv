@@ -2,8 +2,9 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, TextInput, StyleSheet, FlatList,
-  Image, Platform,
+  Platform,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
@@ -26,7 +27,7 @@ const SearchRow = React.memo(function SearchRow({
     <TVFocusable onPress={handlePress} style={styles.resultRow}>
       <View style={styles.resultThumb}>
         {item.logo ? (
-          <Image source={{ uri: item.logo }} style={styles.resultThumbImg} resizeMode="cover" />
+          <Image source={item.logo} style={styles.resultThumbImg} contentFit="cover" transition={0} recyclingKey={item.id} />
         ) : (
           <View style={[styles.resultThumbFallback, { backgroundColor: colors.accentSoft }]}>
             <Text style={styles.resultThumbText}>{item.name.slice(0, 2).toUpperCase()}</Text>
@@ -144,7 +145,7 @@ export function SearchScreen() {
                 >
                   <View style={styles.bestMatchPoster}>
                     {bestMatch.logo ? (
-                      <Image source={{ uri: bestMatch.logo }} style={styles.bestMatchImg} resizeMode="cover" />
+                      <Image source={bestMatch.logo} style={styles.bestMatchImg} contentFit="cover" transition={0} />
                     ) : (
                       <View style={[styles.bestMatchFallback, { backgroundColor: colors.accentSoft }]}>
                         <Text style={styles.bestMatchInitials}>

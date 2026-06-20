@@ -1,8 +1,9 @@
 import React from 'react';
 import {
   View, Text, StyleSheet, TextInput,
-  ScrollView, Image,
+  ScrollView,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
@@ -31,7 +32,7 @@ function ResultRow({ channel, onPress }: { channel: Channel; onPress: () => void
     <TVFocusable onPress={onPress} style={rowStyles.row}>
       <View style={rowStyles.thumb}>
         {channel.logo ? (
-          <Image source={{ uri: channel.logo }} style={rowStyles.thumbImg} resizeMode="cover" />
+          <Image source={channel.logo} style={rowStyles.thumbImg} contentFit="cover" transition={0} recyclingKey={channel.id} />
         ) : (
           <View style={rowStyles.thumbFallback}>
             <Text style={rowStyles.thumbInitials}>{displayName.slice(0, 2).toUpperCase()}</Text>
@@ -86,7 +87,7 @@ function BestMatch({ channel, onPress }: { channel: Channel; onPress: () => void
       <TVFocusable onPress={onPress} style={bmStyles.card}>
         <View style={bmStyles.poster}>
           {channel.logo ? (
-            <Image source={{ uri: channel.logo }} style={bmStyles.posterImg} resizeMode="cover" />
+            <Image source={channel.logo} style={bmStyles.posterImg} contentFit="cover" transition={0} recyclingKey={channel.id} />
           ) : (
             <View style={bmStyles.posterFallback}>
               <Text style={bmStyles.posterInitials}>{displayName.slice(0, 3).toUpperCase()}</Text>

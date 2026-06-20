@@ -2,9 +2,10 @@
 // Shows channel rows × time columns. EPG data is placeholder (no XMLTV source yet).
 import React, { useRef, useState, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Image,
+  View, Text, StyleSheet, ScrollView,
   TouchableOpacity, Platform,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -128,7 +129,7 @@ export default function TVEPGScreen() {
                 {/* Channel info — fixed column */}
                 <TVFocusable onPress={() => handlePlay(ch)} style={styles.channelCell}>
                   {ch.logo ? (
-                    <Image source={{ uri: ch.logo }} style={styles.channelLogo} resizeMode="contain" />
+                    <Image source={ch.logo} style={styles.channelLogo} contentFit="contain" transition={0} recyclingKey={ch.id} />
                   ) : (
                     <View style={styles.channelLogoPlaceholder}>
                       <Text style={styles.channelLogoText}>{ch.name.slice(0, 2).toUpperCase()}</Text>

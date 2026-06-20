@@ -3,10 +3,11 @@
 // M3U: usa episódios já agrupados passados por parâmetro
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Image,
+  View, Text, StyleSheet, ScrollView,
   StatusBar, FlatList, ActivityIndicator, Share,
   useWindowDimensions,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -66,7 +67,7 @@ function EpThumb({ logo, size }: { logo?: string; size: { w: number; h: number }
   return (
     <View style={[thumbStyles.ph, { width: size.w, height: size.h }]}>
       {logo ? (
-        <Image source={{ uri: logo }} style={StyleSheet.absoluteFill} resizeMode="contain" />
+        <Image source={logo} style={StyleSheet.absoluteFill} contentFit="contain" transition={0} recyclingKey={logo} />
       ) : (
         <Ionicons name="play" size={size.w * 0.18} color="rgba(255,255,255,0.25)" />
       )}
@@ -312,9 +313,9 @@ export default function SeriesScreen() {
         <StatusBar hidden />
         {heroChannel?.backdrop || heroChannel?.logo ? (
           <Image
-            source={{ uri: heroChannel.backdrop || heroChannel.logo }}
+            source={heroChannel.backdrop || heroChannel.logo}
             style={StyleSheet.absoluteFillObject}
-            resizeMode="cover"
+            contentFit="cover"
             blurRadius={IS_TV ? 8 : 12}
           />
         ) : null}
@@ -421,7 +422,7 @@ export default function SeriesScreen() {
         <StatusBar hidden />
         {trackSheet}
         {backdropUri ? (
-          <Image source={{ uri: backdropUri }} style={tvStyles.backdrop} resizeMode="cover" />
+          <Image source={backdropUri} style={tvStyles.backdrop} contentFit="cover" />
         ) : (
           <View style={[tvStyles.backdrop, { backgroundColor: colors.bg2 }]} />
         )}
@@ -621,7 +622,7 @@ export default function SeriesScreen() {
 
         <View style={[styles.hero, { height: heroH }]}>
           {backdropUri ? (
-            <Image source={{ uri: backdropUri }} style={styles.heroImg} resizeMode="cover" />
+            <Image source={backdropUri} style={styles.heroImg} contentFit="cover" />
           ) : (
             <View style={[styles.heroImg, styles.heroFallback]}>
               <Text style={styles.heroInitials}>{baseName.slice(0, 3).toUpperCase()}</Text>

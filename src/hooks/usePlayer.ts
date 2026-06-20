@@ -23,7 +23,11 @@ export function usePlayer(
   initialAudioIndex: number | null = null,
   initialAudioTracks: AudioTrack[] = [],
 ) {
-  const { channels, sources, setCurrentChannel, updatePlayerState } = useStore();
+  // Seletores individuais — evita re-render do player a cada mudança não-relacionada
+  // no store (ações têm identidade estável no Zustand).
+  const channels = useStore(s => s.channels);
+  const sources = useStore(s => s.sources);
+  const setCurrentChannel = useStore(s => s.setCurrentChannel);
 
   const videoRef = useRef<any>(null);
   const osdTimer = useRef<NodeJS.Timeout | null>(null);
@@ -36,6 +40,8 @@ export function usePlayer(
   // Refs para evitar closures stale em callbacks assíncronos
   const playingChannelRef = useRef<Channel>(initialChannel);
   const positionRef       = useRef(0);
+  const seekDurRef        = useRef(0);   // última seekableDuration (mantida mesmo com OSD oculto)
+  const showOSDRef        = useRef(true); // espelha showOSD p/ gatear setState de progresso
   // Estado de acúmulo do seek por D-pad (item indicador visual + salto acelerado)
   const lastSeekTsRef     = useRef(0);   // timestamp do último seekBy
   const lastSeekDirRef    = useRef(0);   // direção do último seekBy (1 = avança, -1 = volta)
@@ -102,6 +108,16 @@ export function usePlayer(
 
   // Sincroniza refs com estado atual
   useEffect(() => { playingChannelRef.current = playingChannel; }, [playingChannel]);
+
+  // Ao abrir o OSD, atualiza a barra de progresso a partir dos refs (que continuam
+  // acumulando mesmo com o OSD oculto). Ao fechar, volta a gatear os updates.
+  useEffect(() => {
+    showOSDRef.current = showOSD;
+    if (showOSD) {
+      setPosition(positionRef.current);
+      setSeekableDuration(seekDurRef.current);
+    }
+  }, [showOSD]);
 
   const clearAllTimers = () => {
     if (osdTimer.current) clearTimeout(osdTimer.current);
@@ -220,7 +236,6 @@ export function usePlayer(
     setIsBuffering(false);
     setError(null);
     if (retryCount > 0) setRetryCount(0);
-    updatePlayerState({ isPlaying: true, isBuffering: false });
 
     // Seek pendente (após troca de faixa de áudio) — registra ANTES de limpar o ref
     const hadPendingSeek = pendingSeekRef.current !== null;
@@ -290,18 +305,23 @@ export function usePlayer(
         }
       }
     }
-  }, [retryCount, updatePlayerState, getJellyfinCreds, startJellyfinHeartbeat, initialSubtitleIndex, initialAudioTracks, initialAudioIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [retryCount, getJellyfinCreds, startJellyfinHeartbeat, initialSubtitleIndex, initialAudioTracks, initialAudioIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onProgress = useCallback((data: any) => {
-    positionRef.current = data.currentTime ?? 0;
-    setPosition(data.currentTime ?? 0);
-    if (data.seekableDuration) setSeekableDuration(data.seekableDuration);
+    const t = data.currentTime ?? 0;
+    positionRef.current = t;
+    if (data.seekableDuration) seekDurRef.current = data.seekableDuration;
+    // Só atualiza o estado (→ re-render) quando o OSD está visível; senão, nada
+    // consome `position`. Em playback com OSD oculto isto zera os re-renders por tick.
+    if (showOSDRef.current) {
+      setPosition(t);
+      if (data.seekableDuration) setSeekableDuration(data.seekableDuration);
+    }
   }, []);
 
   const onBuffer = useCallback((data: any) => {
     setIsBuffering(data.isBuffering);
-    updatePlayerState({ isPlaying: !data.isBuffering, isBuffering: data.isBuffering });
-  }, [updatePlayerState]);
+  }, []);
 
   const onError = useCallback((err: any) => {
     const code = err?.error?.errorCode;

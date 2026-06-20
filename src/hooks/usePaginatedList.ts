@@ -12,10 +12,10 @@ export function usePaginatedList<T>(items: T[]) {
   const loadMore = useCallback(() => {
     if (isLoadingMore.current || !hasMore) return;
     isLoadingMore.current = true;
-    setTimeout(() => {
-      setPage(p => p + 1);
-      isLoadingMore.current = false;
-    }, 300);
+    // Incrementa imediatamente (sem atraso perceptível ao rolar); a trava só evita
+    // disparo duplo do onEndReached no mesmo quadro.
+    setPage(p => p + 1);
+    setTimeout(() => { isLoadingMore.current = false; }, 120);
   }, [hasMore]);
 
   // Reset quando a lista muda

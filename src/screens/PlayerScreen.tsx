@@ -45,7 +45,7 @@ export default function PlayerScreen() {
     initialAudioTracks = [],
   } = route.params;
 
-  const { channels } = useStore();
+  const channels = useStore(s => s.channels);
   const player = usePlayer(channel, initialSubtitleIndex, initialSubtitleTracks, initialAudioIndex, initialAudioTracks);
 
   const {

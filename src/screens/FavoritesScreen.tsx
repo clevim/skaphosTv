@@ -2,8 +2,9 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Dimensions,
-  Platform, Image,
+  Platform,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
@@ -26,7 +27,7 @@ const RecRow = React.memo(function RecRow({
     <TVFocusable onPress={handlePress} style={styles.recRow}>
       <View style={styles.recThumb}>
         {item.logo ? (
-          <Image source={{ uri: item.logo }} style={styles.recThumbImg} resizeMode="cover" />
+          <Image source={item.logo} style={styles.recThumbImg} contentFit="cover" transition={0} recyclingKey={item.id} />
         ) : (
           <View style={styles.recThumbFallback}>
             <Text style={styles.recThumbText}>{mode === 'rec' ? 'REC' : item.name.slice(0, 2).toUpperCase()}</Text>

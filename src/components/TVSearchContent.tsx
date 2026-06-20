@@ -1,8 +1,9 @@
 // TVSearchContent.tsx — TV search UI, two-panel layout
 import React, { useRef } from 'react';
 import {
-  View, Text, StyleSheet, TextInput, ScrollView, Image,
+  View, Text, StyleSheet, TextInput, ScrollView,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
@@ -31,7 +32,7 @@ function ResultItem({ channel, onPress }: { channel: Channel; onPress: () => voi
     <TVFocusable onPress={onPress} style={styles.resultItem}>
       <View style={styles.resultThumb}>
         {channel.logo ? (
-          <Image source={{ uri: channel.logo }} style={styles.resultThumbImg} resizeMode="contain" />
+          <Image source={channel.logo} style={styles.resultThumbImg} contentFit="contain" transition={0} recyclingKey={channel.id} />
         ) : (
           <View style={styles.resultThumbFallback}>
             <Text style={styles.resultThumbText}>{displayName.slice(0, 2).toUpperCase()}</Text>

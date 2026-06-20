@@ -20,18 +20,6 @@ export interface IPTVSource {
   channelCount?: number;
 }
 
-export interface PlayerState {
-  isPlaying: boolean;
-  isPaused: boolean;
-  currentTime: number;
-  duration: number;
-  isMuted: boolean;
-  volume: number;
-  isFullscreen: boolean;
-  isBuffering: boolean;
-  error: string | null;
-}
-
 interface AppState {
   sources: IPTVSource[];
   activeSourceId: string | null;
@@ -43,7 +31,6 @@ interface AppState {
   loadError: string | null;
   currentChannel: Channel | null;
   recentChannels: Channel[];
-  playerState: PlayerState;
   favorites: string[];
   settings: {
     defaultPlayer: 'expo-av' | 'vlc';
@@ -74,24 +61,11 @@ interface AppState {
   setLoadError: (error: string | null) => void;
   setCurrentChannel: (channel: Channel) => void;
   toggleFavorite: (channelId: string) => void;
-  updatePlayerState: (state: Partial<PlayerState>) => void;
   updateSettings: (settings: Partial<AppState['settings']>) => void;
   loadFromStorage: () => Promise<void>;
   saveToStorage: () => Promise<void>;
   saveChannelsToStorage: () => Promise<void>;
 }
-
-const defaultPlayerState: PlayerState = {
-  isPlaying: false,
-  isPaused: false,
-  currentTime: 0,
-  duration: 0,
-  isMuted: false,
-  volume: 1.0,
-  isFullscreen: false,
-  isBuffering: false,
-  error: null,
-};
 
 // Canais são salvos em chunks de 500 para não exceder o limite do AsyncStorage (2MB por item)
 const CHUNK_SIZE = 500;
@@ -244,7 +218,6 @@ export const useStore = create<AppState>((set, get) => ({
   loadError: null,
   currentChannel: null,
   recentChannels: [],
-  playerState: defaultPlayerState,
   favorites: [],
   settings: {
     defaultPlayer: 'expo-av',
@@ -370,10 +343,6 @@ export const useStore = create<AppState>((set, get) => ({
       };
     });
     get().saveToStorage();
-  },
-
-  updatePlayerState: (playerState) => {
-    set(state => ({ playerState: { ...state.playerState, ...playerState } }));
   },
 
   updateSettings: (newSettings) => {
