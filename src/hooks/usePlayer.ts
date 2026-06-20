@@ -30,11 +30,17 @@ export function usePlayer(
   const retryTimer = useRef<NodeJS.Timeout | null>(null);
   const retryCountdown = useRef<NodeJS.Timeout | null>(null);
   const heartbeatTimer = useRef<NodeJS.Timeout | null>(null);
+  const seekHintTimer = useRef<NodeJS.Timeout | null>(null);
   const osdAnim = useRef(new Animated.Value(1)).current;
 
   // Refs para evitar closures stale em callbacks assíncronos
   const playingChannelRef = useRef<Channel>(initialChannel);
   const positionRef       = useRef(0);
+  // Estado de acúmulo do seek por D-pad (item indicador visual + salto acelerado)
+  const lastSeekTsRef     = useRef(0);   // timestamp do último seekBy
+  const lastSeekDirRef    = useRef(0);   // direção do último seekBy (1 = avança, -1 = volta)
+  const seekTargetRef     = useRef(0);   // posição-alvo projetada (evita lag do onProgress entre saltos rápidos)
+  const seekAccumRef      = useRef(0);   // total acumulado exibido no indicador durante saltos rápidos
   const sourcesRef        = useRef(sources);
   useEffect(() => { sourcesRef.current = sources; }, [sources]);
 
@@ -56,6 +62,8 @@ export function usePlayer(
 
   const [showOSD, setShowOSD] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
+  // Indicador visual de seek (overlay central): direção + total acumulado dos saltos rápidos
+  const [seekHint, setSeekHint] = useState<{ dir: 'fwd' | 'back'; amount: number } | null>(null);
   // Inicializa com as faixas pré-buscadas no JellyfinTrackSheet (evita update mid-playback)
   const [subtitleTracks, setSubtitleTracks] = useState<JellyfinSubtitleTrack[]>(initialSubtitleTracks);
   const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(null);
@@ -94,6 +102,7 @@ export function usePlayer(
     if (retryTimer.current) clearTimeout(retryTimer.current);
     if (retryCountdown.current) clearInterval(retryCountdown.current);
     if (heartbeatTimer.current) clearInterval(heartbeatTimer.current);
+    if (seekHintTimer.current) clearTimeout(seekHintTimer.current);
   };
 
   // Helpers Jellyfin: busca credenciais da fonte pelo host
@@ -344,17 +353,45 @@ export function usePlayer(
         v.seek(seconds);
       }
     } catch (_) { }
+    positionRef.current = seconds;
     setPosition(seconds);
   }, []);
+
+  // Janela (ms) para considerar dois saltos como "rápidos" (segurar/repetir o D-pad).
+  const SEEK_REPEAT_MS = 500;
 
   const seekBy = useCallback((seconds: number) => {
     if (isLive) return;
     const max = seekableDuration || duration;
     if (!max) return;
-    const next = Math.max(0, Math.min(max, position + seconds));
+
+    const dir = seconds >= 0 ? 1 : -1;
+    const now = Date.now();
+    // Repetição rápida da MESMA direção → acelera o passo (10s → 30s) e acumula o total.
+    const rapid = dir === lastSeekDirRef.current && now - lastSeekTsRef.current < SEEK_REPEAT_MS;
+    lastSeekTsRef.current = now;
+    lastSeekDirRef.current = dir;
+
+    const step = rapid ? 30 : Math.abs(seconds);
+    const signed = dir * step;
+    // Em saltos rápidos parte do alvo projetado (não da posição reportada, que ainda não atualizou).
+    const base = rapid ? seekTargetRef.current : positionRef.current;
+    const next = Math.max(0, Math.min(max, base + signed));
+    seekTargetRef.current = next;
     seekToSeconds(next);
+
+    // Indicador visual: acumula enquanto os saltos forem rápidos; reinicia em salto isolado.
+    seekAccumRef.current = rapid ? seekAccumRef.current + step : step;
+    setSeekHint({ dir: dir > 0 ? 'fwd' : 'back', amount: seekAccumRef.current });
+    if (seekHintTimer.current) clearTimeout(seekHintTimer.current);
+    seekHintTimer.current = setTimeout(() => {
+      setSeekHint(null);
+      lastSeekDirRef.current = 0;
+      seekAccumRef.current = 0;
+    }, 800);
+
     showOSDTemporarily();
-  }, [position, duration, seekableDuration, isLive, seekToSeconds, showOSDTemporarily]);
+  }, [duration, seekableDuration, isLive, seekToSeconds, showOSDTemporarily]);
 
   const seekTo = useCallback((pct: number) => {
     if (isLive) return;
@@ -401,7 +438,7 @@ export function usePlayer(
     isMuted, volume, error,
     retryCount, retryingIn,
     position, duration, seekableDuration,
-    showOSD, showSidebar,
+    showOSD, showSidebar, seekHint,
     isLive, currentIndex,
     subtitleTracks, selectedSubtitleIndex, setSelectedSubtitleIndex,
     vttSubtitleIndex,
