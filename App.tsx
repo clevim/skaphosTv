@@ -115,9 +115,12 @@ export default function App() {
       }
     });
 
-    // Deep link — cold start
+    // Deep link — cold start. Se a nav já estiver pronta quando isto resolver,
+    // processa de imediato (senão onReady consome o pendingUrl).
     Linking.getInitialURL().then(url => {
-      if (url) pendingUrl.current = url;
+      if (!url) return;
+      if (navigationRef.isReady()) handleDeepLink(url);
+      else pendingUrl.current = url;
     });
 
     return () => {

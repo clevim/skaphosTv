@@ -129,15 +129,18 @@ function maskSecret(s: string | undefined, src: IPTVSource, mode: 'redact' | 're
   return out;
 }
 
+function sourceHasSecret(s: IPTVSource): boolean {
+  return s.type === 'jellyfin' ? !!s.apiKey : (!!s.username || !!s.password);
+}
+
 function transformChannelSecrets(channels: Channel[], sources: IPTVSource[], mode: 'redact' | 'restore'): Channel[] {
-  if (sources.length === 0) return channels;
+  // Atalho: nada a (des)mascarar se nenhuma fonte tem segredo (ex.: só M3U)
+  if (channels.length === 0 || !sources.some(sourceHasSecret)) return channels;
   const byId = new Map(sources.map(s => [s.id, s]));
   let changed = false;
   const out = channels.map(c => {
     const src = c.sourceId ? byId.get(c.sourceId) : undefined;
-    if (!src || (src.type !== 'jellyfin' && !src.username && !src.password) || (src.type === 'jellyfin' && !src.apiKey)) {
-      return c;
-    }
+    if (!src || !sourceHasSecret(src)) return c;
     const url = maskSecret(c.url, src, mode) ?? c.url;
     const logo = maskSecret(c.logo, src, mode);
     const backdrop = maskSecret(c.backdrop, src, mode);

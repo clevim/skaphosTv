@@ -7,6 +7,13 @@ const net = require('net');
 const app = express();
 app.use(cors());
 
+// Allowlist opcional de hosts (defesa em profundidade p/ cenário cloudflared).
+// Ex.: PROXY_ALLOWED_HOSTS="iptv.exemplo.com,jelly.meudominio.com"
+const ALLOWED_HOSTS = (process.env.PROXY_ALLOWED_HOSTS || '')
+  .split(',')
+  .map(h => h.trim().toLowerCase())
+  .filter(Boolean);
+
 // ─── Proteção contra SSRF ─────────────────────────────────────────────────────
 // Sem isto, /proxy?url= é um relay aberto: exposto via cloudflared, permitiria que
 // terceiros alcançassem serviços internos do homelab (192.168.x, 10.x, localhost,
@@ -34,6 +41,9 @@ function ipIsPrivate(ip) {
 }
 
 async function hostIsSafe(hostname) {
+  if (ALLOWED_HOSTS.length > 0 && !ALLOWED_HOSTS.includes(hostname.toLowerCase())) {
+    return false;
+  }
   // Se já é IP literal, valida direto
   if (net.isIP(hostname)) return !ipIsPrivate(hostname);
   try {
@@ -44,6 +54,19 @@ async function hostIsSafe(hostname) {
     return false;
   }
 }
+
+// Instância ÚNICA do proxy — o alvo é derivado por request via `router`
+// (antes criávamos um middleware novo a cada chamada).
+const proxy = createProxyMiddleware({
+  changeOrigin: true,
+  router: (req) => req.proxyTarget.origin,
+  on: {
+    proxyReq: (proxyReq, req) => {
+      const { pathname, search } = req.proxyTarget;
+      proxyReq.path = pathname + search;
+    },
+  },
+});
 
 app.use('/proxy', async (req, res, next) => {
   const target = req.query.url;
@@ -64,15 +87,8 @@ app.use('/proxy', async (req, res, next) => {
     return res.status(403).json({ error: 'target host not allowed' });
   }
 
-  createProxyMiddleware({
-    target: parsed.origin,
-    changeOrigin: true,
-    on: {
-      proxyReq: (proxyReq) => {
-        proxyReq.path = parsed.pathname + parsed.search;
-      },
-    },
-  })(req, res, next);
+  req.proxyTarget = parsed;
+  proxy(req, res, next);
 });
 
 app.listen(3001, () => console.log('Proxy rodando em http://localhost:3001'));
