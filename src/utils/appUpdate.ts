@@ -9,14 +9,14 @@
 import * as Updates from 'expo-updates';
 import * as FileSystem from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
-import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { APP_VERSION } from './version';
 
 const GH_REPO = 'clevim/skaphosTv';
 const RELEASES_API = `https://api.github.com/repos/${GH_REPO}/releases/latest`;
 
-// Versão NATIVA instalada (build.gradle versionName) — base correta p/ comparar com o GitHub
-export const CURRENT_VERSION = Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? '0.0.0';
+// Versão NATIVA instalada — base correta p/ comparar com o GitHub
+export const CURRENT_VERSION = APP_VERSION;
 
 /** semver simples "1.2.3" → true se a > b. */
 export function isNewerVersion(a: string, b: string): boolean {

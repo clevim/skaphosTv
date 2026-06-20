@@ -16,10 +16,7 @@ import BottomTabBar from '../components/BottomTabBar';
 import TVTopBar from '../components/TVTopBar';
 import { colors, spacing, fontSize, radius, fontFamily } from '../utils/theme';
 import { RootStackParamList, Channel } from '../types';
-import axios from 'axios';
-import { parseM3U } from '../utils/m3uParser';
-import { loadXtreamChannels } from '../utils/xtreamLoader';
-import { loadJellyfinContent } from '../utils/jellyfinLoader';
+import { loadSourceChannels } from '../utils/sourceLoader';
 import { usePaginatedList } from '../hooks/usePaginatedList';
 import { useChannelFilter } from '../hooks/useChannelFilter';
 import SkeletonCard from '@/components/SkeletonCard';
@@ -140,23 +137,7 @@ export default function HomeScreen() {
     init();
   }, []);
 
-  const loadOneSource = async (source: IPTVSource): Promise<{ channels: Channel[]; groups: string[] }> => {
-    if (source.type === 'xtream') {
-      const host = source.host?.replace(/\/$/, '') || '';
-      return loadXtreamChannels(host, source.username || '', source.password || '');
-    }
-    if (source.type === 'jellyfin') {
-      const host = source.host?.replace(/\/$/, '') || '';
-      return loadJellyfinContent(host, source.apiKey!, source.userId!, source.serverName || source.name);
-    }
-    // M3U
-    if (!source.url) return { channels: [], groups: [] };
-    const response = await axios.get(source.url, {
-      timeout: 60000,
-      headers: { 'User-Agent': 'okhttp/4.9.0' },
-    });
-    return parseM3U(response.data);
-  };
+  const loadOneSource = (source: IPTVSource) => loadSourceChannels(source);
 
   const loadAllSources = async (sourcesToLoad: IPTVSource[], forceRefresh = false) => {
     if (!forceRefresh && useStore.getState().channels.length > 0) return;

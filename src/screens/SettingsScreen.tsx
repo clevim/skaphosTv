@@ -6,20 +6,15 @@ import { View, Text, StyleSheet, ScrollView, Switch, ActivityIndicator, TextInpu
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import Constants from 'expo-constants';
 import { useStore } from '../store/useStore';
 import TVFocusable from '../components/TVFocusable';
 import { enrichLiveLogos } from '../utils/logoResolver';
 import {
   checkOtaUpdate, reloadApp, fetchLatestRelease, isNewerVersion,
-  downloadAndInstallApk, CURRENT_VERSION,
+  downloadAndInstallApk,
 } from '../utils/appUpdate';
+import { APP_VERSION, VERSION_LABEL } from '../utils/version';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
-
-// Versão lida do build NATIVO (versionName/versionCode) — confiável no fluxo bare
-const APP_VERSION = Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? '1.1.0';
-const BUILD_NUM = Constants.nativeBuildVersion ?? '';
-const VERSION_LABEL = BUILD_NUM ? `v${APP_VERSION} · build ${BUILD_NUM}` : `v${APP_VERSION}`;
 import { IS_TV } from '../utils/tvDetect';
 
 // ── Shared sub-components ───────────────────────────────────────────────────
@@ -246,7 +241,7 @@ function UpdateCheckRow() {
 
       // 2) GitHub Release — APK (mudanças nativas)
       const rel = await fetchLatestRelease();
-      if (rel && isNewerVersion(rel.version, CURRENT_VERSION)) {
+      if (rel && isNewerVersion(rel.version, APP_VERSION)) {
         setBusy(false);
         if (!rel.apkUrl) {
           setSub(`Nova versão v${rel.version} disponível no GitHub`);

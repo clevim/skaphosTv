@@ -32,7 +32,7 @@
         "backgroundColor": "#0a0810"
       },
       "package": "com.skaphostv.app",
-      "versionCode": 3,
+      "versionCode": 10100,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",

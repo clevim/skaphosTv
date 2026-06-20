@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
+# Sincroniza a versão (app.json → build.gradle / strings.xml / package.json)
+node scripts/sync-version.js
+
 VERSION=$(node -e "console.log(require('./app.json').expo.version)")
 OUT_DIR="storage/apks"
 OUT_FILE="$OUT_DIR/skaphostv-$VERSION.apk"

@@ -15,6 +15,8 @@ import { loadXtreamPhased, XtreamPhase } from '../utils/xtreamPhasedLoader';
 import { enrichM3UChannels } from '../utils/xtreamEnricher';
 import { normalizeHost as normalizeHostUtil } from '../utils/xtreamApi';
 import { loadJellyfinContent } from '../utils/jellyfinLoader';
+import { loadSourceChannels } from '../utils/sourceLoader';
+import { APP_VERSION } from '../utils/version';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
 import { IS_TV } from '../utils/tvDetect';
 
@@ -151,6 +153,7 @@ export default function SetupScreen() {
 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
+  const [reloadingIds, setReloadingIds] = useState<string[]>([]);
 
   const updatePhase = (phase: XtreamPhase, patch: Partial<PhaseStatus>) =>
     setPhases(prev => ({ ...prev, [phase]: { ...prev[phase], ...patch } }));
@@ -353,7 +356,7 @@ export default function SetupScreen() {
     stopQCPoll();
 
     const qcHeaders = {
-      'X-Emby-Authorization': 'MediaBrowser Client="SkaphosTV", Device="App", DeviceId="skaphostv-qc", Version="1.0.0"',
+      'X-Emby-Authorization': `MediaBrowser Client="SkaphosTV", Device="App", DeviceId="skaphostv-qc", Version="${APP_VERSION}"`,
     };
 
     try {
@@ -439,6 +442,25 @@ export default function SetupScreen() {
     if (!deleteTarget) return;
     removeSource(deleteTarget.id);
     setDeleteTarget(null);
+  };
+
+  // Recarrega os canais de uma fonte do zero, usando a conexão já salva.
+  const reloadSource = async (source: IPTVSource) => {
+    if (reloadingIds.includes(source.id)) return;
+    setReloadingIds(prev => [...prev, source.id]);
+    try {
+      const { channels, groups } = await loadSourceChannels(source);
+      if (channels.length > 0) {
+        replaceSourceChannels(source.id, channels, groups);
+        updateSource(source.id, { channelCount: channels.length });
+      } else {
+        Alert.alert('Nada carregado', `Não foi possível recarregar "${source.name}".`);
+      }
+    } catch {
+      Alert.alert('Erro', `Falha ao recarregar "${source.name}". Verifique a conexão.`);
+    } finally {
+      setReloadingIds(prev => prev.filter(id => id !== source.id));
+    }
   };
 
   // ─── Form section (shared between TV panels and mobile scroll) ───
@@ -756,6 +778,15 @@ export default function SetupScreen() {
                         </Text>
                       </View>
                       <TVFocusable
+                        onPress={() => reloadSource(source)}
+                        style={tvStyles.editBtn}
+                        borderRadius={8}
+                      >
+                        {reloadingIds.includes(source.id)
+                          ? <ActivityIndicator size="small" color={colors.accent} />
+                          : <Ionicons name="refresh-outline" size={20} color={colors.text2} />}
+                      </TVFocusable>
+                      <TVFocusable
                         onPress={() => startEdit(source)}
                         style={tvStyles.editBtn}
                         borderRadius={8}
@@ -892,6 +923,14 @@ export default function SetupScreen() {
                     {source.type === 'xtream' ? 'Xtream API' : source.type === 'jellyfin' ? `Jellyfin · ${source.serverName ?? source.host}` : 'Lista M3U'} · {source.channelCount || 0} itens
                   </Text>
                 </View>
+                <Pressable
+                  onPress={() => reloadSource(source)}
+                  style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.6 }]}
+                >
+                  {reloadingIds.includes(source.id)
+                    ? <ActivityIndicator size="small" color={colors.accent} />
+                    : <Ionicons name="refresh-outline" size={18} color={colors.text2} />}
+                </Pressable>
                 <Pressable
                   onPress={() => startEdit(source)}
                   style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.6 }]}

@@ -14,13 +14,14 @@
 
 import axios from 'axios';
 import { Channel, SubtitleTrack, AudioTrack } from '../types';
+import { APP_VERSION } from './version';
 
 const TIMEOUT = 30_000;
 
 function headers(apiKey: string) {
   return {
     'X-Emby-Token': apiKey,
-    'Authorization': `MediaBrowser Client="SkaphosTV", Device="App", DeviceId="skaphostv-app", Version="1.0.0", Token="${apiKey}"`,
+    'Authorization': `MediaBrowser Client="SkaphosTV", Device="App", DeviceId="skaphostv-app", Version="${APP_VERSION}", Token="${apiKey}"`,
   };
 }
 
