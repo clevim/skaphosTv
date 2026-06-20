@@ -57,6 +57,9 @@ function seasonLabel(n: number) {
   return n === 0 ? 'Especiais' : `Temporada ${n}`;
 }
 
+/** Mantém um valor responsivo dentro de limites legíveis (evita fontes minúsculas/gigantes). */
+const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, Math.round(v)));
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function EpThumb({ logo, size }: { logo?: string; size: { w: number; h: number } }) {
@@ -102,6 +105,7 @@ export default function SeriesScreen() {
   const [tmdb, setTmdb] = useState<TmdbMeta | null>(null);
   const [trackSheetUrl, setTrackSheetUrl] = useState<string | null>(null);
   const pendingEpRef = useRef<Channel | null>(null);
+  const railRef = useRef<FlatList<Channel>>(null);
 
   const doFetchEpisodes = useCallback(() => {
     if (!isXtreamSeries) return;
@@ -382,10 +386,35 @@ export default function SeriesScreen() {
 
   // ── TV Layout ─────────────────────────────────────────────────────────────
   if (IS_TV) {
-    // Valores responsivos calculados a partir da largura real da tela
-    const cardW = Math.round(sw * 0.195);       // ~220px em 1280 · ~268px em 1366 · ~374px em 1920
+    // Valores responsivos calculados a partir da largura real da tela.
+    // Em telas largas usa fração menor (mais cards visíveis); em telas estreitas,
+    // garante um tamanho mínimo de card para não ficar grande demais.
+    const cardW = clamp(sw * 0.195, 200, 360);  // ~220px em 1280 · ~268px em 1366 · 360px (cap) em 1920+
     const cardH = Math.round(cardW * (9 / 16)); // proporção 16:9 sempre
-    const pH    = Math.round(sw * 0.035);       // padding horizontal geral
+    const pH    = clamp(sw * 0.035, 24, 80);    // padding horizontal geral
+    const gap   = clamp(sw * 0.013, 10, 28);    // espaço entre cards
+    const stride = cardW + gap;                 // passo para getItemLayout/scroll
+
+    // Tipografia responsiva com limites legíveis (evita micro-texto em 720p / exagero em 4K)
+    const fTitle   = clamp(sw * 0.038, 26, 56);
+    const fTitleLh = clamp(sw * 0.044, 30, 64);
+    const fMeta    = clamp(sw * 0.010, 12, 20);
+    const fBadge   = clamp(sw * 0.008, 10, 16);
+    const fSyn     = clamp(sw * 0.011, 13, 22);
+    const fSynLh   = clamp(sw * 0.016, 18, 30);
+    const fPill    = clamp(sw * 0.009, 12, 19);
+    const fEpCount = clamp(sw * 0.007,  9, 15);
+    const fEpCode  = clamp(sw * 0.008, 10, 16);
+    const fEpTitle = clamp(sw * 0.010, 12, 19);
+    const fEpSyn   = clamp(sw * 0.008, 10, 15);
+    const fEpDur   = clamp(sw * 0.007,  9, 14);
+    const padTop   = clamp(sh * 0.07,  44, 110);
+
+    // Mantém o card em foco visível e sincroniza o destaque (play + sinopse) com o D-pad
+    const focusEpisode = (index: number) => {
+      setFocusedEp(index);
+      railRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    };
 
     return (
       <View style={tvStyles.root}>
@@ -416,44 +445,38 @@ export default function SeriesScreen() {
         </TVFocusable>
 
         {/* Flex column: empurra título para cima e rail para baixo */}
-        <View style={tvStyles.content}>
+        <View style={[tvStyles.content, { paddingTop: padTop }]}>
           {/* Título + meta */}
-          <View style={[tvStyles.titleBlock, { paddingLeft: pH, width: Math.round(sw * 0.42) }]}>
+          <View style={[tvStyles.titleBlock, { paddingLeft: pH, width: clamp(sw * 0.42, 360, 900) }]}>
             <View style={tvStyles.origBadge}>
-              <Text style={[tvStyles.origBadgeText, { fontSize: Math.round(sw * 0.008) }]}>
+              <Text style={[tvStyles.origBadgeText, { fontSize: fBadge }]}>
                 SÉRIE · {seasonKeys.length} TEMPORADA{seasonKeys.length !== 1 ? 'S' : ''}
               </Text>
             </View>
             <Text
-              style={[
-                tvStyles.title,
-                {
-                  fontSize: Math.round(sw * 0.038),
-                  lineHeight: Math.round(sw * 0.044),
-                },
-              ]}
+              style={[tvStyles.title, { fontSize: fTitle, lineHeight: fTitleLh }]}
               numberOfLines={2}
             >
               {baseName}
             </Text>
             <View style={tvStyles.metaRow}>
-              <Text style={[tvStyles.metaAcc, { fontSize: Math.round(sw * 0.010) }]}>
+              <Text style={[tvStyles.metaAcc, { fontSize: fMeta }]}>
                 {allEpisodes.length} episódios
               </Text>
               {seriesChannel?.rating ? (
                 <View style={tvStyles.ratingBadge}>
-                  <Text style={[tvStyles.ratingText, { fontSize: Math.round(sw * 0.008) }]}>
+                  <Text style={[tvStyles.ratingText, { fontSize: fBadge }]}>
                     {seriesChannel.rating}
                   </Text>
                 </View>
               ) : (
                 <View style={tvStyles.ratingBadge}>
-                  <Text style={[tvStyles.ratingText, { fontSize: Math.round(sw * 0.008) }]}>TV-MA</Text>
+                  <Text style={[tvStyles.ratingText, { fontSize: fBadge }]}>TV-MA</Text>
                 </View>
               )}
               {heroChannel?.quality && (
                 <View style={tvStyles.ratingBadge}>
-                  <Text style={[tvStyles.ratingText, { fontSize: Math.round(sw * 0.008) }]}>
+                  <Text style={[tvStyles.ratingText, { fontSize: fBadge }]}>
                     {heroChannel.quality}
                   </Text>
                 </View>
@@ -462,11 +485,7 @@ export default function SeriesScreen() {
             <Text
               style={[
                 tvStyles.synopsis,
-                {
-                  fontSize: Math.round(sw * 0.011),
-                  lineHeight: Math.round(sw * 0.016),
-                  maxWidth: Math.round(sw * 0.34),
-                },
+                { fontSize: fSyn, lineHeight: fSynLh, maxWidth: clamp(sw * 0.34, 300, 720) },
               ]}
               numberOfLines={2}
             >
@@ -482,14 +501,18 @@ export default function SeriesScreen() {
                 return (
                   <TVFocusable
                     key={s}
-                    onPress={() => { setSelectedSeason(s); setFocusedEp(0); }}
+                    onPress={() => {
+                      setSelectedSeason(s);
+                      setFocusedEp(0);
+                      railRef.current?.scrollToOffset({ offset: 0, animated: false });
+                    }}
                     style={[tvStyles.seasonPill, active && tvStyles.seasonPillActive]}
                   >
                     <Text
                       style={[
                         tvStyles.seasonPillText,
                         active && tvStyles.seasonPillTextActive,
-                        { fontSize: Math.round(sw * 0.009) },
+                        { fontSize: fPill },
                       ]}
                     >
                       {seasonLabel(s)}
@@ -497,22 +520,25 @@ export default function SeriesScreen() {
                   </TVFocusable>
                 );
               })}
-              <Text style={[tvStyles.epCount, { fontSize: Math.round(sw * 0.007) }]}>
+              <Text style={[tvStyles.epCount, { fontSize: fEpCount }]}>
                 {episodes.length} EPISÓDIOS
               </Text>
             </View>
 
             <FlatList
+              ref={railRef}
               horizontal
               data={episodes}
               keyExtractor={item => item.id}
               style={tvStyles.rail}
               contentContainerStyle={[
                 tvStyles.railContent,
-                { paddingHorizontal: pH, gap: Math.round(sw * 0.013) },
+                { paddingHorizontal: pH, gap },
               ]}
               showsHorizontalScrollIndicator={false}
               initialScrollIndex={0}
+              getItemLayout={(_, index) => ({ length: stride, offset: stride * index + pH, index })}
+              onScrollToIndexFailed={() => {}}
               renderItem={({ item, index }) => {
                 const focused = index === focusedEp;
                 const label = epLabel(item.name, index);
@@ -523,6 +549,7 @@ export default function SeriesScreen() {
                   .trim() || item.name;
                 return (
                   <TVFocusable
+                    onFocus={() => focusEpisode(index)}
                     onPress={() => { setFocusedEp(index); handlePlay(item); }}
                     style={[tvStyles.epCard, { width: cardW }, focused && tvStyles.epCardFocused]}
                     hasTVPreferredFocus={isFirst}
@@ -547,12 +574,12 @@ export default function SeriesScreen() {
                       )}
                     </View>
                     <View style={tvStyles.epMeta}>
-                      <Text style={[tvStyles.epCode, { fontSize: Math.round(sw * 0.008) }]}>{label}</Text>
+                      <Text style={[tvStyles.epCode, { fontSize: fEpCode }]}>{label}</Text>
                       <Text
                         style={[
                           tvStyles.epTitle,
                           focused && tvStyles.epTitleFocused,
-                          { fontSize: Math.round(sw * 0.010) },
+                          { fontSize: fEpTitle },
                         ]}
                         numberOfLines={1}
                       >
@@ -561,16 +588,13 @@ export default function SeriesScreen() {
                     </View>
                     {focused ? (
                       <Text
-                        style={[
-                          tvStyles.epSynopsis,
-                          { fontSize: Math.round(sw * 0.008), maxWidth: cardW },
-                        ]}
+                        style={[tvStyles.epSynopsis, { fontSize: fEpSyn, maxWidth: cardW }]}
                         numberOfLines={2}
                       >
                         {item.plot || displayGenre}
                       </Text>
                     ) : null}
-                    <Text style={[tvStyles.epDur, { fontSize: Math.round(sw * 0.007) }]}>
+                    <Text style={[tvStyles.epDur, { fontSize: fEpDur }]}>
                       {item.quality ? `${item.quality} · ` : ''}{item.name.match(/\d+\s*min/)?.[0] || '~50min'}
                     </Text>
                   </TVFocusable>
@@ -584,13 +608,18 @@ export default function SeriesScreen() {
   }
 
   // ── Mobile Layout ─────────────────────────────────────────────────────────
+  // Dimensões proporcionais à tela (responsivo entre telefones pequenos e tablets)
+  const heroH      = clamp(sh * 0.48, 320, 560);
+  const thumbW     = clamp(sw * 0.30, 96, 150);
+  const thumbH     = Math.round(thumbW * (9 / 16));
+  const fHeroTitle = clamp(sw * 0.078, 24, 40);
   return (
     <View style={styles.root}>
       <StatusBar hidden />
       {trackSheet}
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
 
-        <View style={styles.hero}>
+        <View style={[styles.hero, { height: heroH }]}>
           {backdropUri ? (
             <Image source={{ uri: backdropUri }} style={styles.heroImg} resizeMode="cover" />
           ) : (
@@ -617,7 +646,7 @@ export default function SeriesScreen() {
             <View style={styles.origBadge}>
               <Text style={styles.origBadgeText}>SÉRIE</Text>
             </View>
-            <Text style={styles.heroTitle} numberOfLines={2}>{baseName}</Text>
+            <Text style={[styles.heroTitle, { fontSize: fHeroTitle, lineHeight: Math.round(fHeroTitle * 1.12) }]} numberOfLines={2}>{baseName}</Text>
             <View style={styles.heroMeta}>
               <Text style={styles.metaAcc}>{allEpisodes.length} ep</Text>
               <Text style={styles.metaDim}>·</Text>
@@ -742,8 +771,8 @@ export default function SeriesScreen() {
                 onPress={() => handlePlay(item)}
                 style={[styles.epRow, index < episodes.length - 1 && styles.epRowBorder]}
               >
-                <View style={styles.epThumbWrap}>
-                  <EpThumb logo={item.logo} size={{ w: 110, h: 64 }} />
+                <View style={[styles.epThumbWrap, { width: thumbW }]}>
+                  <EpThumb logo={item.logo} size={{ w: thumbW, h: thumbH }} />
                   {isCurrent && (
                     <View style={styles.epProgress}>
                       <View style={[styles.epProgressFill, { width: '45%' }]} />
