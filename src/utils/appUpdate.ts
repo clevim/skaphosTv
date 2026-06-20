@@ -15,7 +15,8 @@ import { Platform } from 'react-native';
 const GH_REPO = 'clevim/skaphosTv';
 const RELEASES_API = `https://api.github.com/repos/${GH_REPO}/releases/latest`;
 
-export const CURRENT_VERSION = Constants.expoConfig?.version ?? '0.0.0';
+// Versão NATIVA instalada (build.gradle versionName) — base correta p/ comparar com o GitHub
+export const CURRENT_VERSION = Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? '0.0.0';
 
 /** semver simples "1.2.3" → true se a > b. */
 export function isNewerVersion(a: string, b: string): boolean {

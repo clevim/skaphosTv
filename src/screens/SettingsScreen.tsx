@@ -16,8 +16,8 @@ import {
 } from '../utils/appUpdate';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
 
-// Versão lida dinamicamente do app.json / build nativo (evita strings desatualizadas)
-const APP_VERSION = Constants.expoConfig?.version ?? '1.1.0';
+// Versão lida do build NATIVO (versionName/versionCode) — confiável no fluxo bare
+const APP_VERSION = Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? '1.1.0';
 const BUILD_NUM = Constants.nativeBuildVersion ?? '';
 const VERSION_LABEL = BUILD_NUM ? `v${APP_VERSION} · build ${BUILD_NUM}` : `v${APP_VERSION}`;
 import { IS_TV } from '../utils/tvDetect';
