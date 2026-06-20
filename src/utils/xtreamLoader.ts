@@ -9,55 +9,23 @@
  *  3. Return { channels, groups } — same as parseM3U
  */
 
-import axios from 'axios';
 import { Channel } from '../types';
+import { fetchJson } from './httpJson';
+import { mapLiveStream, mapVodStream, mapSeriesStream, XtreamRawStream } from './xtreamMappers';
 
 const TIMEOUT = 30000;
-const HEADERS = { 'User-Agent': 'okhttp/4.9.0' };
 
 interface XtreamCategory {
   category_id: string;
   category_name: string;
 }
 
-interface XtreamStream {
-  stream_id?: number;
-  series_id?: number;
-  num?: number;
-  name: string;
-  stream_icon?: string;
-  cover?: string;
-  category_id?: string;
-  container_extension?: string;
-  rating?: string;
-  added?: string;
-  epg_channel_id?: string;
-  plot?: string;
-  cast?: string;
-  director?: string;
-  genre?: string;
-  releaseDate?: string;
-  backdrop_path?: string | string[];
-}
+type XtreamStream = XtreamRawStream & { category_id?: string };
 
 function buildCategoryMap(cats: XtreamCategory[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const c of cats) map.set(String(c.category_id), c.category_name);
   return map;
-}
-
-function detectQuality(name: string): string {
-  const s = name.toUpperCase();
-  if (s.includes('4K') || s.includes('UHD')) return '4K';
-  if (s.includes('FHD') || s.includes('1080')) return 'FHD';
-  if (s.includes('HD') || s.includes('720')) return 'HD';
-  if (s.includes('SD') || s.includes('480')) return 'SD';
-  return 'HD';
-}
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const res = await axios.get<T>(url, { timeout: TIMEOUT, headers: HEADERS });
-  return res.data;
 }
 
 export async function loadXtreamChannels(
@@ -100,69 +68,22 @@ export async function loadXtreamChannels(
   for (const s of liveStreams) {
     if (!s.stream_id || !s.name) continue;
     const group = liveCatMap.get(String(s.category_id)) || 'Ao Vivo';
-    addChannel({
-      id: `live-${s.stream_id}`,
-      name: s.name,
-      url: `${host}/live/${username}/${password}/${s.stream_id}.ts`,
-      logo: s.stream_icon || undefined,
-      group,
-      tvgId: s.epg_channel_id || undefined,
-      quality: detectQuality(s.name),
-      isFavorite: false,
-      streamType: 'live',
-    });
+    addChannel(mapLiveStream(s, host, username, password, group));
   }
 
   // ── Movies (VOD) ─────────────────────────────────────────────
+  // Grupo SEM prefixo ♦ para casar com o loadXtreamPhased (evita o sidebar mudar no refresh)
   for (const s of vodStreams) {
     if (!s.stream_id || !s.name) continue;
     const catName = vodCatMap.get(String(s.category_id)) || 'Filmes';
-    const group = `♦ ${catName}`;
-    const ext = (s.container_extension || 'mp4').replace(/^\./, '') || 'mp4';
-    addChannel({
-      id: `vod-${s.stream_id}`,
-      name: s.name,
-      url: `${host}/movie/${username}/${password}/${s.stream_id}.${ext}`,
-      logo: s.stream_icon || s.cover || undefined,
-      group,
-      quality: detectQuality(s.name),
-      isFavorite: false,
-      streamType: 'movie',
-      rating: s.rating ? String(s.rating) : undefined,
-      genre: s.genre || undefined,
-      plot: s.plot || undefined,
-      releaseDate: s.releaseDate || undefined,
-    });
+    addChannel(mapVodStream(s, host, username, password, catName));
   }
 
   // ── Series ───────────────────────────────────────────────────
-  // IMPORTANTE: o shape precisa bater com o loadXtreamPhased — `streamType: 'series'`
-  // e `tvgId` (series_id) são o que o SeriesScreen usa para buscar os episódios.
   for (const s of seriesList) {
     if (!s.series_id || !s.name) continue;
     const catName = seriesCatMap.get(String(s.category_id)) || 'Séries';
-    const group = `♦ ${catName}`;
-    const backdropRaw = s.backdrop_path;
-    const backdrop = Array.isArray(backdropRaw) ? backdropRaw[0] : (backdropRaw || undefined);
-    // URL é o endpoint da API da série — episódios são carregados sob demanda
-    addChannel({
-      id: `series-${s.series_id}`,
-      name: String(s.name).trim(),
-      url: `${host}/series/${username}/${password}/${s.series_id}`,
-      logo: s.stream_icon || s.cover || undefined,
-      group,
-      tvgId: String(s.series_id),
-      quality: detectQuality(s.name),
-      isFavorite: false,
-      streamType: 'series',
-      plot: s.plot || undefined,
-      cast: s.cast || undefined,
-      director: s.director || undefined,
-      genre: s.genre || undefined,
-      rating: s.rating ? String(s.rating) : undefined,
-      releaseDate: s.releaseDate || undefined,
-      backdrop: backdrop || undefined,
-    });
+    addChannel(mapSeriesStream(s, host, username, password, `♦ ${catName}`));
   }
 
   return {

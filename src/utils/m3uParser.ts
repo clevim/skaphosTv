@@ -1,4 +1,5 @@
 import { Channel } from '../types';
+import { detectQuality } from './channelUtils';
 
 export interface ParseResult {
   channels: Channel[];
@@ -104,15 +105,6 @@ function extractAttr(str: string, attr: string): string | null {
   const regex = new RegExp(`${attr}="([^"]*)"`, 'i');
   const match = str.match(regex);
   return match ? match[1] : null;
-}
-
-function detectQuality(str: string): string {
-  const s = str.toUpperCase();
-  if (s.includes('4K') || s.includes('UHD') || s.includes('2160')) return '4K';
-  if (s.includes('FHD') || s.includes('1080')) return 'FHD';
-  if (s.includes('HD') || s.includes('720')) return 'HD';
-  if (s.includes('SD') || s.includes('480')) return 'SD';
-  return 'HD';
 }
 
 function cleanName(name: string): string {

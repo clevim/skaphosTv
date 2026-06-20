@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { Animated, Platform } from 'react-native';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useStore } from '../store/useStore';
@@ -81,7 +81,13 @@ export function usePlayer(
   const [audioReady, setAudioReady] = useState(false);
 
   const isLive = !duration || duration === 0;
-  const currentIndex = channels.findIndex(c => c.id === playingChannel.id);
+  // Navegação prev/next fica restrita aos canais do MESMO tipo (zapping de Ao Vivo
+  // não cai em filme/série). M3U sem streamType mantém o comportamento antigo (lista toda).
+  const siblings = useMemo(() => {
+    const t = playingChannel.streamType;
+    return t ? channels.filter(c => c.streamType === t) : channels;
+  }, [channels, playingChannel.streamType]);
+  const currentIndex = siblings.findIndex(c => c.id === playingChannel.id);
 
   useEffect(() => {
     if (Platform.OS !== 'web') {
@@ -201,12 +207,12 @@ export function usePlayer(
   }, [setCurrentChannel, showOSDTemporarily]);
 
   const prevChannel = useCallback(() => {
-    if (currentIndex > 0) playChannel(channels[currentIndex - 1]);
-  }, [currentIndex, channels, playChannel]);
+    if (currentIndex > 0) playChannel(siblings[currentIndex - 1]);
+  }, [currentIndex, siblings, playChannel]);
 
   const nextChannel = useCallback(() => {
-    if (currentIndex < channels.length - 1) playChannel(channels[currentIndex + 1]);
-  }, [currentIndex, channels, playChannel]);
+    if (currentIndex < siblings.length - 1) playChannel(siblings[currentIndex + 1]);
+  }, [currentIndex, siblings, playChannel]);
 
   const onLoad = useCallback((data: any) => {
     setAudioReady(true); // ← libera selectedAudioTrack só agora (grupos ExoPlayer existem)
@@ -439,7 +445,7 @@ export function usePlayer(
     retryCount, retryingIn,
     position, duration, seekableDuration,
     showOSD, showSidebar, seekHint,
-    isLive, currentIndex,
+    isLive, currentIndex, totalSiblings: siblings.length,
     subtitleTracks, selectedSubtitleIndex, setSelectedSubtitleIndex,
     vttSubtitleIndex,
     audioTracks, currentAudioIndex, audioReady, switchAudioTrack,

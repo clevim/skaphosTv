@@ -14,8 +14,8 @@
  * Roda em background após o carregamento do M3U — não bloqueia a UI.
  */
 
-import axios from 'axios';
 import { Channel } from '../types';
+import { fetchJson as fetchJsonHttp } from './httpJson';
 
 // ─── Padrões de URL Xtream ───────────────────────────────────────────────────
 
@@ -47,15 +47,8 @@ function parseXtreamUrl(url: string): ParsedXtream | null {
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 
 const TIMEOUT = 60_000;
-const HEADERS = { 'User-Agent': 'okhttp/4.9.0' };
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const res = await axios.get<T>(url, { timeout: TIMEOUT, headers: HEADERS });
-  if (res.data === false || res.data === null || res.data === undefined) {
-    throw new Error('Resposta inválida do servidor');
-  }
-  return res.data;
-}
+const fetchJson = <T>(url: string): Promise<T> => fetchJsonHttp<T>(url, TIMEOUT);
 
 // ─── Tipos de metadados da API ───────────────────────────────────────────────
 

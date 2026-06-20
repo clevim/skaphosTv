@@ -11,8 +11,9 @@
  * Isso evita OOM por não criar arrays gigantes de uma vez.
  */
 
-import axios from 'axios';
 import { Channel } from '../types';
+import { fetchJson as fetchJsonHttp } from './httpJson';
+import { mapLiveStream, mapVodStream, mapSeriesStream } from './xtreamMappers';
 
 export type XtreamPhase = 'live' | 'vod' | 'series';
 
@@ -39,20 +40,12 @@ export interface XtreamPhasedOptions {
 
 const TIMEOUT        = 60_000;   // live / vod
 const TIMEOUT_SERIES = 180_000;  // séries: resposta pode passar de 10 MB
-const HEADERS  = { 'User-Agent': 'okhttp/4.9.0' };
 
 type CatMap = Map<string, string>;
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-async function fetchJson<T>(url: string, timeout = TIMEOUT): Promise<T> {
-  const res = await axios.get<T>(url, { timeout, headers: HEADERS });
-  if (res.data === false || res.data === null || res.data === undefined) {
-    throw new Error('Credenciais inválidas ou servidor indisponível');
-  }
-  return res.data;
-}
-
+const fetchJson = <T>(url: string, timeout = TIMEOUT): Promise<T> => fetchJsonHttp<T>(url, timeout);
 
 async function fetchCategories(base: string, action: string): Promise<CatMap> {
   try {
@@ -67,15 +60,6 @@ async function fetchCategories(base: string, action: string): Promise<CatMap> {
   } catch {
     return new Map();
   }
-}
-
-function detectQuality(name: string, url = ''): string {
-  const s = (name + ' ' + url).toUpperCase();
-  if (s.includes('4K') || s.includes('UHD') || s.includes('2160')) return '4K';
-  if (s.includes('FHD') || s.includes('1080')) return 'FHD';
-  if (s.includes('HD') || s.includes('720')) return 'HD';
-  if (s.includes('SD') || s.includes('480')) return 'SD';
-  return 'HD';
 }
 
 // ─── Fase 1: Ao Vivo ────────────────────────────────────────────────────────
@@ -99,20 +83,8 @@ async function loadLive(
   for (const s of list) {
     if (!s.stream_id) continue;
     const group = catMap.get(String(s.category_id)) ?? 'Ao Vivo';
-    const name  = String(s.name ?? '').trim() || 'Canal';
-    const url   = `${host}/live/${user}/${pass}/${s.stream_id}.ts`;
     groupSet.add(group);
-    channels.push({
-      id: `live-${s.stream_id}`,
-      name,
-      url,
-      logo:       s.stream_icon || undefined,
-      group,
-      tvgId:      s.epg_channel_id || undefined,
-      quality:    detectQuality(name, url),
-      isFavorite: false,
-      streamType: 'live',
-    });
+    channels.push(mapLiveStream(s, host, user, pass, group));
     if (channels.length % 500 === 0) onProgress(channels.length);
   }
   onProgress(channels.length);
@@ -146,24 +118,8 @@ async function loadVod(
   for (const s of list) {
     if (!s.stream_id) continue;
     const group = catMap.get(String(s.category_id)) ?? 'Filmes';
-    const ext   = (s.container_extension ?? 'mp4').replace(/^\./, '') || 'mp4';
-    const name  = String(s.name ?? '').trim() || 'Filme';
-    const url   = `${host}/movie/${user}/${pass}/${s.stream_id}.${ext}`;
     groupSet.add(group);
-    channels.push({
-      id: `vod-${s.stream_id}`,
-      name,
-      url,
-      logo:       s.stream_icon || s.cover || undefined,
-      group,
-      quality:    detectQuality(name, url),
-      isFavorite: false,
-      streamType:  'movie',
-      rating:      s.rating ? String(s.rating) : undefined,
-      genre:       s.genre || undefined,
-      plot:        s.plot || undefined,
-      releaseDate: s.releaseDate || undefined,
-    });
+    channels.push(mapVodStream(s, host, user, pass, group));
     if (channels.length % 500 === 0) onProgress(channels.length);
   }
   onProgress(channels.length);
@@ -198,32 +154,8 @@ async function loadSeries(
     if (!s.series_id) continue;
     const catName = catMap.get(String(s.category_id)) ?? 'Séries';
     const group   = `♦ ${catName}`;
-    const name    = String(s.name ?? '').trim() || 'Série';
-    // URL é sempre o endpoint da API — cover é imagem de capa (TMDB), não stream
-    const url     = `${host}/series/${user}/${pass}/${s.series_id}`;
     groupSet.add(group);
-    // backdrop_path pode ser array ou string
-    const backdropRaw = s.backdrop_path;
-    const backdrop = Array.isArray(backdropRaw) ? backdropRaw[0] : (backdropRaw || undefined);
-
-    channels.push({
-      id: `series-${s.series_id}`,
-      name,
-      url,
-      logo:        s.cover || undefined,
-      group,
-      tvgId:       String(s.series_id),
-      quality:     'HD',
-      isFavorite:  false,
-      streamType:  'series',
-      plot:        s.plot || undefined,
-      cast:        s.cast || undefined,
-      director:    s.director || undefined,
-      genre:       s.genre || undefined,
-      rating:      s.rating ? String(s.rating) : undefined,
-      releaseDate: s.releaseDate || undefined,
-      backdrop:    backdrop || undefined,
-    });
+    channels.push(mapSeriesStream(s, host, user, pass, group));
     if (channels.length % 200 === 0) onProgress(channels.length);
   }
   onProgress(channels.length);

@@ -55,7 +55,7 @@ export default function PlayerScreen() {
     retryCount, retryingIn,
     position, duration,
     showOSD, showSidebar, seekHint,
-    isLive, currentIndex,
+    isLive, currentIndex, totalSiblings,
     subtitleTracks, selectedSubtitleIndex,
     vttSubtitleIndex, switchSubtitleTrack,
     audioTracks, currentAudioIndex, audioReady, switchAudioTrack,
@@ -324,7 +324,7 @@ export default function PlayerScreen() {
             position={position}
             duration={duration}
             currentIndex={currentIndex}
-            totalChannels={channels.length}
+            totalChannels={totalSiblings}
             retryCount={retryCount}
             onBack={() => navigation.goBack()}
             onTogglePlay={togglePlay}

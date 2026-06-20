@@ -26,6 +26,19 @@ export function detectType(group: string, name?: string): 'live' | 'movies' | 's
   return 'live';
 }
 
+/**
+ * Detecta a qualidade a partir de uma string livre (nome e/ou URL do stream).
+ * Fonte única — antes havia 3 cópias divergentes (m3uParser, xtreamLoader, phased).
+ */
+export function detectQuality(str: string): string {
+  const s = str.toUpperCase();
+  if (s.includes('4K') || s.includes('UHD') || s.includes('2160')) return '4K';
+  if (s.includes('FHD') || s.includes('1080')) return 'FHD';
+  if (s.includes('HD') || s.includes('720')) return 'HD';
+  if (s.includes('SD') || s.includes('480')) return 'SD';
+  return 'HD';
+}
+
 export function getSeriesBaseName(name: string): string {
   return name
     .replace(/\s*[-–]?\s*S\d+\s*E\d+.*$/i, '')

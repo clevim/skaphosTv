@@ -6,7 +6,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
-import { useStore } from '../store/useStore';
+import { useStore, IPTVSource } from '../store/useStore';
 import ChannelCard from '../components/ChannelCard';
 import HomeContent from '../components/HomeContent';
 import SearchContent from '../components/SearchContent';
@@ -140,7 +140,7 @@ export default function HomeScreen() {
     init();
   }, []);
 
-  const loadOneSource = async (source: any): Promise<{ channels: Channel[]; groups: string[] }> => {
+  const loadOneSource = async (source: IPTVSource): Promise<{ channels: Channel[]; groups: string[] }> => {
     if (source.type === 'xtream') {
       const host = source.host?.replace(/\/$/, '') || '';
       return loadXtreamChannels(host, source.username || '', source.password || '');
@@ -150,6 +150,7 @@ export default function HomeScreen() {
       return loadJellyfinContent(host, source.apiKey!, source.userId!, source.serverName || source.name);
     }
     // M3U
+    if (!source.url) return { channels: [], groups: [] };
     const response = await axios.get(source.url, {
       timeout: 60000,
       headers: { 'User-Agent': 'okhttp/4.9.0' },
@@ -157,7 +158,7 @@ export default function HomeScreen() {
     return parseM3U(response.data);
   };
 
-  const loadAllSources = async (sourcesToLoad: any[], forceRefresh = false) => {
+  const loadAllSources = async (sourcesToLoad: IPTVSource[], forceRefresh = false) => {
     if (!forceRefresh && useStore.getState().channels.length > 0) return;
     if (isLoadingSourcesRef.current) return;
     isLoadingSourcesRef.current = true;

@@ -89,6 +89,39 @@ function toChannel(
 
 // ── Carregamento principal ────────────────────────────────────────────────────
 
+const PAGE_SIZE = 500;
+const LOAD_FIELDS =
+  'Overview,Genres,People,OfficialRating,CommunityRating,PremiereDate,ProductionYear,BackdropImageTags,ImageTags,UserData';
+
+/** Busca TODOS os itens de um tipo, paginando até TotalRecordCount (sem truncar). */
+async function fetchAllItems(
+  host: string,
+  hdrs: Record<string, string>,
+  userId: string,
+  itemType: 'Movie' | 'Series',
+): Promise<JellyfinItem[]> {
+  const items: JellyfinItem[] = [];
+  let startIndex = 0;
+  // Limite de segurança para não loopar indefinidamente em respostas inconsistentes
+  for (let guard = 0; guard < 200; guard++) {
+    const res = await axios.get(`${host}/Items`, {
+      timeout: TIMEOUT,
+      headers: hdrs,
+      params: {
+        userId, IncludeItemTypes: itemType, Recursive: true, Fields: LOAD_FIELDS,
+        SortBy: 'SortName', SortOrder: 'Ascending', Limit: PAGE_SIZE, StartIndex: startIndex,
+      },
+    }).catch(() => null);
+    if (!res) break;
+    const batch = (res.data?.Items ?? []) as JellyfinItem[];
+    items.push(...batch);
+    const total = res.data?.TotalRecordCount ?? items.length;
+    startIndex += batch.length;
+    if (batch.length === 0 || items.length >= total) break;
+  }
+  return items;
+}
+
 export async function loadJellyfinContent(
   host: string,
   apiKey: string,
@@ -96,28 +129,20 @@ export async function loadJellyfinContent(
   sourceName: string,
 ): Promise<{ channels: Channel[]; groups: string[] }> {
   const hdrs = headers(apiKey);
-  const fields = 'Overview,Genres,People,OfficialRating,CommunityRating,PremiereDate,ProductionYear,BackdropImageTags,ImageTags,UserData';
-  const commonParams = { Recursive: true, Fields: fields, SortBy: 'SortName', SortOrder: 'Ascending', Limit: 2000 };
 
-  const [moviesRes, seriesRes] = await Promise.all([
-    axios.get(`${host}/Items`, {
-      timeout: TIMEOUT, headers: hdrs,
-      params: { ...commonParams, userId, IncludeItemTypes: 'Movie' },
-    }).catch(() => null),
-    axios.get(`${host}/Items`, {
-      timeout: TIMEOUT, headers: hdrs,
-      params: { ...commonParams, userId, IncludeItemTypes: 'Series' },
-    }).catch(() => null),
+  const [movies, series] = await Promise.all([
+    fetchAllItems(host, hdrs, userId, 'Movie'),
+    fetchAllItems(host, hdrs, userId, 'Series'),
   ]);
 
   const movieGroup  = `${sourceName} · Filmes`;
   const seriesGroup = `${sourceName} · Séries & Animes`;
   const channels: Channel[] = [];
 
-  for (const item of (moviesRes?.data?.Items ?? []) as JellyfinItem[]) {
+  for (const item of movies) {
     channels.push(toChannel(item, host, apiKey, userId, movieGroup, 'movie'));
   }
-  for (const item of (seriesRes?.data?.Items ?? []) as JellyfinItem[]) {
+  for (const item of series) {
     channels.push(toChannel(item, host, apiKey, userId, seriesGroup, 'series'));
   }
 
