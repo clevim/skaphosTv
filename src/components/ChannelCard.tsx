@@ -21,9 +21,9 @@ interface ChannelCardProps {
   cardHeight?: number;
 }
 
-// Tamanhos adaptativos TV vs Mobile
-const CARD_W = IS_TV ? 200 : 140;
-const CARD_H = IS_TV ? 140 : 95;
+// Formato portrait (poster 2:3) — melhor enquadramento para filmes/séries
+const CARD_W = IS_TV ? 160 : 110;
+const CARD_H = IS_TV ? 224 : 154;
 
 const TYPE_CONFIG = {
   live:   { label: 'AO VIVO', color: colors.red },

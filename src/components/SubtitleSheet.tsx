@@ -1,15 +1,10 @@
-/**
- * SubtitleSheet — Modal de seleção de legenda durante a reprodução.
- * Aparece ao pressionar o botão de legenda no OSD do player.
- */
-import React from 'react';
-import {
-  Modal, View, Text, StyleSheet, FlatList, useWindowDimensions,
-} from 'react-native';
+import React, { useRef, useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, Pressable, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import TVFocusable from './TVFocusable';
+import TVFocusable, { TVFocusableHandle } from './TVFocusable';
 import { colors, radius, fontFamily } from '../utils/theme';
 import { JellyfinSubtitleTrack } from '../utils/jellyfinLoader';
+import { IS_TV } from '../utils/tvDetect';
 
 interface Props {
   visible: boolean;
@@ -25,66 +20,100 @@ export default function SubtitleSheet({ visible, tracks, selectedIndex, onSelect
   const sheetHeight = Math.min(440, height - 80);
   const listHeight  = sheetHeight - 120;
 
+  const closeRef = useRef<TVFocusableHandle | null>(null);
+  const firstRef = useRef<TVFocusableHandle | null>(null);
+  const [closeTag, setCloseTag] = useState<number | null>(null);
+  const [firstTag, setFirstTag] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!visible || !IS_TV) return;
+    const t = setTimeout(() => {
+      setCloseTag(closeRef.current?.getTag() ?? null);
+      setFirstTag(firstRef.current?.getTag() ?? null);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [visible]);
+
+  if (!visible) return null;
+
   const data: JellyfinSubtitleTrack[] = [
     { index: -1, displayTitle: 'Desativado', language: '', isExternal: false, vttUrl: '' },
     ...tracks,
   ];
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={[styles.sheet, { width: sheetWidth, maxHeight: sheetHeight }]}>
-          <View style={styles.header}>
-            <Ionicons name="chatbox-ellipses-outline" size={18} color={colors.accent} />
-            <Text style={styles.title}>Legendas</Text>
-          </View>
+    <View style={styles.root} pointerEvents="box-none">
+      <Pressable
+        style={StyleSheet.absoluteFillObject}
+        onPress={onClose}
+        {...({ focusable: false } as any)}
+      />
 
-          <FlatList
-            data={data}
-            keyExtractor={t => String(t.index)}
-            style={{ maxHeight: listHeight }}
-            renderItem={({ item, index: listIndex }) => {
-              const isOff  = item.index === -1;
-              const active = isOff ? selectedIndex === null : item.index === selectedIndex;
-              return (
-                <TVFocusable
-                  onPress={() => { onSelect(isOff ? null : item.index); onClose(); }}
-                  style={[styles.row, active && styles.rowActive]}
-                                    hasTVPreferredFocus={listIndex === 0}
-                >
-                  <View style={[styles.radio, active && styles.radioActive]}>
-                    {active && <View style={styles.radioDot} />}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.trackTitle, active && styles.trackTitleActive]}>
-                      {item.displayTitle}
-                    </Text>
-                    {!isOff && item.isExternal && (
-                      <Text style={styles.sub}>Externo</Text>
-                    )}
-                  </View>
-                </TVFocusable>
-              );
-            }}
-          />
+      <View style={[styles.sheet, { width: sheetWidth, maxHeight: sheetHeight }]}>
+        <View style={styles.header}>
+          <Ionicons name="chatbox-ellipses-outline" size={18} color={colors.accent} />
+          <Text style={styles.title}>Legendas</Text>
+        </View>
 
-          <View style={styles.actions}>
-            <TVFocusable onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeText}>Fechar</Text>
-            </TVFocusable>
-          </View>
+        <FlatList
+          data={data}
+          keyExtractor={t => String(t.index)}
+          style={{ maxHeight: listHeight }}
+          renderItem={({ item, index: listIndex }) => {
+            const isOff  = item.index === -1;
+            const active = isOff ? selectedIndex === null : item.index === selectedIndex;
+            const isFirst = listIndex === 0;
+            return (
+              <TVFocusable
+                ref={isFirst ? firstRef : undefined}
+                onPress={() => { onSelect(isOff ? null : item.index); onClose(); }}
+                style={[styles.row, active && styles.rowActive]}
+                focusScale={1}
+                borderRadius={6}
+                hasTVPreferredFocus={isFirst}
+                nextFocusUp={isFirst && closeTag ? closeTag : undefined}
+                nextFocusLeft={closeTag ?? undefined}
+                nextFocusRight={closeTag ?? undefined}
+              >
+                <View style={[styles.radio, active && styles.radioActive]}>
+                  {active && <View style={styles.radioDot} />}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.trackTitle, active && styles.trackTitleActive]}>
+                    {item.displayTitle}
+                  </Text>
+                  {!isOff && item.isExternal && (
+                    <Text style={styles.sub}>Externo</Text>
+                  )}
+                </View>
+              </TVFocusable>
+            );
+          }}
+        />
+
+        <View style={styles.actions}>
+          <TVFocusable
+            ref={closeRef}
+            onPress={onClose}
+            style={styles.closeBtn}
+            nextFocusDown={firstTag ?? undefined}
+          >
+            <Text style={styles.closeText}>Fechar</Text>
+          </TVFocusable>
         </View>
       </View>
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
+  root: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
+    elevation: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
   },
   sheet: {
     backgroundColor: colors.bg1,

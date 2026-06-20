@@ -1,13 +1,10 @@
-/**
- * AudioTrackSheet — Modal de seleção de faixa de áudio durante a reprodução Jellyfin.
- * Ao trocar a faixa, o player recarrega o vídeo na posição atual com o novo audioStreamIndex.
- */
-import React from 'react';
-import { Modal, View, Text, StyleSheet, FlatList } from 'react-native';
+import React, { useRef, useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import TVFocusable from './TVFocusable';
+import TVFocusable, { TVFocusableHandle } from './TVFocusable';
 import { colors, radius, fontFamily } from '../utils/theme';
 import { JellyfinAudioTrack } from '../utils/jellyfinLoader';
+import { IS_TV } from '../utils/tvDetect';
 
 interface Props {
   visible: boolean;
@@ -18,60 +15,99 @@ interface Props {
 }
 
 export default function AudioTrackSheet({ visible, tracks, selectedIndex, onSelect, onClose }: Props) {
+  // Refs para os elementos de borda do sheet — usados para focus trapping via nextFocus*.
+  const closeRef = useRef<TVFocusableHandle | null>(null);
+  const firstRef = useRef<TVFocusableHandle | null>(null);
+  const [closeTag, setCloseTag] = useState<number | null>(null);
+  const [firstTag, setFirstTag] = useState<number | null>(null);
+
+  // Captura IDs nativos após o sheet aparecer e o FlatList renderizar o primeiro item.
+  useEffect(() => {
+    if (!visible || !IS_TV) return;
+    const t = setTimeout(() => {
+      setCloseTag(closeRef.current?.getTag() ?? null);
+      setFirstTag(firstRef.current?.getTag() ?? null);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [visible]);
+
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.sheet}>
-          <View style={styles.header}>
-            <Ionicons name="musical-notes-outline" size={18} color={colors.accent} />
-            <Text style={styles.title}>Faixa de áudio</Text>
-          </View>
+    <View style={styles.root} pointerEvents="box-none">
+      {/* Backdrop — clicável para fechar, não focável pelo D-pad */}
+      <Pressable
+        style={StyleSheet.absoluteFillObject}
+        onPress={onClose}
+        {...({ focusable: false } as any)}
+      />
 
-          <FlatList
-            data={tracks}
-            keyExtractor={t => String(t.index)}
-            style={styles.list}
-            renderItem={({ item, index: listIndex }) => {
-              const active = item.index === selectedIndex;
-              return (
-                <TVFocusable
-                  onPress={() => { onSelect(item.index); onClose(); }}
-                  style={[styles.row, active && styles.rowActive]}
-                                    hasTVPreferredFocus={listIndex === 0}
-                >
-                  <View style={[styles.radio, active && styles.radioActive]}>
-                    {active && <View style={styles.radioDot} />}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.trackTitle, active && styles.trackTitleActive]}>
-                      {item.displayTitle}
-                    </Text>
-                    {item.isDefault && (
-                      <Text style={styles.sub}>Padrão</Text>
-                    )}
-                  </View>
-                </TVFocusable>
-              );
-            }}
-          />
+      <View style={styles.sheet}>
+        <View style={styles.header}>
+          <Ionicons name="musical-notes-outline" size={18} color={colors.accent} />
+          <Text style={styles.title}>Faixa de áudio</Text>
+        </View>
 
-          <View style={styles.actions}>
-            <TVFocusable onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeText}>Fechar</Text>
-            </TVFocusable>
-          </View>
+        <FlatList
+          data={tracks}
+          keyExtractor={t => String(t.index)}
+          style={styles.list}
+          renderItem={({ item, index: listIndex }) => {
+            const active  = item.index === selectedIndex;
+            const isFirst = listIndex === 0;
+            return (
+              <TVFocusable
+                ref={isFirst ? firstRef : undefined}
+                onPress={() => { onSelect(item.index); onClose(); }}
+                style={[styles.row, active && styles.rowActive]}
+                focusScale={1}
+                borderRadius={6}
+                hasTVPreferredFocus={isFirst}
+                // Trap: UP do primeiro item → botão Fechar (loop); L/R → Fechar
+                nextFocusUp={isFirst && closeTag ? closeTag : undefined}
+                nextFocusLeft={closeTag ?? undefined}
+                nextFocusRight={closeTag ?? undefined}
+              >
+                <View style={[styles.radio, active && styles.radioActive]}>
+                  {active && <View style={styles.radioDot} />}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.trackTitle, active && styles.trackTitleActive]}>
+                    {item.displayTitle}
+                  </Text>
+                  {item.isDefault && (
+                    <Text style={styles.sub}>Padrão</Text>
+                  )}
+                </View>
+              </TVFocusable>
+            );
+          }}
+        />
+
+        <View style={styles.actions}>
+          <TVFocusable
+            ref={closeRef}
+            onPress={onClose}
+            style={styles.closeBtn}
+            // Trap: DOWN do botão → primeiro item da lista (loop)
+            nextFocusDown={firstTag ?? undefined}
+          >
+            <Text style={styles.closeText}>Fechar</Text>
+          </TVFocusable>
         </View>
       </View>
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
+  root: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
+    elevation: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
   },
   sheet: {
     width: 340,

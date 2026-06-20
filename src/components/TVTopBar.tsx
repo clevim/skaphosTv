@@ -1,5 +1,5 @@
 // TVTopBar.tsx — TV horizontal top nav with proper D-pad focus
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
@@ -35,17 +35,29 @@ function NavItem({
   active: boolean;
   onPress: () => void;
 }) {
+  const [focused, setFocused] = useState(false);
   return (
     <TVFocusable
       onPress={onPress}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       style={styles.navItem}
       focusStyle={styles.navItemFocused}
+      focusScale={1}            // sem zoom no menu inline (evita invadir vizinhos)
       borderRadius={radius.full}
     >
-      <Text style={[styles.navLabel, active && styles.navLabelActive]}>
+      <Text style={[
+        styles.navLabel,
+        active && styles.navLabelActive,
+        focused && styles.navLabelFocused,
+      ]}>
         {item.label}
       </Text>
-      {active && <View style={styles.activeDot} />}
+      {active && (
+        <View style={styles.activeDotWrap}>
+          <View style={styles.activeDot} />
+        </View>
+      )}
     </TVFocusable>
   );
 }
@@ -104,9 +116,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.xxxl,
-    paddingVertical: 20,
-    gap: 36,
+    paddingHorizontal: spacing.xxl,   // 48 → 32
+    paddingVertical: 14,              // 20 → 14
+    gap: 20,                          // 36 → 20
     backgroundColor: 'rgba(10,8,16,0.85)',
   },
 
@@ -138,27 +150,41 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 4,
+    gap: 2,
   },
   navItem: {
     alignItems: 'center',
-    paddingVertical: 7,
-    paddingHorizontal: 14,
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     borderRadius: radius.full,
-    gap: 4,
   },
   navItemFocused: {
-    backgroundColor: 'rgba(167,139,250,0.15)',
+    backgroundColor: 'rgba(167,139,250,0.25)',
   },
   navLabel: {
-    fontSize: 18,
+    fontSize: 14,
     fontFamily: fontFamily.medium,
     color: colors.text2,
-    letterSpacing: -0.2,
+    letterSpacing: -0.1,
   },
   navLabelActive: {
-    fontFamily: fontFamily.bold,
-    color: colors.accent,
+    fontFamily: fontFamily.semiBold,
+    color: colors.text1,
+  },
+  navLabelFocused: {
+    // Texto branco no item focado — contraste forte sobre a pílula
+    color: colors.text1,
+    fontFamily: fontFamily.semiBold,
+  },
+  activeDotWrap: {
+    // Absoluto: não entra no fluxo — todos os itens ficam da mesma altura.
+    // left:0/right:0 + alignItems:'center' garantem centralização pixel-perfect.
+    position: 'absolute',
+    bottom: 2,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
   },
   activeDot: {
     width: 4,

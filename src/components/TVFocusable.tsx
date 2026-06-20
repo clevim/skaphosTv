@@ -1,37 +1,31 @@
 /**
  * TVFocusable — wrapper focalizável para TV e Mobile.
  *
- * A animação de escala ao focar é feita 100% NATIVA pelo módulo
- * TvFocus (modules/tv-focus/) via ViewPropertyAnimator — sem JS,
- * sem jank, funciona mesmo com JS thread ocupado.
- *
- * Detecção de foco usa dois mecanismos em paralelo:
- *   1. addFocusListener (ViewTreeObserver da Activity) — funciona em telas normais
- *   2. Pressable onFocus/onBlur — fallback para dentro de Modal
- *      (Modal cria uma Window separada, fora do ViewTreeObserver da Activity)
- *
- * Ambos escrevem no mesmo estado isFocused, de forma idempotente.
+ * Foco detectado via addFocusListener (ViewTreeObserver da Activity).
+ * Focus trapping em sheets: use nextFocusUp/Down/Left/Right (IDs nativos obtidos via getTag())
+ * para redirecionar o D-pad antes que o FocusFinder escape para o conteúdo de trás.
  */
 
 import React, { useRef, useEffect, useState, useImperativeHandle } from 'react';
 import {
   Pressable,
-  StyleSheet,
-  View,
+  Animated,
   ViewStyle,
   StyleProp,
   findNodeHandle,
 } from 'react-native';
-
-export interface TVFocusableHandle {
-  focus: () => void;
-}
 import { IS_TV } from '../utils/tvDetect';
 import { addFocusListener } from '../../modules/tv-focus';
 
-const RING_W     = IS_TV ? 2.5 : 2;
-const RING_COLOR = IS_TV ? 'rgba(167,139,250,0.85)' : 'transparent';
-const RING_BG    = IS_TV ? 'rgba(167,139,250,0.06)' : 'transparent';
+const FOCUS_SCALE = IS_TV ? 1.05 : 1;
+const FOCUS_BG    = 'rgba(167,139,250,0.22)';
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+export interface TVFocusableHandle {
+  focus:  () => void;
+  /** Retorna o ID nativo do Android View — use com nextFocusLeft/Right/Up/Down */
+  getTag: () => number | null;
+}
 
 export interface TVFocusableProps {
   children: React.ReactNode;
@@ -44,8 +38,15 @@ export interface TVFocusableProps {
   accessibilityLabel?: string;
   disabled?: boolean;
   borderRadius?: number;
+  /** Escala do zoom ao focar. Passe 1 para desativar (ex.: linhas full-width em sheets). */
+  focusScale?: number;
   onFocus?: () => void;
   onBlur?: () => void;
+  /** IDs nativos para redirecionar D-pad — usados para focus trapping em overlays. */
+  nextFocusLeft?:  number;
+  nextFocusRight?: number;
+  nextFocusUp?:    number;
+  nextFocusDown?:  number;
 }
 
 const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(function TVFocusable({
@@ -59,25 +60,40 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
   accessibilityLabel,
   disabled = false,
   borderRadius = 10,
+  focusScale,
   onFocus: onFocusProp,
   onBlur:  onBlurProp,
+  nextFocusLeft,
+  nextFocusRight,
+  nextFocusUp,
+  nextFocusDown,
 }, ref) {
-  const pressableRef = useRef<View>(null);
+  const pressableRef = useRef<any>(null);
   const [isFocused, setIsFocused] = useState(false);
 
-  // Refs para callbacks — permite que o useEffect abaixo use deps=[] (subscription estável)
-  // sem closure stale, independente de re-renders do componente pai.
+  const targetScale = focusScale ?? FOCUS_SCALE;
+  const zooming     = targetScale > 1;
+
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    Animated.spring(scaleAnim, {
+      toValue: isFocused ? targetScale : 1,
+      useNativeDriver: true,
+      speed: 30,
+      bounciness: 4,
+    }).start();
+  }, [isFocused]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const onFocusPropRef = useRef(onFocusProp);
   const onBlurPropRef  = useRef(onBlurProp);
   onFocusPropRef.current = onFocusProp;
   onBlurPropRef.current  = onBlurProp;
 
   useImperativeHandle(ref, () => ({
-    focus: () => { (pressableRef.current as any)?.focus?.(); },
+    focus:  () => { (pressableRef.current as any)?.focus?.(); },
+    getTag: () => findNodeHandle(pressableRef.current),
   }));
 
-  // Mecanismo 1: ViewTreeObserver da Activity principal (não funciona dentro de Modal)
-  // deps=[] → subscription estável, cleanup apenas no unmount, sem reset acidental de isFocused
   useEffect(() => {
     if (!IS_TV) return;
     const sub = addFocusListener((event) => {
@@ -97,16 +113,32 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const nextFocusProps: Record<string, number> = {};
+  if (nextFocusLeft  != null) nextFocusProps.nextFocusLeft  = nextFocusLeft;
+  if (nextFocusRight != null) nextFocusProps.nextFocusRight = nextFocusRight;
+  if (nextFocusUp    != null) nextFocusProps.nextFocusUp    = nextFocusUp;
+  if (nextFocusDown  != null) nextFocusProps.nextFocusDown  = nextFocusDown;
+
   return (
-    <Pressable
-      ref={pressableRef as any}
+    <AnimatedPressable
+      ref={pressableRef}
       onPress={disabled ? undefined : () => { setIsFocused(false); onPress?.(); }}
       onLongPress={disabled ? undefined : onLongPress}
-      // Mecanismo 2: Pressable onFocus/onBlur — fallback para Modal
-      // (Modal cria Window separada, ViewTreeObserver não alcança)
+      // Mecanismo 2: Pressable.onFocus/onBlur — redundância para mecanismo 1.
+      // Captura o foco inicial do hasTVPreferredFocus antes do listener ser subscrito,
+      // e garante highlighting em casos que o ViewTreeObserver não alcança.
       onFocus={IS_TV ? () => { setIsFocused(true);  onFocusPropRef.current?.(); } : undefined}
       onBlur ={IS_TV ? () => { setIsFocused(false); onBlurPropRef.current?.();  } : undefined}
-      style={[style, isFocused && focusStyle]}
+      style={[
+        { borderRadius },
+        style,
+        isFocused && { backgroundColor: FOCUS_BG },
+        isFocused && focusStyle,
+        isFocused && (zooming
+          ? { zIndex: 20, elevation: 8, shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }
+          : { zIndex: 20 }),
+        { transform: [{ scale: scaleAnim }] },
+      ]}
       accessible={accessible}
       accessibilityLabel={accessibilityLabel}
       {...({
@@ -114,26 +146,11 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
         hasTVPreferredFocus: hasTVPreferredFocus && !disabled,
         isTVSelectable:      !disabled,
         collapsable:         false,
+        ...nextFocusProps,
       } as any)}
     >
       {children}
-
-      {/* Anel de foco — por cima de tudo */}
-      {isFocused && (
-        <View
-          pointerEvents="none"
-          style={[
-            StyleSheet.absoluteFill,
-            {
-              borderRadius,
-              borderWidth:     RING_W,
-              borderColor:     RING_COLOR,
-              backgroundColor: RING_BG,
-            },
-          ]}
-        />
-      )}
-    </Pressable>
+    </AnimatedPressable>
   );
 });
 
