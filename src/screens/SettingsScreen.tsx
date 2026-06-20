@@ -6,10 +6,20 @@ import { View, Text, StyleSheet, ScrollView, Switch, ActivityIndicator, TextInpu
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { useStore } from '../store/useStore';
 import TVFocusable from '../components/TVFocusable';
 import { enrichLiveLogos } from '../utils/logoResolver';
+import {
+  checkOtaUpdate, reloadApp, fetchLatestRelease, isNewerVersion,
+  downloadAndInstallApk, CURRENT_VERSION,
+} from '../utils/appUpdate';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
+
+// Versão lida dinamicamente do app.json / build nativo (evita strings desatualizadas)
+const APP_VERSION = Constants.expoConfig?.version ?? '1.1.0';
+const BUILD_NUM = Constants.nativeBuildVersion ?? '';
+const VERSION_LABEL = BUILD_NUM ? `v${APP_VERSION} · build ${BUILD_NUM}` : `v${APP_VERSION}`;
 import { IS_TV } from '../utils/tvDetect';
 
 // ── Shared sub-components ───────────────────────────────────────────────────
@@ -207,6 +217,78 @@ function LogoRefreshRow() {
       value={state === 'running' ? '…' : undefined}
       valueColor={state === 'done' ? '#22c55e' : undefined}
       onPress={state === 'running' ? undefined : run}
+    />
+  );
+}
+
+// ── UpdateCheckRow ──────────────────────────────────────────────────────────
+// Verifica atualização: 1) OTA (JS, sem APK); 2) GitHub Release (APK, se nativa).
+
+function UpdateCheckRow() {
+  const [sub, setSub] = useState<string>(`Atual: ${VERSION_LABEL}`);
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    if (busy) return;
+    setBusy(true);
+    setSub('Verificando…');
+    try {
+      // 1) OTA — atualiza o JS sem baixar APK
+      const ota = await checkOtaUpdate();
+      if (ota === 'ready') {
+        setBusy(false);
+        Alert.alert('Atualização pronta', 'Uma atualização foi baixada. Reiniciar o app agora para aplicar?', [
+          { text: 'Depois', style: 'cancel', onPress: () => setSub('Atualização pendente — reinicie para aplicar') },
+          { text: 'Reiniciar', onPress: () => reloadApp() },
+        ]);
+        return;
+      }
+
+      // 2) GitHub Release — APK (mudanças nativas)
+      const rel = await fetchLatestRelease();
+      if (rel && isNewerVersion(rel.version, CURRENT_VERSION)) {
+        setBusy(false);
+        if (!rel.apkUrl) {
+          setSub(`Nova versão v${rel.version} disponível no GitHub`);
+          Alert.alert('Nova versão', `A v${rel.version} está disponível, mas sem APK anexado ao release.`);
+          return;
+        }
+        Alert.alert('Nova versão disponível', `v${rel.version} requer atualização do app (APK). Baixar e instalar agora?`, [
+          { text: 'Agora não', style: 'cancel', onPress: () => setSub(`Nova versão v${rel.version} disponível`) },
+          {
+            text: 'Atualizar', onPress: async () => {
+              setBusy(true);
+              setSub('Baixando atualização…');
+              try {
+                await downloadAndInstallApk(rel.apkUrl!, p => setSub(`Baixando… ${Math.round(p * 100)}%`));
+                setSub('Abrindo instalador…');
+              } catch {
+                setSub('Falha ao baixar o APK');
+                Alert.alert('Erro', 'Não foi possível baixar/instalar o APK.');
+              } finally {
+                setBusy(false);
+              }
+            },
+          },
+        ]);
+        return;
+      }
+
+      setSub(`Você está atualizado · ${VERSION_LABEL}`);
+    } catch {
+      setSub('Erro ao verificar atualização');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingsRow
+      icon="cloud-download-outline"
+      label="Verificar atualização"
+      sub={sub}
+      value={busy ? '…' : undefined}
+      onPress={busy ? undefined : run}
     />
   );
 }
@@ -411,8 +493,9 @@ function TVPanel({
     <>
       <SettingsGroup title="Sistema">
         <SettingsRow icon="language-outline"           label="Idioma"   value={settings.language || 'pt-BR'} />
+        <UpdateCheckRow />
         <LogoRefreshRow />
-        <SettingsRow icon="information-circle-outline" label="Versão"   value="v4.2.1 · build 1124" />
+        <SettingsRow icon="information-circle-outline" label="Versão"   value={VERSION_LABEL} />
       </SettingsGroup>
       <SettingsGroup title="Integrações">
         <SettingsRow
@@ -478,7 +561,7 @@ export default function SettingsScreen() {
           </View>
 
           <View style={tvStyles.sidebarFooter}>
-            <Text style={tvStyles.madeBy}>made by clevs · v4.2.1</Text>
+            <Text style={tvStyles.madeBy}>made by clevs · v{APP_VERSION}</Text>
             <TVFocusable onPress={() => navigation.goBack()} style={tvStyles.backBtn}>
               <Ionicons name="chevron-back" size={14} color={colors.text2} />
               <Text style={tvStyles.backBtnText}>Voltar</Text>
@@ -613,7 +696,7 @@ export default function SettingsScreen() {
               Skaphos<Text style={{ color: colors.accent }}>·</Text>TV
             </Text>
           </View>
-          <Text style={styles.footerVersion}>v4.2.1 · build 1124</Text>
+          <Text style={styles.footerVersion}>{VERSION_LABEL}</Text>
           <Text style={styles.footerBy}>made by clevs</Text>
         </View>
       </ScrollView>

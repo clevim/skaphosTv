@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TextInput, Pressable,
   ScrollView, ActivityIndicator, Alert, KeyboardAvoidingView,
-  Platform, Modal, Share,
+  Platform, Modal, useWindowDimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -96,6 +96,12 @@ export default function SetupScreen() {
   const navigation = useNavigation();
   const { addSource, updateSource, sources, removeSource, appendChannels, replaceSourceChannels } = useStore();
 
+  // Layout responsivo (TV): padding e largura do form proporcionais à tela,
+  // evitando elementos grandes demais / apertados em resoluções diferentes.
+  const { width: sw } = useWindowDimensions();
+  const padH = Math.round(Math.min(48, Math.max(20, sw * 0.028)));
+  const formMaxW = Math.round(Math.min(640, Math.max(420, sw * 0.46)));
+
   const [activeTab, setActiveTab] = useState<TabType>('xtream');
   const [isLoading, setIsLoadingLocal] = useState(false);
   const [connectionResult, setConnectionResult] = useState<ConnectionResult | null>(null);
@@ -118,7 +124,6 @@ export default function SetupScreen() {
   const [xName, setXName] = useState('');
 
   const [jHost, setJHost] = useState('http://');
-  const [jApiKey, setJApiKey] = useState('');
   const [jName, setJName] = useState('');
 
   // Quick Connect
@@ -129,16 +134,6 @@ export default function SetupScreen() {
   const qcSecretRef = useRef('');
   const qcPollRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Logs Jellyfin
-  type JfStepState = 'waiting' | 'loading' | 'done' | 'error';
-  interface JfStep { label: string; url: string; state: JfStepState; detail: string }
-  const [jfSteps, setJfSteps] = useState<JfStep[]>([]);
-  const [showJfLogs, setShowJfLogs] = useState(false);
-  const jfRawLog = useRef<string[]>([]);
-
-  const jfLog = (msg: string) => { jfRawLog.current.push(msg); };
-  const updateJfStep = (idx: number, patch: Partial<JfStep>) =>
-    setJfSteps(prev => prev.map((s, i) => i === idx ? { ...s, ...patch } : s));
 
   // Refs para encadeamento de foco entre campos no TV
   const xHostRef = useRef<TextInput>(null);
@@ -146,8 +141,13 @@ export default function SetupScreen() {
   const xPassRef = useRef<TextInput>(null);
   const xNameRef = useRef<TextInput>(null);
   const jHostRef = useRef<TextInput>(null);
-  const jApiKeyRef = useRef<TextInput>(null);
   const jNameRef = useRef<TextInput>(null);
+  const m3uUrlRef = useRef<TextInput>(null);
+  const m3uNameRef = useRef<TextInput>(null);
+  // Refs dos botões de envio — último campo manda o foco pro botão (não volta ao início)
+  const xSubmitRef = useRef<TVFocusableHandle>(null);
+  const jSubmitRef = useRef<TVFocusableHandle>(null);
+  const m3uSubmitRef = useRef<TVFocusableHandle>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
@@ -165,7 +165,6 @@ export default function SetupScreen() {
     } else if (source.type === 'jellyfin') {
       setActiveTab('jellyfin');
       setJHost(source.host ?? 'http://');
-      setJApiKey(source.apiKey ?? '');
       setJName(source.name);
     } else {
       setActiveTab('m3u');
@@ -332,94 +331,6 @@ export default function SetupScreen() {
     }
   };
 
-  const connectJellyfin = async () => {
-    const host = jHost.trim().replace(/\/$/, '');
-    const apiKey = jApiKey.trim();
-    if (!host || host === 'http://' || !apiKey) {
-      Alert.alert('Erro', 'Preencha o endereço do servidor e a chave de API');
-      return;
-    }
-
-    const steps: JfStep[] = [
-      { label: 'Ping do servidor',    url: `${host}/System/Ping`, state: 'waiting', detail: '' },
-      { label: 'Validar chave de API', url: `${host}/Users`,       state: 'waiting', detail: '' },
-      { label: 'Info do servidor',     url: `${host}/System/Info`, state: 'waiting', detail: '' },
-    ];
-    jfRawLog.current = [];
-    setJfSteps(steps);
-    setShowJfLogs(true);
-    setIsLoadingLocal(true);
-    setConnectionResult(null);
-
-    const reqHeaders = {
-      'X-Emby-Token': apiKey,
-      'Authorization': `MediaBrowser Client="SkaphosTV", Device="App", DeviceId="skaphostv-app", Version="1.0.0", Token="${apiKey}"`,
-    };
-
-    const doStep = async (idx: number, fn: () => Promise<any>): Promise<any> => {
-      updateJfStep(idx, { state: 'loading', detail: '' });
-      jfLog(`[${idx + 1}] GET ${steps[idx].url}`);
-      try {
-        const res = await fn();
-        const detail = `HTTP ${res.status}`;
-        updateJfStep(idx, { state: 'done', detail });
-        jfLog(`    ✓ ${detail}`);
-        return res;
-      } catch (e: any) {
-        const status = e?.response?.status;
-        const body = e?.response?.data;
-        const detail = status
-          ? `HTTP ${status}${body ? ' — ' + (typeof body === 'string' ? body.slice(0, 120) : JSON.stringify(body).slice(0, 120)) : ''}`
-          : e?.code === 'ECONNABORTED' ? 'Timeout (10s)' : e?.message ?? 'Erro desconhecido';
-        updateJfStep(idx, { state: 'error', detail });
-        jfLog(`    ✗ ${detail}`);
-        throw e;
-      }
-    };
-
-    try {
-      await doStep(0, () => axios.get(`${host}/System/Ping`, { timeout: 10_000, headers: reqHeaders }));
-      const userRes = await doStep(1, () => axios.get(`${host}/Users`, { timeout: 10_000, headers: reqHeaders }));
-      const users: any[] = Array.isArray(userRes.data) ? userRes.data : [];
-      if (users.length === 0) throw new Error('Nenhum usuário encontrado no servidor');
-      const userId: string = (users.find(u => u.Policy?.IsAdministrator) ?? users[0]).Id;
-      jfLog(`    → userId: ${userId}`);
-      const infoRes = await doStep(2, () => axios.get(`${host}/System/Info`, { timeout: 10_000, headers: reqHeaders }));
-      const serverName: string = infoRes.data.ServerName ?? 'Jellyfin';
-      jfLog(`    → serverName: ${serverName}`);
-
-      const sourceName = jName.trim() || serverName;
-      const sourceId = editingSourceId ?? Date.now().toString();
-      const source: IPTVSource = {
-        id: sourceId, name: sourceName, type: 'jellyfin',
-        host, apiKey, userId, serverName,
-        addedAt: Date.now(), channelCount: 0,
-      };
-      if (editingSourceId) updateSource(sourceId, source); else addSource(source);
-      setEditingSourceId(null);
-
-      // Carrega conteúdo imediatamente e adiciona à lista de canais
-      try {
-        const { channels: jfChannels, groups: jfGroups } = await loadJellyfinContent(host, apiKey, userId, sourceName);
-        if (jfChannels.length > 0) {
-          replaceSourceChannels(sourceId, jfChannels, jfGroups);
-          updateSource(sourceId, { channelCount: jfChannels.length });
-        }
-        setConnectionResult({ success: true, channels: jfChannels.length, vod: 0, latency: 0 });
-      } catch {
-        setConnectionResult({ success: true, channels: 0, vod: 0, latency: 0 });
-      }
-
-      Alert.alert('Jellyfin conectado!', `Servidor "${serverName}" adicionado com sucesso.`, [
-        { text: 'OK', onPress: () => navigation.goBack() },
-      ]);
-    } catch {
-      // erro já registrado no passo que falhou
-    } finally {
-      setIsLoadingLocal(false);
-    }
-  };
-
   const stopQCPoll = () => {
     if (qcPollRef.current) { clearInterval(qcPollRef.current); qcPollRef.current = null; }
   };
@@ -483,7 +394,6 @@ export default function SetupScreen() {
           };
           if (editingSourceId) updateSource(sourceId, source); else addSource(source);
           setEditingSourceId(null);
-          setJApiKey(accessToken);
           setShowQC(false);
 
           setIsLoadingLocal(true);
@@ -566,7 +476,7 @@ export default function SetupScreen() {
             }
           />
           <FormField label="APELIDO (OPCIONAL)" value={xName} onChangeText={setXName} placeholder="Minha TV" returnKeyType="done"
-            inputRef={xNameRef} />
+            inputRef={xNameRef} onSubmitEditing={() => xSubmitRef.current?.focus()} />
         </>
       ) : (
         <>
@@ -596,6 +506,7 @@ export default function SetupScreen() {
             onChangeText={setXName}
             placeholder="Ex: Minha TV, Casa..."
             returnKeyType="done"
+            onSubmitEditing={() => xSubmitRef.current?.focus()}
           />
         </>
       )}
@@ -615,6 +526,7 @@ export default function SetupScreen() {
       )}
 
       <TVFocusable
+        ref={xSubmitRef}
         onPress={isLoading ? undefined : loadXtream}
         style={[IS_TV ? tvStyles.submitBtn : styles.submitBtn, isLoading && styles.submitBtnDisabled]}
         hasTVPreferredFocus={false}
@@ -648,15 +560,6 @@ export default function SetupScreen() {
         keyboardType="url"
         returnKeyType="next"
         inputRef={jHostRef}
-        onSubmitEditing={() => jApiKeyRef.current?.focus()}
-      />
-      <FormField
-        label="CHAVE DE API"
-        value={jApiKey}
-        onChangeText={setJApiKey}
-        placeholder="Cole sua API Key do Jellyfin"
-        returnKeyType="next"
-        inputRef={jApiKeyRef}
         onSubmitEditing={() => jNameRef.current?.focus()}
       />
       <FormField
@@ -666,23 +569,8 @@ export default function SetupScreen() {
         placeholder="Ex: Casa, Servidor Pessoal..."
         returnKeyType="done"
         inputRef={jNameRef}
+        onSubmitEditing={() => jSubmitRef.current?.focus()}
       />
-
-      {/* Quick Connect — alternativa sem precisar digitar a API Key */}
-      <TVFocusable
-        onPress={isLoading ? undefined : startQuickConnect}
-        style={IS_TV ? tvStyles.qcBtn : styles.qcBtn}
-        borderRadius={IS_TV ? 12 : 14}
-      >
-        <Ionicons name="phone-portrait-outline" size={IS_TV ? 22 : 18} color={colors.accent} />
-        <Text style={IS_TV ? tvStyles.qcBtnText : styles.qcBtnText}>Conectar com Quick Connect</Text>
-      </TVFocusable>
-
-      <View style={styles.orRow}>
-        <View style={styles.orLine} />
-        <Text style={styles.orLabel}>ou use a chave de API abaixo</Text>
-        <View style={styles.orLine} />
-      </View>
 
       {connectionResult?.success && (
         <View style={styles.successBox}>
@@ -697,7 +585,8 @@ export default function SetupScreen() {
       )}
 
       <TVFocusable
-        onPress={isLoading ? undefined : connectJellyfin}
+        ref={jSubmitRef}
+        onPress={isLoading ? undefined : startQuickConnect}
         style={[IS_TV ? tvStyles.submitBtn : styles.submitBtn, isLoading && styles.submitBtnDisabled]}
         hasTVPreferredFocus={false}
         borderRadius={IS_TV ? 12 : 14}
@@ -706,15 +595,17 @@ export default function SetupScreen() {
           <ActivityIndicator color={colors.white} />
         ) : (
           <>
+            <Ionicons name="phone-portrait-outline" size={IS_TV ? 20 : 16} color={colors.white} />
             <Text style={[styles.submitText, IS_TV && tvStyles.submitText]}>
-              {editingSourceId ? 'Atualizar' : 'Verificar e Conectar'}
+              {editingSourceId ? 'Reconectar com Quick Connect' : 'Conectar com Quick Connect'}
             </Text>
-            <Ionicons name="chevron-forward" size={IS_TV ? 20 : 16} color={colors.white} />
           </>
         )}
       </TVFocusable>
 
-      {showJfLogs && <JellyfinLogsPanel steps={jfSteps} rawLog={jfRawLog} />}
+      <Text style={styles.qcFormHint}>
+        Você verá um código para inserir no Jellyfin (Painel → Quick Connect, ou no app oficial).
+      </Text>
     </View>
   );
 
@@ -727,6 +618,8 @@ export default function SetupScreen() {
         placeholder="http://servidor.com/lista.m3u"
         keyboardType="url"
         returnKeyType="next"
+        inputRef={m3uUrlRef}
+        onSubmitEditing={() => m3uNameRef.current?.focus()}
       />
       <FormField
         label="NOME (OPCIONAL)"
@@ -734,6 +627,8 @@ export default function SetupScreen() {
         onChangeText={setM3uName}
         placeholder="Minha Lista"
         returnKeyType="done"
+        inputRef={m3uNameRef}
+        onSubmitEditing={() => m3uSubmitRef.current?.focus()}
       />
 
       {connectionResult?.success && (
@@ -751,6 +646,7 @@ export default function SetupScreen() {
       )}
 
       <TVFocusable
+        ref={m3uSubmitRef}
         onPress={isLoading ? undefined : loadAndSaveM3U}
         style={[IS_TV ? tvStyles.submitBtn : styles.submitBtn, isLoading && styles.submitBtnDisabled]}
         hasTVPreferredFocus={false}
@@ -776,7 +672,7 @@ export default function SetupScreen() {
     return (
       <View style={tvStyles.root}>
         {/* Header bar */}
-        <View style={tvStyles.header}>
+        <View style={[tvStyles.header, { paddingHorizontal: padH }]}>
           <TVFocusable
             onPress={() => navigation.goBack()}
             style={tvStyles.backBtn}
@@ -795,7 +691,7 @@ export default function SetupScreen() {
         </View>
 
         {/* Tab switcher */}
-        <View style={tvStyles.tabContainer}>
+        <View style={[tvStyles.tabContainer, { paddingHorizontal: padH }]}>
           <TVFocusable
             onPress={() => setActiveTab('xtream')}
             style={[tvStyles.tab, activeTab === 'xtream' && tvStyles.tabActive]}
@@ -827,10 +723,12 @@ export default function SetupScreen() {
           {/* Left panel — form */}
           <ScrollView
             style={tvStyles.leftPanel}
-            contentContainerStyle={tvStyles.leftPanelInner}
+            contentContainerStyle={[tvStyles.leftPanelInner, { paddingHorizontal: padH }]}
             showsVerticalScrollIndicator={false}
           >
-            {activeTab === 'xtream' ? xtreamForm : activeTab === 'jellyfin' ? jellyfinForm : m3uForm}
+            <View style={{ width: '100%', maxWidth: formMaxW, alignSelf: 'center' }}>
+              {activeTab === 'xtream' ? xtreamForm : activeTab === 'jellyfin' ? jellyfinForm : m3uForm}
+            </View>
           </ScrollView>
 
           {/* Divider */}
@@ -839,7 +737,7 @@ export default function SetupScreen() {
           {/* Right panel — options + sources */}
           <ScrollView
             style={tvStyles.rightPanel}
-            contentContainerStyle={tvStyles.rightPanelInner}
+            contentContainerStyle={[tvStyles.rightPanelInner, { paddingHorizontal: padH }]}
             showsVerticalScrollIndicator={false}
           >
             {sources.length > 0 && (
@@ -1102,95 +1000,6 @@ function PhasesPanel({ phases }: { phases: Record<XtreamPhase, PhaseStatus> }) {
   );
 }
 
-// ─── JellyfinLogsPanel ───────────────────────────────────────────
-
-type JfStepState = 'waiting' | 'loading' | 'done' | 'error';
-interface JfStep { label: string; url: string; state: JfStepState; detail: string }
-
-function JellyfinLogsPanel({ steps, rawLog }: { steps: JfStep[]; rawLog: React.MutableRefObject<string[]> }) {
-  const copyAll = () => {
-    Share.share({ message: rawLog.current.join('\n'), title: 'Log Jellyfin' });
-  };
-  return (
-    <View style={jfLogStyles.container}>
-      <View style={jfLogStyles.header}>
-        <Text style={jfLogStyles.title}>LOG DE CONEXÃO</Text>
-        <Pressable onPress={copyAll} style={jfLogStyles.copyBtn}>
-          <Ionicons name="copy-outline" size={14} color={colors.accent} />
-          <Text style={jfLogStyles.copyText}>Copiar</Text>
-        </Pressable>
-      </View>
-      {steps.map((step, i) => {
-        const isDone    = step.state === 'done';
-        const isLoading = step.state === 'loading';
-        const isError   = step.state === 'error';
-        return (
-          <View key={i} style={jfLogStyles.row}>
-            <View style={[jfLogStyles.dot,
-              isDone    && jfLogStyles.dotDone,
-              isLoading && jfLogStyles.dotLoading,
-              isError   && jfLogStyles.dotError,
-            ]}>
-              {isLoading
-                ? <ActivityIndicator size="small" color={colors.accent} />
-                : <Ionicons
-                    name={isDone ? 'checkmark' : isError ? 'close' : 'ellipse-outline'}
-                    size={14}
-                    color={isDone ? colors.green : isError ? colors.red : colors.text3}
-                  />
-              }
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[jfLogStyles.stepLabel, isDone && jfLogStyles.stepLabelDone, isError && jfLogStyles.stepLabelError]}>
-                {step.label}
-              </Text>
-              <Text style={jfLogStyles.stepUrl} numberOfLines={1}>{step.url}</Text>
-              {step.detail ? (
-                <Text style={[jfLogStyles.stepDetail, isError && jfLogStyles.stepDetailError]} numberOfLines={3}>
-                  {step.detail}
-                </Text>
-              ) : null}
-            </View>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-const jfLogStyles = StyleSheet.create({
-  container: {
-    backgroundColor: colors.bg0,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 12,
-    marginTop: 8,
-    gap: 10,
-  },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  title: { fontSize: 10, fontWeight: '700', color: colors.text3, letterSpacing: 0.6 },
-  copyBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, padding: 4 },
-  copyText: { fontSize: 11, color: colors.accent },
-  row: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
-  dot: {
-    width: 26, height: 26, borderRadius: 999,
-    backgroundColor: colors.bg2,
-    borderWidth: 1, borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
-    flexShrink: 0, marginTop: 1,
-  },
-  dotDone:    { borderColor: colors.green,  backgroundColor: 'rgba(34,197,94,0.12)' },
-  dotLoading: { borderColor: colors.accent, backgroundColor: 'rgba(167,139,250,0.12)' },
-  dotError:   { borderColor: colors.red,    backgroundColor: 'rgba(239,68,68,0.12)' },
-  stepLabel:       { fontSize: 12, fontWeight: '600', color: colors.text2 },
-  stepLabelDone:   { color: colors.text1 },
-  stepLabelError:  { color: colors.red },
-  stepUrl:         { fontSize: 10, color: colors.text3, marginTop: 1, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-  stepDetail:      { fontSize: 10, color: colors.text2, marginTop: 3, lineHeight: 14, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-  stepDetailError: { color: colors.red },
-});
-
 const ppStyles = StyleSheet.create({
   container: {
     backgroundColor: colors.bg1,
@@ -1429,6 +1238,7 @@ const styles = StyleSheet.create({
   orRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   orLine: { flex: 1, height: 1, backgroundColor: colors.border },
   orLabel: { fontSize: 10, color: colors.text3, letterSpacing: 0.3 },
+  qcFormHint: { fontSize: 12, color: colors.text3, lineHeight: 17, marginTop: 10, textAlign: 'center' },
 });
 
 // ─── TV styles ────────────────────────────────────────────────────
@@ -1439,19 +1249,19 @@ const tvStyles = StyleSheet.create({
   // Header
   header: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 56, paddingTop: 32, paddingBottom: 16,
-    gap: 20,
+    paddingTop: 18, paddingBottom: 14,
+    gap: 16,
     borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   backBtn: {
-    width: 52, height: 52, borderRadius: 999,
+    width: 44, height: 44, borderRadius: 999,
     backgroundColor: colors.bg1, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
     flexShrink: 0,
   },
   headerTitles: { flex: 1 },
-  mainTitle: { fontSize: 28, fontWeight: '700', color: colors.text1, letterSpacing: -0.5 },
-  mainDesc: { fontSize: 15, color: colors.text2, marginTop: 4 },
+  mainTitle: { fontSize: 22, fontWeight: '700', color: colors.text1, letterSpacing: -0.5 },
+  mainDesc: { fontSize: 13, color: colors.text2, marginTop: 2 },
   skipBtn: {
     paddingHorizontal: 20, paddingVertical: 10,
     backgroundColor: colors.bg1, borderRadius: 8,
@@ -1462,40 +1272,41 @@ const tvStyles = StyleSheet.create({
   // Tab
   tabContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 56, paddingVertical: 16,
-    gap: 12,
+    paddingVertical: 10,
+    gap: 10,
     borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   tab: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingVertical: 12, paddingHorizontal: 24,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    flex: 1,
+    paddingVertical: 9, paddingHorizontal: 14,
     borderRadius: 10,
     backgroundColor: colors.bg1,
     borderWidth: 1, borderColor: colors.border,
   },
   tabActive: { backgroundColor: colors.bg2, borderColor: colors.accent },
-  tabText: { fontSize: 16, fontWeight: '500', color: colors.text3 },
+  tabText: { fontSize: 14, fontWeight: '500', color: colors.text3 },
   tabTextActive: { color: colors.text1, fontWeight: '600' },
 
   // Body
   body: { flex: 1, flexDirection: 'row' },
   leftPanel: { flex: 3 },
-  leftPanelInner: { padding: 48, gap: 0 },
+  leftPanelInner: { paddingVertical: 24, gap: 0 },
   divider: { width: 1, backgroundColor: colors.border },
   rightPanel: { flex: 2 },
-  rightPanelInner: { padding: 40, gap: 0 },
+  rightPanelInner: { paddingVertical: 24, gap: 0 },
 
   panelLabel: {
     fontSize: 11, fontWeight: '600', color: colors.text3, letterSpacing: 0.8,
     marginBottom: 12,
   },
 
-  formGroup: { gap: 16 },
+  formGroup: { gap: 12 },
 
   // Field — TV
   fieldWrap: {
     borderWidth: 1.5, borderColor: colors.border,
-    borderRadius: 12, padding: 16,
+    borderRadius: 10, padding: 12,
     backgroundColor: colors.bg1,
   },
   fieldWrapFocused: {
@@ -1512,8 +1323,8 @@ const tvStyles = StyleSheet.create({
   },
   fieldRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   fieldInput: {
-    flex: 1, fontSize: 20, color: colors.text1, padding: 0,
-    minHeight: 32,
+    flex: 1, fontSize: 16, color: colors.text1, padding: 0,
+    minHeight: 24,
   },
   fieldInputFocused: { color: colors.text1 },
   cursorHint: {
@@ -1525,10 +1336,10 @@ const tvStyles = StyleSheet.create({
   // Submit — TV
   submitBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 10, backgroundColor: colors.accent,
-    borderRadius: 12, height: 60, marginTop: 8,
+    gap: 8, backgroundColor: colors.accent,
+    borderRadius: 12, height: 48, marginTop: 6,
   },
-  submitText: { color: colors.white, fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
+  submitText: { color: colors.white, fontSize: 15, fontWeight: '700', letterSpacing: -0.3 },
 
   // Options — TV
   optionsBox: {
@@ -1539,16 +1350,16 @@ const tvStyles = StyleSheet.create({
   // Sources — TV
   sourcesGroup: { gap: 10 },
   sourceCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: colors.bg1, borderRadius: 10,
-    borderWidth: 1, borderColor: colors.border, padding: 16,
+    borderWidth: 1, borderColor: colors.border, padding: 12,
   },
   sourceIcon: {
-    width: 48, height: 48, borderRadius: 8,
+    width: 40, height: 40, borderRadius: 8,
     alignItems: 'center', justifyContent: 'center',
   },
-  sourceName: { fontSize: 16, fontWeight: '600', color: colors.text1 },
-  sourceType: { fontSize: 13, color: colors.text2, marginTop: 3 },
+  sourceName: { fontSize: 14, fontWeight: '600', color: colors.text1 },
+  sourceType: { fontSize: 12, color: colors.text2, marginTop: 3 },
   editBtn: { padding: 10 },
   deleteBtn: { padding: 10 },
 
@@ -1559,8 +1370,8 @@ const tvStyles = StyleSheet.create({
   },
   securityText: { fontSize: 13, color: colors.text3 },
 
-  qcBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, height: 60, borderRadius: 12, borderWidth: 1.5, borderColor: colors.accent, backgroundColor: 'transparent' },
-  qcBtnText: { color: colors.accent, fontSize: 18, fontWeight: '700' },
+  qcBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, height: 48, borderRadius: 12, borderWidth: 1.5, borderColor: colors.accent, backgroundColor: 'transparent' },
+  qcBtnText: { color: colors.accent, fontSize: 15, fontWeight: '700' },
 });
 
 // ─── QuickConnectModal ───────────────────────────────────────────
