@@ -293,7 +293,7 @@ export default function DetailScreen() {
               label="Minha lista"
               onPress={() => toggleFavorite(channel.id)}
             />
-            <GlassButton icon="share-outline" label="Indicar" onPress={handleShare} />
+            {/* "Indicar" (compartilhar) não faz sentido na TV — fica só no layout mobile */}
           </View>
 
           {/* Tabs + content */}

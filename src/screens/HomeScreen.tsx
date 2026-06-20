@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, ScrollView,
   ActivityIndicator, Platform, useWindowDimensions, Animated,
@@ -33,6 +33,51 @@ import { IS_TV } from '../utils/tvDetect';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
 const IS_MOBILE = !IS_TV && Platform.OS !== 'web';
+
+// ── FlatItem ─────────────────────────────────────────────────────────────────
+// Componente intermediário com React.memo + useCallback por item.
+// Sem isso, inline arrows no renderCard criam novas refs para todos os 2288 itens
+// a cada render, quebrando o memo do ChannelCard.
+interface FlatItemProps {
+  item: Channel;
+  index: number;
+  isPlaying: boolean;
+  isFavorite: boolean;
+  epCount: number;
+  contentType: 'live' | 'movies' | 'series';
+  cardWidth: number;
+  cardHeight: number;
+  onPress: (channel: Channel) => void;
+  onLongPress: (id: string) => void;
+}
+
+const FlatItem = memo(function FlatItem({
+  item, index, isPlaying, isFavorite, epCount, contentType,
+  cardWidth, cardHeight, onPress, onLongPress,
+}: FlatItemProps) {
+  const handlePress     = useCallback(() => onPress(item),     [onPress, item]);
+  const handleLongPress = useCallback(() => onLongPress(item.id), [onLongPress, item.id]);
+  return (
+    <ChannelCard
+      channel={item}
+      isPlaying={isPlaying}
+      isFavorite={isFavorite}
+      onPress={handlePress}
+      onLongPress={handleLongPress}
+      hasTVPreferredFocus={index === 0 && IS_TV}
+      episodeCount={epCount > 1 ? epCount : undefined}
+      contentType={contentType}
+      cardWidth={cardWidth}
+      cardHeight={cardHeight}
+    />
+  );
+}, (prev, next) =>
+  prev.isPlaying  === next.isPlaying  &&
+  prev.isFavorite === next.isFavorite &&
+  prev.item       === next.item       &&
+  prev.cardWidth  === next.cardWidth  &&
+  prev.cardHeight === next.cardHeight
+);
 
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
@@ -252,17 +297,31 @@ export default function HomeScreen() {
     setSearchQuery('');
   }, []);
 
-  // Responsive card grid
+  // Responsive card grid — formato portrait (poster 2:3)
   const CARD_MARGIN = IS_TV ? 6 : 4;
-  const gridPadding = spacing.md; // matches styles.grid padding
-  const numColumns = Math.max(1, Math.floor((width - gridPadding * 2) / (IS_TV ? 210 + CARD_MARGIN * 2 : 150 + CARD_MARGIN * 2)));
-  const cardWidth = Math.floor((width - gridPadding * 2) / numColumns) - CARD_MARGIN * 2;
-  const cardHeight = Math.round(cardWidth * (IS_TV ? 140 : 95) / (IS_TV ? 200 : 140));
+  const gridPadding = spacing.md;
+  // Em TV o layout tem sidebar de 240px + 1px divisor — subtrair para não vazar
+  const TV_SIDEBAR_W = 241;
+  const availableW = IS_TV ? width - TV_SIDEBAR_W : width;
+  // slot base: card + margens dos dois lados
+  const SLOT_BASE = IS_TV ? 160 + CARD_MARGIN * 2 : 110 + CARD_MARGIN * 2;
+  const numColumns = Math.max(1, Math.floor((availableW - gridPadding * 2) / SLOT_BASE));
+  const cardWidth = Math.floor((availableW - gridPadding * 2) / numColumns) - CARD_MARGIN * 2;
+  // altura 2:3 (height = width * 1.4 → levemente maior que 2:3 puro para caber badges)
+  const cardHeight = Math.round(cardWidth * 1.4);
 
   // Fixed info-section height (matches ChannelCard minHeight) → enables getItemLayout
   const INFO_H = IS_TV ? 72 : 56;
   // Full row height: poster + info + card margins (top + bottom)
   const ROW_H = cardHeight + INFO_H + CARD_MARGIN * 2;
+
+  const getItemLayout = useCallback(
+    (_: any, index: number) => {
+      const row = Math.floor(index / numColumns);
+      return { length: ROW_H, offset: gridPadding + ROW_H * row, index };
+    },
+    [ROW_H, numColumns, gridPadding]
+  );
 
   const renderCard = useCallback(
     (item: Channel, index: number) => {
@@ -276,18 +335,18 @@ export default function HomeScreen() {
       const epCount = isSeries ? (episodeCountMap.get(baseName) || 0) : 0;
       const displayChannel = isSeries ? { ...item, name: baseName } : item;
       return (
-        <ChannelCard
+        <FlatItem
           key={item.id}
-          channel={displayChannel}
+          item={displayChannel}
+          index={index}
           isPlaying={currentChannel?.id === item.id}
           isFavorite={favoritesSet.has(item.id)}
-          onPress={() => handleChannelPress(item)}
-          onLongPress={() => toggleFavorite(item.id)}
-          hasTVPreferredFocus={index === 0 && IS_TV}
-          episodeCount={epCount > 1 ? epCount : undefined}
+          epCount={epCount}
           contentType={type}
           cardWidth={cardWidth}
           cardHeight={cardHeight}
+          onPress={handleChannelPress}
+          onLongPress={toggleFavorite}
         />
       );
     },
@@ -299,12 +358,16 @@ export default function HomeScreen() {
     [renderCard]
   );
 
-  const renderSkeletonFooter = () =>
-    !hasMore ? null : (
+  const keyExtractor = useCallback((item: Channel) => item.id, []);
+
+  const renderSkeletonFooter = useCallback(
+    () => !hasMore ? null : (
       <View style={styles.skeletonRow}>
         {Array.from({ length: numColumns }).map((_, i) => <SkeletonCard key={i} />)}
       </View>
-    );
+    ),
+    [hasMore, numColumns]
+  );
 
   const sectionTitle = selectedGroup
     ? (navKey === 'year'
@@ -404,7 +467,7 @@ export default function HomeScreen() {
             <FlatList
               style={{ flex: 1 }}
               data={visibleItems}
-              keyExtractor={item => item.id}
+              keyExtractor={keyExtractor}
               numColumns={numColumns}
               key={`${navKey}-${selectedGroup}-${numColumns}`}
               renderItem={renderFlatItem}
@@ -418,10 +481,7 @@ export default function HomeScreen() {
               onEndReached={loadMore}
               onEndReachedThreshold={0.5}
               ListFooterComponent={renderSkeletonFooter}
-              getItemLayout={(_, index) => {
-                const row = Math.floor(index / numColumns);
-                return { length: ROW_H, offset: gridPadding + ROW_H * row, index };
-              }}
+              getItemLayout={getItemLayout}
             />
           </Animated.View>
         </TVCatalogLayout>
@@ -489,7 +549,7 @@ export default function HomeScreen() {
         <FlatList
           style={{ flex: 1 }}
           data={visibleItems}
-          keyExtractor={item => item.id}
+          keyExtractor={keyExtractor}
           numColumns={numColumns}
           key={`${navKey}-${selectedGroup}-${numColumns}`}
           renderItem={renderFlatItem}
@@ -504,6 +564,7 @@ export default function HomeScreen() {
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
           ListFooterComponent={renderSkeletonFooter}
+          getItemLayout={getItemLayout}
         />
       </Animated.View>
     );

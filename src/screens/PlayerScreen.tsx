@@ -54,7 +54,7 @@ export default function PlayerScreen() {
     isMuted, volume, error,
     retryCount, retryingIn,
     position, duration,
-    showOSD, showSidebar,
+    showOSD, showSidebar, seekHint,
     isLive, currentIndex,
     subtitleTracks, selectedSubtitleIndex,
     vttSubtitleIndex, switchSubtitleTrack,
@@ -159,6 +159,9 @@ export default function PlayerScreen() {
   const showSidebarRef   = useRef(showSidebar);
   const isLiveRef        = useRef(isLive);
   const showSheetRef     = useRef(false);
+  // Última tecla de seek do D-pad — permite que repetições rápidas façam scrub
+  // mesmo com o OSD visível (segurar/spam = avanço acelerado).
+  const lastSeekKeyRef   = useRef({ ts: 0, dir: 0 });
   useEffect(() => { showOSDRef.current     = showOSD;     }, [showOSD]);
   useEffect(() => { showSidebarRef.current = showSidebar; }, [showSidebar]);
   useEffect(() => { isLiveRef.current      = isLive;      }, [isLive]);
@@ -173,20 +176,36 @@ export default function PlayerScreen() {
     // Quando algum sheet (legenda/áudio) está aberto, ignora — o Modal cuida do foco
     if (showSheetRef.current) return;
 
+    // ── Seek por D-pad ──────────────────────────────────────────────────────────
+    // DPAD_LEFT/RIGHT: direita avança, esquerda volta. Teclas de mídia (FF/RW) sempre
+    // fazem seek. Para o D-pad: com OSD oculto, tap normal faz seek; com OSD visível,
+    // só repetições rápidas (segurar/spam) fazem scrub — tap isolado navega os botões.
+    const isMediaSeek = code === KEY.MEDIA_FAST_FWD || code === KEY.MEDIA_REWIND;
+    const dir =
+      code === KEY.DPAD_RIGHT || code === KEY.MEDIA_FAST_FWD ?  1 :
+      code === KEY.DPAD_LEFT  || code === KEY.MEDIA_REWIND   ? -1 : 0;
+
+    if (dir !== 0) {
+      showOSDTemporarily();
+      if (isLiveRef.current) return;
+      if (isMediaSeek) { seekBy(10 * dir); return; }
+
+      const now = Date.now();
+      const prev = lastSeekKeyRef.current;
+      const rapid = dir === prev.dir && now - prev.ts < 500;
+      lastSeekKeyRef.current = { ts: now, dir };
+
+      // OSD oculto → seek direto. OSD visível → só se for repetição rápida.
+      if (!showOSDRef.current || rapid) seekBy(10 * dir);
+      return;
+    }
+
     showOSDTemporarily();
 
     // Quando OSD está aberto, o D-pad navega nos botões do OSD — não fazemos seek
     if (showOSDRef.current) return;
 
     switch (code) {
-      case KEY.DPAD_LEFT:
-      case KEY.MEDIA_REWIND:
-        if (!isLiveRef.current) seekBy(-10);
-        break;
-      case KEY.DPAD_RIGHT:
-      case KEY.MEDIA_FAST_FWD:
-        if (!isLiveRef.current) seekBy(10);
-        break;
       case KEY.DPAD_CENTER:
       case KEY.MEDIA_PLAY_PAUSE:
       case KEY.MEDIA_PLAY:
@@ -205,6 +224,28 @@ export default function PlayerScreen() {
         break;
     }
   }, [seekBy, togglePlay, setVolume, setShowSidebar, showOSDTemporarily, navigation]);
+
+  // Web: o View não tem onKeyDown, então o teclado vira o "D-pad" reaproveitando
+  // a mesma lógica de seek/aceleração/indicador via um listener de window.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const webKeyMap: Record<string, number> = {
+      ArrowRight: KEY.DPAD_RIGHT,
+      ArrowLeft:  KEY.DPAD_LEFT,
+      ArrowUp:    KEY.DPAD_UP,
+      ArrowDown:  KEY.DPAD_DOWN,
+      Enter:      KEY.DPAD_CENTER,
+      ' ':        KEY.MEDIA_PLAY_PAUSE,
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      const code = webKeyMap[ev.key];
+      if (code == null) return;
+      ev.preventDefault();
+      handleKeyDown({ nativeEvent: { keyCode: code } });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleKeyDown]);
 
   return (
     // onKeyDown no root View captura todos os eventos de tecla do controle remoto.
@@ -302,6 +343,14 @@ export default function PlayerScreen() {
           />
         )}
 
+        {seekHint && (
+          <View pointerEvents="none" style={styles.seekHint}>
+            <Text style={styles.seekHintText}>
+              {seekHint.dir === 'fwd' ? '⏩' : '⏪'} {seekHint.dir === 'fwd' ? '+' : '−'}{seekHint.amount}s
+            </Text>
+          </View>
+        )}
+
         <SubtitleSheet
           visible={showSubtitleSheet}
           tracks={subtitleTracks}
@@ -349,6 +398,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.6)', gap: 12,
   },
   bufferingText: { color: colors.text2, fontSize: fontSize.md, fontWeight: '500' },
+  seekHint: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  seekHintText: {
+    color: colors.accent,
+    fontSize: fontSize.hero,
+    fontWeight: '700',
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    overflow: 'hidden',
+  },
   retryLabel: { color: colors.accent2, fontSize: fontSize.xs },
   sidebarOverlay: {
     ...StyleSheet.absoluteFillObject,
