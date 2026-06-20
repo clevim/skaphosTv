@@ -1,0 +1,10 @@
+node_modules
+android/app/build
+android/build
+android/.gradle
+ios/build
+dist
+.expo
+.git
+*.log
+build-output

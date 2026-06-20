@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1
+#
+# Build do APK (mesmo codebase do webapp) — serve celular e FireStick/Android TV.
+# O release é assinado com a debug.keystore versionada no repo (ver android/app/build.gradle),
+# então o .apk gerado instala direto via `adb install`.
+#
+#   docker build -f docker/Dockerfile.android -t skaphostv-apk .
+#   docker run --rm -v "$PWD/build-output:/out" skaphostv-apk
+#   adb install -r build-output/app-release.apk
+
+FROM eclipse-temurin:17-jdk-jammy
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV ANDROID_HOME=/opt/android-sdk
+ENV ANDROID_SDK_ROOT=/opt/android-sdk
+ENV PATH=$PATH:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools
+
+# Node 20 + utilitários
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl unzip git ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Android SDK — versões pinadas ao android/build.gradle do projeto
+RUN mkdir -p $ANDROID_HOME/cmdline-tools \
+    && curl -fsSL -o /tmp/cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+    && unzip -q /tmp/cmdtools.zip -d $ANDROID_HOME/cmdline-tools \
+    && mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest \
+    && rm /tmp/cmdtools.zip \
+    && yes | sdkmanager --licenses >/dev/null \
+    && sdkmanager --install \
+        "platform-tools" \
+        "platforms;android-34" \
+        "build-tools;34.0.0" \
+        "ndk;26.1.10909125" \
+        "cmake;3.22.1" >/dev/null
+
+WORKDIR /app
+
+# Deps JS primeiro (cache de camada). patches/ é necessário pelo postinstall.
+COPY package*.json ./
+COPY patches ./patches
+RUN npm install --no-audit --no-fund
+
+# Build do APK release (armeabi-v7a + arm64-v8a, igual ao perfil "firestick" do eas.json)
+COPY . .
+RUN cd android && ./gradlew :app:assembleRelease \
+      -PreactNativeArchitectures=armeabi-v7a,arm64-v8a --no-daemon
+
+# Em runtime, exporta o APK para o volume montado em /out
+CMD ["sh", "-c", "cp android/app/build/outputs/apk/release/app-release.apk /out/ && echo '✓ APK em ./build-output/app-release.apk'"]

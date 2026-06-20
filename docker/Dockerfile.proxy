@@ -1,0 +1,13 @@
+# syntax=docker/dockerfile:1
+
+# Proxy CORS para streams (proxy-server.js). As deps não estão no package.json
+# do app — instalamos aqui de forma isolada.
+FROM node:20-alpine
+WORKDIR /app
+RUN npm install --no-audit --no-fund \
+      express@^4 \
+      http-proxy-middleware@^3 \
+      cors@^2
+COPY proxy-server.js ./
+EXPOSE 3001
+CMD ["node", "proxy-server.js"]

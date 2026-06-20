@@ -8,7 +8,7 @@
     "ios": "expo run:ios",
     "build:apk": "eas build --platform android --profile preview",
     "build:aab": "eas build --platform android --profile production",
-    "build:firestick": "rm -rf node_modules/.cache $TMPDIR/metro-* $TMPDIR/haste-map-* && eas build --platform android --profile firestick --local",
+    "build:firestick": "bash scripts/build-firestick.sh",
     "postinstall": "npx patch-package"
   },
   "dependencies": {
@@ -29,6 +29,8 @@
     "expo-status-bar": "~1.12.1",
     "expo-updates": "~0.25.27",
     "geist": "^1.7.0",
+    "hls.js": "^1.5.17",
+    "mpegts.js": "^1.7.3",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-native": "0.74.5",

@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+
+# ─── Stage 1: build do bundle web (react-native-web via Expo) ──────────────────
+FROM node:20-bookworm AS build
+WORKDIR /app
+
+# Deps primeiro (cache). patches/ é necessário pelo postinstall (patch-package).
+COPY package*.json ./
+COPY patches ./patches
+RUN npm install --no-audit --no-fund
+
+# Código e export estático para dist/
+COPY . .
+RUN npx expo export --platform web --output-dir dist
+
+# ─── Stage 2: servir com nginx ─────────────────────────────────────────────────
+FROM nginx:1.27-alpine
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
+HEALTHCHECK CMD wget -q -O /dev/null http://127.0.0.1/ || exit 1

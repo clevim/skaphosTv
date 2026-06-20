@@ -14,14 +14,18 @@ android/local.properties
 ios/build/
 ios/Pods/
 ios/DerivedData/
+modules/*/android/build/
+modules/*/android/.gradle/
 *.jks
 *.p8
 *.p12
 *.key
 *.mobileprovision
+android/app/debug.keystore
 *.orig.*
 *.apk
 *.aab
+storage/apks/
 
 # EAS
 .eas/
