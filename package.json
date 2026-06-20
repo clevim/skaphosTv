@@ -6,8 +6,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "build:apk": "eas build --platform android --profile preview",
-    "build:aab": "eas build --platform android --profile production",
+    "build:apk": "npx eas-cli@latest build --platform android --profile preview",
+    "build:aab": "npx eas-cli@latest build --platform android --profile production",
     "build:firestick": "bash scripts/build-firestick.sh",
     "postinstall": "npx patch-package"
   },
@@ -25,7 +25,6 @@
     "expo-image": "~1.13.0",
     "expo-keep-awake": "~13.0.2",
     "expo-linear-gradient": "~13.0.2",
-    "expo-modules-autolinking": "~1.11.0",
     "expo-screen-orientation": "~7.0.5",
     "expo-secure-store": "~13.0.2",
     "expo-status-bar": "~1.12.1",
@@ -50,8 +49,6 @@
   "devDependencies": {
     "@babel/core": "^7.24.0",
     "@types/react": "~18.2.79",
-    "@types/react-native": "^0.72.8",
-    "eas-cli": "^20.3.0",
     "patch-package": "^8.0.1",
     "typescript": "~5.3.3"
   },

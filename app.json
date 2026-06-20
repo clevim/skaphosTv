@@ -27,7 +27,6 @@
       "**/*"
     ],
     "android": {
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0a0810"
@@ -58,8 +57,7 @@
           "initialOrientation": "LANDSCAPE"
         }
       ],
-      "expo-font",
-      "expo-secure-store"
+      "expo-font"
     ],
     "extra": {
       "eas": {
