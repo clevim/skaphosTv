@@ -16,6 +16,7 @@ import TVFocusable from '../components/TVFocusable';
 import PulsingDot from '../components/PulsingDot';
 import GlassButton from '../components/GlassButton';
 import JellyfinTrackSheet from '../components/JellyfinTrackSheet';
+import ExpandableText from '../components/ExpandableText';
 import { colors, fontSize, radius, fontFamily } from '../utils/theme';
 import { RootStackParamList } from '../types';
 import { detectType, getSeriesBaseName } from '../utils/channelUtils';
@@ -132,12 +133,14 @@ export default function DetailScreen() {
       {activeTab === 'Sobre' ? (
         <View style={styles.about}>
           {/* Synopsis */}
-          <Text style={styles.synopsis}>
-            {displayPlot ||
+          <ExpandableText
+            style={styles.synopsis}
+            collapsedLines={4}
+            text={displayPlot ||
               (groupClean
                 ? `Conteúdo ${typeLabel.toLowerCase()} do grupo ${groupClean}.`
                 : `Conteúdo ${typeLabel.toLowerCase()}.`)}
-          </Text>
+          />
 
           {/* Metadata grid */}
           <View style={styles.metaGrid}>

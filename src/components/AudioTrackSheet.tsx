@@ -55,6 +55,7 @@ export default function AudioTrackSheet({ visible, tracks, selectedIndex, onSele
           renderItem={({ item, index: listIndex }) => {
             const active  = item.index === selectedIndex;
             const isFirst = listIndex === 0;
+            const isLast  = listIndex === tracks.length - 1;
             return (
               <TVFocusable
                 ref={isFirst ? firstRef : undefined}
@@ -63,8 +64,9 @@ export default function AudioTrackSheet({ visible, tracks, selectedIndex, onSele
                 focusScale={1}
                 borderRadius={6}
                 hasTVPreferredFocus={isFirst}
-                // Trap: UP do primeiro item → botão Fechar (loop); L/R → Fechar
+                // Trap: UP do 1º item e DOWN do último → botão Fechar (fecha o ciclo); L/R → Fechar
                 nextFocusUp={isFirst && closeTag ? closeTag : undefined}
+                nextFocusDown={isLast && closeTag ? closeTag : undefined}
                 nextFocusLeft={closeTag ?? undefined}
                 nextFocusRight={closeTag ?? undefined}
               >

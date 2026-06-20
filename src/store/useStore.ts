@@ -40,6 +40,7 @@ interface AppState {
     parentalPin: string | null;
     language: string;
     subtitleEnabled: boolean;
+    subtitleSize: 'small' | 'medium' | 'large';
     epgEnabled: boolean;
     tmdbApiKey: string;
     jellyfinPreferredAudio: string;
@@ -227,6 +228,7 @@ export const useStore = create<AppState>((set, get) => ({
     parentalPin: null,
     language: 'pt-BR',
     subtitleEnabled: false,
+    subtitleSize: 'medium',
     epgEnabled: false,
     tmdbApiKey: '',
     jellyfinPreferredAudio: 'pt-BR',

@@ -209,6 +209,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
             renderItem={({ item, index: listIndex }) => {
               const active  = item.index === selectedAudio;
               const isFirst = listIndex === 0;
+              const isLast  = listIndex === audioTracks.length - 1;
               return (
                 <TVFocusable
                   ref={isFirst ? firstItemRef : undefined}
@@ -217,8 +218,9 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
                   focusScale={1}
                   borderRadius={6}
                   hasTVPreferredFocus={selectedAudio !== null ? item.index === selectedAudio : isFirst}
-                  // UP do 1º item (sem abas) → Cancel; L/R → Cancel e Play
+                  // UP do 1º item (sem abas) → Cancel; DOWN do último → Play (fecha o ciclo); L/R → Cancel e Play
                   nextFocusUp={isFirst && !hasSubtitles && cancelTag ? cancelTag : undefined}
+                  nextFocusDown={isLast && playTag ? playTag : undefined}
                   nextFocusLeft={cancelTag ?? undefined}
                   nextFocusRight={playTag ?? undefined}
                 >
@@ -249,6 +251,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
               const isOff   = item.index === -1;
               const active  = isOff ? selectedSubtitle === null : item.index === selectedSubtitle;
               const isFirst = listIndex === 0;
+              const isLast  = listIndex === subtitleTracks.length; // +1 da opção "Desativado"
               return (
                 <TVFocusable
                   ref={isFirst ? firstItemRef : undefined}
@@ -257,6 +260,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
                   focusScale={1}
                   borderRadius={6}
                   hasTVPreferredFocus={isFirst}
+                  nextFocusDown={isLast && playTag ? playTag : undefined}
                   nextFocusLeft={cancelTag ?? undefined}
                   nextFocusRight={playTag ?? undefined}
                 >

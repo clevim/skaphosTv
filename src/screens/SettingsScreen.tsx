@@ -8,6 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import TVFocusable from '../components/TVFocusable';
+import { enrichLiveLogos } from '../utils/logoResolver';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
 import { IS_TV } from '../utils/tvDetect';
 
@@ -76,6 +77,12 @@ const LANG_OPTIONS = [
 function langLabel(value: string): string {
   return LANG_OPTIONS.find(o => o.value === value)?.label ?? 'Padrão Jellyfin';
 }
+
+const SUBSIZE_OPTIONS = [
+  { value: 'small',  label: 'Pequena' },
+  { value: 'medium', label: 'Média' },
+  { value: 'large',  label: 'Grande' },
+] as const;
 
 // ── SettingsGroup / SettingsRow ─────────────────────────────────────────────
 
@@ -157,6 +164,50 @@ function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
         </View>
       </View>
     </TVFocusable>
+  );
+}
+
+// ── LogoRefreshRow ──────────────────────────────────────────────────────────
+// Busca sob demanda os logos faltantes de canais ao vivo (iptv-org, com cache).
+
+function LogoRefreshRow() {
+  const [state, setState] = useState<'idle' | 'running' | 'done'>('idle');
+  const [count, setCount] = useState(0);
+
+  const run = async () => {
+    if (state === 'running') return;
+    setState('running');
+    try {
+      const { channels, sources, appendChannels } = useStore.getState();
+      let total = 0;
+      for (const src of sources) {
+        const candidates = channels.filter(c => c.sourceId === src.id && !c.logo);
+        if (candidates.length === 0) continue;
+        const updated = await enrichLiveLogos(candidates);
+        const withLogo = updated.filter(c => c.logo);
+        if (withLogo.length) { appendChannels(withLogo, [], src.id); total += withLogo.length; }
+      }
+      setCount(total);
+      setState('done');
+    } catch {
+      setState('idle');
+    }
+  };
+
+  const sub =
+    state === 'running' ? 'Buscando no iptv-org…'
+    : state === 'done'  ? `${count} logo${count !== 1 ? 's' : ''} adicionado${count !== 1 ? 's' : ''}`
+    : 'Preenche logos faltantes dos canais ao vivo';
+
+  return (
+    <SettingsRow
+      icon="images-outline"
+      label="Atualizar logos dos canais"
+      sub={sub}
+      value={state === 'running' ? '…' : undefined}
+      valueColor={state === 'done' ? '#22c55e' : undefined}
+      onPress={state === 'running' ? undefined : run}
+    />
   );
 }
 
@@ -315,6 +366,14 @@ function TVPanel({
             value={settings.jellyfinPreferredSubtitle}
             onChange={v => updateSettings({ jellyfinPreferredSubtitle: v })}
           />
+          <SettingsRowSelect
+            icon="text-outline"
+            label="Tamanho da legenda"
+            sub="Tamanho do texto das legendas no player"
+            options={SUBSIZE_OPTIONS}
+            value={settings.subtitleSize}
+            onChange={v => updateSettings({ subtitleSize: v as 'small' | 'medium' | 'large' })}
+          />
         </SettingsGroup>
       </>
     );
@@ -352,6 +411,7 @@ function TVPanel({
     <>
       <SettingsGroup title="Sistema">
         <SettingsRow icon="language-outline"           label="Idioma"   value={settings.language || 'pt-BR'} />
+        <LogoRefreshRow />
         <SettingsRow icon="information-circle-outline" label="Versão"   value="v4.2.1 · build 1124" />
       </SettingsGroup>
       <SettingsGroup title="Integrações">
@@ -486,6 +546,14 @@ export default function SettingsScreen() {
             options={LANG_OPTIONS}
             value={settings.jellyfinPreferredSubtitle}
             onChange={v => updateSettings({ jellyfinPreferredSubtitle: v })}
+          />
+          <SettingsRowSelect
+            icon="text-outline"
+            label="Tamanho da legenda"
+            sub="Tamanho do texto das legendas no player"
+            options={SUBSIZE_OPTIONS}
+            value={settings.subtitleSize}
+            onChange={v => updateSettings({ subtitleSize: v as 'small' | 'medium' | 'large' })}
           />
         </SettingsGroup>
 

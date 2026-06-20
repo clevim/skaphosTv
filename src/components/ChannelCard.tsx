@@ -62,12 +62,13 @@ function ChannelCard({
       ]}
     >
       {/* Poster */}
-      <View style={[styles.poster, { height: H }]}>
+      <View style={[styles.poster, { height: H }, contentType === 'live' && styles.posterLive]}>
         {channel.logo ? (
           <Image
             source={channel.logo}
             style={styles.posterImg}
-            contentFit="cover"
+            // Live = logo largo/transparente → "contain" (não corta); VOD/série = pôster "cover"
+            contentFit={contentType === 'live' ? 'contain' : 'cover'}
             transition={0}
             cachePolicy="memory-disk"
             recyclingKey={channel.id}
@@ -153,6 +154,11 @@ const styles = StyleSheet.create({
     width: '100%',
     height: CARD_H,
     backgroundColor: colors.bg3,
+  },
+  // Live: respiro ao redor + fundo neutro p/ o logo contido ficar uniforme
+  posterLive: {
+    padding: IS_TV ? 18 : 12,
+    backgroundColor: colors.bg2,
   },
   posterImg: {
     width: '100%',

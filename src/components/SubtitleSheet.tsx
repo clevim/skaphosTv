@@ -63,6 +63,7 @@ export default function SubtitleSheet({ visible, tracks, selectedIndex, onSelect
             const isOff  = item.index === -1;
             const active = isOff ? selectedIndex === null : item.index === selectedIndex;
             const isFirst = listIndex === 0;
+            const isLast  = listIndex === data.length - 1;
             return (
               <TVFocusable
                 ref={isFirst ? firstRef : undefined}
@@ -72,6 +73,7 @@ export default function SubtitleSheet({ visible, tracks, selectedIndex, onSelect
                 borderRadius={6}
                 hasTVPreferredFocus={isFirst}
                 nextFocusUp={isFirst && closeTag ? closeTag : undefined}
+                nextFocusDown={isLast && closeTag ? closeTag : undefined}
                 nextFocusLeft={closeTag ?? undefined}
                 nextFocusRight={closeTag ?? undefined}
               >

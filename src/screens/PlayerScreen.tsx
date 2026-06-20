@@ -46,7 +46,15 @@ export default function PlayerScreen() {
   } = route.params;
 
   const channels = useStore(s => s.channels);
+  const subtitleSize = useStore(s => s.settings.subtitleSize);
   const player = usePlayer(channel, initialSubtitleIndex, initialSubtitleTracks, initialAudioIndex, initialAudioTracks);
+
+  // Estilo da legenda: paddingBottom levanta da borda (evita corte na base);
+  // fontSize vem do ajuste do usuário. (react-native-video 6 só expõe size/padding/opacity.)
+  const subtitleStyle = useMemo(() => {
+    const fontSize = subtitleSize === 'small' ? 14 : subtitleSize === 'large' ? 28 : 20;
+    return { fontSize, paddingBottom: 48, opacity: 1 };
+  }, [subtitleSize]);
 
   const {
     videoRef, osdAnim, videoKey, paused,
@@ -282,6 +290,7 @@ export default function PlayerScreen() {
           playWhenInactive={false}
           textTracks={activeVttTrack}
           selectedTextTrack={selectedTextTrack}
+          subtitleStyle={subtitleStyle}
           selectedAudioTrack={selectedAudioTrack}
           onLoad={onLoad}
           onProgress={onProgress}

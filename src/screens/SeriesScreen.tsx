@@ -24,6 +24,7 @@ import { IS_TV } from '../utils/tvDetect';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { fetchTmdbSeries, TmdbMeta } from '../utils/tmdbApi';
 import JellyfinTrackSheet from '../components/JellyfinTrackSheet';
+import ExpandableText from '../components/ExpandableText';
 
 type SeriesRoute = RouteProp<RootStackParamList, 'Series'>;
 type Nav = StackNavigationProp<RootStackParamList>;
@@ -698,11 +699,11 @@ export default function SeriesScreen() {
         </View>
 
         <View style={styles.synopsisBlock}>
-          <Text style={styles.synopsis}>
-            {displayPlot
-              ? displayPlot
-              : `Série do gênero ${displayGenre}.`}
-          </Text>
+          <ExpandableText
+            style={styles.synopsis}
+            collapsedLines={4}
+            text={displayPlot ? displayPlot : `Série do gênero ${displayGenre}.`}
+          />
           <View style={styles.metaGrid}>
             <View style={styles.metaItem}>
               <Text style={styles.metaKey}>Gênero</Text>
