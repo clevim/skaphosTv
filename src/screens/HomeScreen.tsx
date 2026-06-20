@@ -85,9 +85,9 @@ export default function HomeScreen() {
   const {
     channels, groups, selectedGroup, isLoading, loadError,
     sources, favorites, recentChannels, currentChannel,
-    setChannels, setSelectedGroup, setLoading, setLoadError,
+    setSelectedGroup, setLoading, setLoadError,
     setCurrentChannel, toggleFavorite, loadFromStorage, channelIndex,
-    appendChannels,
+    replaceSourceChannels,
   } = useStore();
 
   const [navKey, setNavKey]         = useState('home');
@@ -126,12 +126,12 @@ export default function HomeScreen() {
       if (state.channels.length === 0 && state.sources.length > 0) {
         loadAllSources(state.sources);
       } else if (state.channels.length > 0) {
-        // Sempre atualiza fontes Jellyfin em background (API rápida; appendChannels deduplica por id)
+        // Sempre atualiza fontes Jellyfin em background (API rápida; substitui só os canais da fonte)
         const jfSources = state.sources.filter(s => s.type === 'jellyfin');
         for (const src of jfSources) {
           loadOneSource(src)
             .then(({ channels: chs, groups: grps }) => {
-              if (chs.length > 0) appendChannels(chs, grps);
+              if (chs.length > 0) replaceSourceChannels(src.id, chs, grps);
             })
             .catch(() => {});
         }
@@ -164,20 +164,16 @@ export default function HomeScreen() {
     setLoading(true);
     setLoadError(null);
     try {
-      // Carrega todas as fontes em paralelo
-      const results = await Promise.allSettled(sourcesToLoad.map(loadOneSource));
-      let first = true;
+      // Carrega todas as fontes em paralelo, cada uma marcada com seu sourceId
+      const results = await Promise.allSettled(
+        sourcesToLoad.map(async (src) => ({ src, data: await loadOneSource(src) })),
+      );
       let anyLoaded = false;
       for (const res of results) {
         if (res.status === 'rejected') continue;
-        const { channels: chs, groups: grps } = res.value;
-        if (chs.length === 0) continue;
-        if (first) {
-          setChannels(chs, grps);
-          first = false;
-        } else {
-          appendChannels(chs, grps);
-        }
+        const { src, data } = res.value;
+        if (data.channels.length === 0) continue;
+        replaceSourceChannels(src.id, data.channels, data.groups);
         anyLoaded = true;
       }
       if (!anyLoaded) setLoadError('Nenhum canal encontrado nas fontes configuradas');

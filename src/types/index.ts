@@ -4,6 +4,8 @@ export interface Channel {
   url: string;
   logo?: string;
   group?: string;
+  /** Fonte (IPTVSource.id) a que este canal pertence — permite múltiplas fontes coexistirem */
+  sourceId?: string;
   tvgId?: string;
   quality?: string;
   isFavorite?: boolean;

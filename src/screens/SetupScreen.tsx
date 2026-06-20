@@ -94,7 +94,7 @@ const PHASE_ICONS: Record<XtreamPhase, string> = {
 
 export default function SetupScreen() {
   const navigation = useNavigation();
-  const { addSource, updateSource, sources, removeSource, setChannels, appendChannels } = useStore();
+  const { addSource, updateSource, sources, removeSource, appendChannels, replaceSourceChannels } = useStore();
 
   const [activeTab, setActiveTab] = useState<TabType>('xtream');
   const [isLoading, setIsLoadingLocal] = useState(false);
@@ -188,25 +188,23 @@ export default function SetupScreen() {
       if (result.channels.length === 0) throw new Error('Nenhum canal encontrado na lista');
       const latency = Date.now() - start;
       setConnectionResult({ success: true, channels: result.channels.length, vod: 0, latency });
-      // Regra: uma lista por vez — remove anterior(es) antes de adicionar
-      sources.forEach(s => removeSource(s.id));
+      const sourceId = editingSourceId ?? Date.now().toString();
       const source: IPTVSource = {
-        id: editingSourceId ?? Date.now().toString(),
+        id: sourceId,
         name: m3uName.trim() || 'Minha Lista M3U',
         type: 'm3u',
         url: m3uUrl.trim(),
         addedAt: Date.now(),
         channelCount: result.channels.length,
       };
-      addSource(source);
+      if (editingSourceId) updateSource(sourceId, source); else addSource(source);
       setEditingSourceId(null);
-      setChannels(result.channels, result.groups);
+      replaceSourceChannels(sourceId, result.channels, result.groups);
       // Enriquece canais M3U com Xtream API em background (se URLs forem Xtream)
       enrichM3UChannels({
         channels: result.channels,
         onEnriched: (updated) => {
-          const { groups } = useStore.getState();
-          useStore.getState().setChannels(updated, groups);
+          useStore.getState().replaceSourceChannels(sourceId, updated, useStore.getState().groups);
         },
       });
       Alert.alert('Sucesso!', `${result.channels.length} canais carregados`, [
@@ -269,9 +267,6 @@ export default function SetupScreen() {
     let sourceAdded = false;
     const phaseErrors: string[] = [];
 
-    // Regra: uma lista por vez — remove anteriores antes de adicionar
-    sources.forEach(s => removeSource(s.id));
-
     await loadXtreamPhased({
       host,
       username: user,
@@ -289,9 +284,10 @@ export default function SetupScreen() {
         if (result.channels.length === 0) return;
 
         if (!sourceAdded) {
-          // Primeira fase com conteúdo: registra a fonte e substitui canais anteriores
+          // Primeira fase com conteúdo: registra a fonte e substitui apenas os
+          // canais DESTA fonte (preserva as demais fontes já adicionadas)
           sourceAdded = true;
-          addSource({
+          const xtreamSource: IPTVSource = {
             id: sourceId,
             name: sourceName,
             type: 'xtream',
@@ -300,11 +296,12 @@ export default function SetupScreen() {
             password: pass,
             addedAt: Date.now(),
             channelCount: 0, // atualizado ao final
-          });
-          setChannels(result.channels, result.groups);
+          };
+          if (editingSourceId) updateSource(sourceId, xtreamSource); else addSource(xtreamSource);
+          replaceSourceChannels(sourceId, result.channels, result.groups);
         } else {
-          // Fases seguintes: merge incremental
-          appendChannels(result.channels, result.groups);
+          // Fases seguintes: merge incremental, mantendo o vínculo com a fonte
+          appendChannels(result.channels, result.groups, sourceId);
         }
       },
       onError: (phase, message) => {
@@ -393,7 +390,6 @@ export default function SetupScreen() {
 
       const sourceName = jName.trim() || serverName;
       const sourceId = editingSourceId ?? Date.now().toString();
-      sources.filter(s => s.id !== sourceId).forEach(s => { if (s.type === 'jellyfin') removeSource(s.id); });
       const source: IPTVSource = {
         id: sourceId, name: sourceName, type: 'jellyfin',
         host, apiKey, userId, serverName,
@@ -406,7 +402,7 @@ export default function SetupScreen() {
       try {
         const { channels: jfChannels, groups: jfGroups } = await loadJellyfinContent(host, apiKey, userId, sourceName);
         if (jfChannels.length > 0) {
-          appendChannels(jfChannels, jfGroups);
+          replaceSourceChannels(sourceId, jfChannels, jfGroups);
           updateSource(sourceId, { channelCount: jfChannels.length });
         }
         setConnectionResult({ success: true, channels: jfChannels.length, vod: 0, latency: 0 });
@@ -480,7 +476,6 @@ export default function SetupScreen() {
           const sourceName = jName.trim() || serverName;
           const sourceId = editingSourceId ?? Date.now().toString();
 
-          sources.filter(s => s.id !== sourceId).forEach(s => { if (s.type === 'jellyfin') removeSource(s.id); });
           const source: IPTVSource = {
             id: sourceId, name: sourceName, type: 'jellyfin',
             host, apiKey: accessToken, userId, serverName,
@@ -495,7 +490,7 @@ export default function SetupScreen() {
           try {
             const { channels: jfChannels, groups: jfGroups } = await loadJellyfinContent(host, accessToken, userId, sourceName);
             if (jfChannels.length > 0) {
-              appendChannels(jfChannels, jfGroups);
+              replaceSourceChannels(sourceId, jfChannels, jfGroups);
               updateSource(sourceId, { channelCount: jfChannels.length });
             }
             setConnectionResult({ success: true, channels: jfChannels.length, vod: 0, latency: 0 });
@@ -524,7 +519,6 @@ export default function SetupScreen() {
     if (Platform.OS === 'web') {
       if (window.confirm(`Remover "${name}"?`)) {
         removeSource(id);
-        if (sources.filter(s => s.id !== id).length === 0) setChannels([], []);
       }
       return;
     }
@@ -534,7 +528,6 @@ export default function SetupScreen() {
   const confirmDelete = () => {
     if (!deleteTarget) return;
     removeSource(deleteTarget.id);
-    if (sources.filter(s => s.id !== deleteTarget.id).length === 0) setChannels([], []);
     setDeleteTarget(null);
   };
 

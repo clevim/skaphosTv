@@ -62,8 +62,12 @@ interface AppState {
   updateSource: (id: string, patch: Partial<IPTVSource>) => void;
   removeSource: (id: string) => void;
   setChannels: (channels: Channel[], groups: string[]) => void;
-  /** Adiciona canais à lista existente sem apagar os anteriores (carregamento faseado) */
-  appendChannels: (channels: Channel[], groups: string[]) => void;
+  /** Adiciona canais à lista existente sem apagar os anteriores (carregamento faseado).
+   *  Se `sourceId` for informado, marca cada canal com a fonte de origem. */
+  appendChannels: (channels: Channel[], groups: string[], sourceId?: string) => void;
+  /** Substitui todos os canais de UMA fonte, preservando os das demais fontes.
+   *  Usado ao adicionar/atualizar/recarregar uma fonte específica. */
+  replaceSourceChannels: (sourceId: string, channels: Channel[], groups: string[]) => void;
   setSelectedGroup: (group: string | null) => void;
   setLoading: (loading: boolean) => void;
   setLoadError: (error: string | null) => void;
@@ -168,17 +172,29 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   removeSource: (id) => {
-    set(state => ({ sources: state.sources.filter(s => s.id !== id) }));
-    clearChannelsChunked(Math.ceil(get().channels.length / CHUNK_SIZE)).catch(() => {});
-    set({
-      channels: [],
-      groups: [],
-      channelIndex: null,
-      currentChannel: null,
-      recentChannels: [],
-      activeSourceId: null,
-      selectedGroup: null,
+    const prevChunks = Math.ceil(get().channels.length / CHUNK_SIZE);
+    set(state => {
+      // Remove apenas os canais desta fonte; preserva os das demais
+      const channels = state.channels.filter(c => c.sourceId !== id);
+      const groups = Array.from(
+        new Set(channels.map(c => c.group).filter(Boolean) as string[]),
+      ).sort();
+      const channelIndex = buildChannelIndex(channels);
+      return {
+        sources: state.sources.filter(s => s.id !== id),
+        channels,
+        groups,
+        channelIndex,
+        currentChannel: state.currentChannel?.sourceId === id ? null : state.currentChannel,
+        recentChannels: state.recentChannels.filter(c => c.sourceId !== id),
+        activeSourceId: state.activeSourceId === id ? null : state.activeSourceId,
+        selectedGroup: groups.includes(state.selectedGroup ?? '') ? state.selectedGroup : null,
+      };
     });
+    // Reescreve o cache em disco com a lista restante
+    clearChannelsChunked(prevChunks)
+      .then(() => saveChannelsChunked(get().channels, get().groups))
+      .catch(() => {});
     get().saveToStorage();
   },
 
@@ -190,14 +206,37 @@ export const useStore = create<AppState>((set, get) => ({
     );
   },
 
-  appendChannels: (newChannels, newGroups) => {
+  appendChannels: (newChannels, newGroups, sourceId) => {
     set(state => {
+      const tagged = sourceId
+        ? newChannels.map(c => ({ ...c, sourceId }))
+        : newChannels;
       // Deduplica por id — novos dados sobrescrevem os antigos (útil para re-fetch Jellyfin)
-      const newIds = new Set(newChannels.map(c => c.id));
+      const newIds = new Set(tagged.map(c => c.id));
       const existing = state.channels.filter(c => !newIds.has(c.id));
-      const merged = [...existing, ...newChannels];
+      const merged = [...existing, ...tagged];
       const groupSet = new Set([...state.groups, ...newGroups]);
       const groups = Array.from(groupSet).sort();
+      const channelIndex = buildChannelIndex(merged);
+      saveChannelsChunked(merged, groups).catch(e =>
+        console.warn('Erro ao salvar canais no cache:', e)
+      );
+      return { channels: merged, groups, channelIndex };
+    });
+  },
+
+  replaceSourceChannels: (sourceId, newChannels, newGroups) => {
+    set(state => {
+      const tagged = newChannels.map(c => ({ ...c, sourceId }));
+      const newIds = new Set(tagged.map(c => c.id));
+      // Remove os canais antigos desta fonte (por sourceId) e quaisquer duplicados por id
+      const kept = state.channels.filter(
+        c => c.sourceId !== sourceId && !newIds.has(c.id),
+      );
+      const merged = [...kept, ...tagged];
+      const groups = Array.from(
+        new Set([...merged.map(c => c.group).filter(Boolean) as string[], ...newGroups]),
+      ).sort();
       const channelIndex = buildChannelIndex(merged);
       saveChannelsChunked(merged, groups).catch(e =>
         console.warn('Erro ao salvar canais no cache:', e)

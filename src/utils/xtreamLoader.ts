@@ -31,6 +31,13 @@ interface XtreamStream {
   container_extension?: string;
   rating?: string;
   added?: string;
+  epg_channel_id?: string;
+  plot?: string;
+  cast?: string;
+  director?: string;
+  genre?: string;
+  releaseDate?: string;
+  backdrop_path?: string | string[];
 }
 
 function buildCategoryMap(cats: XtreamCategory[]): Map<string, string> {
@@ -99,8 +106,10 @@ export async function loadXtreamChannels(
       url: `${host}/live/${username}/${password}/${s.stream_id}.ts`,
       logo: s.stream_icon || undefined,
       group,
+      tvgId: s.epg_channel_id || undefined,
       quality: detectQuality(s.name),
       isFavorite: false,
+      streamType: 'live',
     });
   }
 
@@ -109,7 +118,7 @@ export async function loadXtreamChannels(
     if (!s.stream_id || !s.name) continue;
     const catName = vodCatMap.get(String(s.category_id)) || 'Filmes';
     const group = `♦ ${catName}`;
-    const ext = s.container_extension || 'mp4';
+    const ext = (s.container_extension || 'mp4').replace(/^\./, '') || 'mp4';
     addChannel({
       id: `vod-${s.stream_id}`,
       name: s.name,
@@ -118,23 +127,41 @@ export async function loadXtreamChannels(
       group,
       quality: detectQuality(s.name),
       isFavorite: false,
+      streamType: 'movie',
+      rating: s.rating ? String(s.rating) : undefined,
+      genre: s.genre || undefined,
+      plot: s.plot || undefined,
+      releaseDate: s.releaseDate || undefined,
     });
   }
 
   // ── Series ───────────────────────────────────────────────────
+  // IMPORTANTE: o shape precisa bater com o loadXtreamPhased — `streamType: 'series'`
+  // e `tvgId` (series_id) são o que o SeriesScreen usa para buscar os episódios.
   for (const s of seriesList) {
     if (!s.series_id || !s.name) continue;
     const catName = seriesCatMap.get(String(s.category_id)) || 'Séries';
     const group = `♦ ${catName}`;
-    // Use a placeholder episode URL — detail screen will load episodes via API
+    const backdropRaw = s.backdrop_path;
+    const backdrop = Array.isArray(backdropRaw) ? backdropRaw[0] : (backdropRaw || undefined);
+    // URL é o endpoint da API da série — episódios são carregados sob demanda
     addChannel({
       id: `series-${s.series_id}`,
-      name: `${s.name} S01E01`,
+      name: String(s.name).trim(),
       url: `${host}/series/${username}/${password}/${s.series_id}`,
       logo: s.stream_icon || s.cover || undefined,
       group,
+      tvgId: String(s.series_id),
       quality: detectQuality(s.name),
       isFavorite: false,
+      streamType: 'series',
+      plot: s.plot || undefined,
+      cast: s.cast || undefined,
+      director: s.director || undefined,
+      genre: s.genre || undefined,
+      rating: s.rating ? String(s.rating) : undefined,
+      releaseDate: s.releaseDate || undefined,
+      backdrop: backdrop || undefined,
     });
   }
 
