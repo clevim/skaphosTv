@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { StatusBar } from 'expo-status-bar';
@@ -20,6 +20,9 @@ import SeriesScreen from './src/screens/SeriesScreen';
 import DetailScreen from './src/screens/DetailScreen';
 import TVEPGScreen from './src/screens/TVEPGScreen';
 import { useThemeStore } from './src/store/useThemeStore';
+import AnimatedSplash from './src/components/AnimatedSplash';
+import VideoSplash from './src/components/VideoSplash';
+import introSource from './src/generated/introSource';
 import { IS_TV } from './src/utils/tvDetect';
 import { activate as activateTvFocus } from './modules/tv-focus';
 
@@ -74,6 +77,8 @@ function handleDeepLink(url: string | null) {
 
 export default function App() {
   const { fontsLoaded } = useGeistFonts();
+  // Splash animada de entrada (cobre o boot; some quando as fontes carregam)
+  const [splashVisible, setSplashVisible] = useState(true);
   // Guarda URL recebida antes de nav estar pronta (cold start via deep link)
   const pendingUrl = useRef<string | null>(null);
 
@@ -129,13 +134,11 @@ export default function App() {
     };
   }, []);
 
-  // Hold render until fonts are ready (prevents FOUT)
-  if (!fontsLoaded) return null;
-
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <StatusBar style="light" hidden />
+        {/* Navegação monta sempre (a splash cobre o boot/FOUT; nunca fica em branco) */}
         <NavigationContainer
           ref={navigationRef}
           onReady={() => {
@@ -175,6 +178,19 @@ export default function App() {
             <Stack.Screen name="EPG" component={TVEPGScreen} />
           </Stack.Navigator>
         </NavigationContainer>
+
+        {splashVisible && (
+          introSource && Platform.OS !== 'web' ? (
+            <VideoSplash
+              source={introSource}
+              ready={fontsLoaded}
+              muted={false}
+              onFinish={() => setSplashVisible(false)}
+            />
+          ) : (
+            <AnimatedSplash ready={fontsLoaded} onFinish={() => setSplashVisible(false)} />
+          )
+        )}
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

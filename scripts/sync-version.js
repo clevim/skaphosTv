@@ -63,5 +63,15 @@ const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 pkg.version = version;
 fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 
+// arquivo TS gerado — versão "assada" no bundle JS (não depende de Constants em runtime)
+const genDir = path.join(root, 'src/generated');
+fs.mkdirSync(genDir, { recursive: true });
+fs.writeFileSync(
+  path.join(genDir, 'appVersion.ts'),
+  `// AUTO-GERADO por scripts/sync-version.js — não editar à mão.\n` +
+  `export const APP_VERSION = '${version}';\n` +
+  `export const BUILD_NUMBER = ${versionCode};\n`,
+);
+
 console.log(`✓ versão sincronizada: ${version} (versionCode ${versionCode})`);
-console.log('  → app.json · build.gradle · strings.xml · package.json');
+console.log('  → app.json · build.gradle · strings.xml · package.json · src/generated/appVersion.ts');

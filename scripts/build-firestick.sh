@@ -3,6 +3,8 @@ set -e
 
 # Sincroniza a versão (app.json → build.gradle / strings.xml / package.json)
 node scripts/sync-version.js
+# Detecta vídeo de abertura (assets/intro.mp4) ou cai no logo animado
+node scripts/gen-intro.js
 
 VERSION=$(node -e "console.log(require('./app.json').expo.version)")
 OUT_DIR="storage/apks"
