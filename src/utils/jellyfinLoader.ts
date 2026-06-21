@@ -177,11 +177,31 @@ export async function fetchJellyfinEpisodes(
   userId: string,
   seriesId: string,
 ): Promise<Channel[]> {
-  const res = await axios.get(`${host}/Shows/${seriesId}/Episodes`, {
-    timeout: TIMEOUT,
-    headers: headers(apiKey),
-    params: { userId, Fields: 'Overview,MediaStreams,PremiereDate,UserData', EnableImages: true },
-  });
+  const url = `${host}/Shows/${seriesId}/Episodes`;
+  const params = { userId, Fields: 'Overview,MediaStreams,PremiereDate,UserData', EnableImages: true };
+
+  // Retry para falhas transitórias; mensagens claras p/ erros que não adianta repetir.
+  const MAX = 3;
+  let lastErr: any;
+  let res: any = null;
+  for (let attempt = 1; attempt <= MAX; attempt++) {
+    try {
+      res = await axios.get(url, { timeout: TIMEOUT, headers: headers(apiKey), params });
+      break;
+    } catch (e: any) {
+      lastErr = e;
+      const status = e?.response?.status;
+      if (status === 401 || status === 403) {
+        throw new Error('Sessão do Jellyfin expirada — reconecte o servidor (Quick Connect).');
+      }
+      if (status === 404) throw new Error('Série não encontrada no servidor Jellyfin.');
+      if (attempt < MAX) await new Promise(r => setTimeout(r, attempt * 1000));
+    }
+  }
+  if (!res) {
+    const st = lastErr?.response?.status;
+    throw new Error(st ? `Erro do Jellyfin (HTTP ${st})` : (lastErr?.message || 'Falha ao carregar episódios'));
+  }
 
   return ((res.data?.Items ?? []) as any[]).map(ep => {
     const season  = String(ep.ParentIndexNumber ?? 1).padStart(2, '0');

@@ -92,7 +92,7 @@ export default function SeriesScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<SeriesRoute>();
   const { seriesName, channels: routeChannels } = route.params;
-  const { setCurrentChannel, toggleFavorite, favorites, recentChannels, settings } = useStore();
+  const { setCurrentChannel, toggleFavorite, favorites, recentChannels, settings, sources } = useStore();
 
   // Hook de dimensões — reage a rotação/redimensionamento em tempo real
   const { width: sw, height: sh } = useWindowDimensions();
@@ -118,7 +118,13 @@ export default function SeriesScreen() {
     // Jellyfin series — pseudo-URL path
     const jellyfinCreds = parseJellyfinSeriesUrl(seriesChannel.url);
     if (jellyfinCreds) {
-      fetchJellyfinEpisodes(jellyfinCreds.host, jellyfinCreds.apiKey, jellyfinCreds.userId, jellyfinCreds.seriesId)
+      // Prefere o token ATUAL da fonte (a URL pode ter um token antigo/expirado)
+      const src = sources.find(
+        s => s.type === 'jellyfin' && s.host?.replace(/\/$/, '') === jellyfinCreds.host,
+      );
+      const apiKey = src?.apiKey || jellyfinCreds.apiKey;
+      const userId = src?.userId || jellyfinCreds.userId;
+      fetchJellyfinEpisodes(jellyfinCreds.host, apiKey, userId, jellyfinCreds.seriesId)
         .then(eps => {
           setAllEpisodes(eps);
           setLoadingEpisodes(false);
@@ -484,15 +490,14 @@ export default function SeriesScreen() {
                 </View>
               )}
             </View>
-            <Text
-              style={[
-                tvStyles.synopsis,
-                { fontSize: fSyn, lineHeight: fSynLh, maxWidth: clamp(sw * 0.34, 300, 720) },
-              ]}
-              numberOfLines={2}
-            >
-              {displayPlot || displayGenre}
-            </Text>
+            <View style={{ maxWidth: clamp(sw * 0.34, 300, 720) }}>
+              <ExpandableText
+                style={[tvStyles.synopsis, { fontSize: fSyn, lineHeight: fSynLh }]}
+                collapsedLines={2}
+                title={baseName}
+                text={displayPlot || displayGenre}
+              />
+            </View>
           </View>
 
           {/* Pills de temporada + rail de episódios */}

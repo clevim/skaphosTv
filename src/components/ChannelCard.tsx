@@ -10,6 +10,7 @@ import { IS_TV } from '../utils/tvDetect';
 
 interface ChannelCardProps {
   channel: Channel;
+  displayName?: string;
   isPlaying?: boolean;
   isFavorite?: boolean;
   onPress: () => void;
@@ -37,11 +38,12 @@ const QUALITY_COLORS: Record<string, string> = {
 };
 
 function ChannelCard({
-  channel, isPlaying, isFavorite, onPress, onLongPress,
+  channel, displayName, isPlaying, isFavorite, onPress, onLongPress,
   hasTVPreferredFocus, episodeCount, contentType = 'live', progress,
   cardWidth, cardHeight,
 }: ChannelCardProps) {
   const { preset } = useThemeStore();
+  const name = displayName ?? channel.name;
   const type = TYPE_CONFIG[contentType] ?? TYPE_CONFIG.live;
   const qColor = QUALITY_COLORS[channel.quality || 'HD'] ?? QUALITY_COLORS.HD;
   const quality = channel.quality || 'HD';
@@ -76,7 +78,7 @@ function ChannelCard({
         ) : (
           <View style={[styles.posterFallback, { backgroundColor: preset.primary + '18' }]}>
             <Text style={[styles.posterInitials, { color: preset.accent }]}>
-              {channel.name.slice(0, 2).toUpperCase()}
+              {name.slice(0, 2).toUpperCase()}
             </Text>
           </View>
         )}
@@ -125,7 +127,7 @@ function ChannelCard({
 
       {/* Info */}
       <View style={styles.info}>
-        <Text style={styles.name} numberOfLines={2}>{channel.name}</Text>
+        <Text style={styles.name} numberOfLines={2}>{name}</Text>
         {episodeCount && episodeCount > 1 ? (
           <Text style={[styles.epCount, { color: preset.accent }]}>{episodeCount} episódios</Text>
         ) : channel.group ? (

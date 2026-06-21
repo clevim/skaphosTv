@@ -136,6 +136,7 @@ export default function DetailScreen() {
           <ExpandableText
             style={styles.synopsis}
             collapsedLines={4}
+            title={displayName}
             text={displayPlot ||
               (groupClean
                 ? `Conteúdo ${typeLabel.toLowerCase()} do grupo ${groupClean}.`

@@ -17,9 +17,7 @@ import TVTopBar from '../components/TVTopBar';
 import { colors, spacing, fontSize, radius, fontFamily } from '../utils/theme';
 import { RootStackParamList, Channel } from '../types';
 import { loadSourceChannels } from '../utils/sourceLoader';
-import { usePaginatedList } from '../hooks/usePaginatedList';
 import { useChannelFilter } from '../hooks/useChannelFilter';
-import SkeletonCard from '@/components/SkeletonCard';
 import { useAppLayout } from '../hooks/useAppLayout';
 import { detectType, getSeriesBaseName, LAUNCH_YEAR, NAV_ITEMS } from '../utils/channelUtils';
 import RemoteHints from '../components/RemoteHints';
@@ -44,19 +42,21 @@ interface FlatItemProps {
   contentType: 'live' | 'movies' | 'series';
   cardWidth: number;
   cardHeight: number;
+  displayName?: string;
   onPress: (channel: Channel) => void;
   onLongPress: (id: string) => void;
 }
 
 const FlatItem = memo(function FlatItem({
   item, index, isPlaying, isFavorite, epCount, contentType,
-  cardWidth, cardHeight, onPress, onLongPress,
+  cardWidth, cardHeight, displayName, onPress, onLongPress,
 }: FlatItemProps) {
   const handlePress     = useCallback(() => onPress(item),     [onPress, item]);
   const handleLongPress = useCallback(() => onLongPress(item.id), [onLongPress, item.id]);
   return (
     <ChannelCard
       channel={item}
+      displayName={displayName}
       isPlaying={isPlaying}
       isFavorite={isFavorite}
       onPress={handlePress}
@@ -72,6 +72,7 @@ const FlatItem = memo(function FlatItem({
   prev.isPlaying  === next.isPlaying  &&
   prev.isFavorite === next.isFavorite &&
   prev.item       === next.item       &&
+  prev.displayName === next.displayName &&
   prev.cardWidth  === next.cardWidth  &&
   prev.cardHeight === next.cardHeight
 );
@@ -182,20 +183,16 @@ export default function HomeScreen() {
     episodeCountMap,
   } = useChannelFilter({ navKey, selectedGroup, channels, groups, favorites, categorySearch, channelIndex, sources });
 
-  const { visibleItems, hasMore, loadMore, reset } = usePaginatedList(filteredChannels);
-
   const fadeAnim      = useRef(new Animated.Value(1)).current;
   const isFirstMount  = useRef(true);
 
   useEffect(() => {
     if (isFirstMount.current) {
       isFirstMount.current = false;
-      reset();
       setCategorySearch('');
       return;
     }
     Animated.timing(fadeAnim, { toValue: 0, duration: 110, useNativeDriver: true }).start(() => {
-      reset();
       setCategorySearch('');
       Animated.timing(fadeAnim, { toValue: 1, duration: 190, useNativeDriver: true }).start();
     });
@@ -311,11 +308,13 @@ export default function HomeScreen() {
       const isSeries = type === 'series';
       const baseName = isSeries ? getSeriesBaseName(item.name) : item.name;
       const epCount = isSeries ? (episodeCountMap.get(baseName) || 0) : 0;
-      const displayChannel = isSeries ? { ...item, name: baseName } : item;
+      // Passa o item com referência ESTÁVEL + displayName separado — evita criar
+      // objeto novo por render (que quebrava o memo das séries).
       return (
         <FlatItem
           key={item.id}
-          item={displayChannel}
+          item={item}
+          displayName={isSeries ? baseName : undefined}
           index={index}
           isPlaying={currentChannel?.id === item.id}
           isFavorite={favoritesSet.has(item.id)}
@@ -338,14 +337,6 @@ export default function HomeScreen() {
 
   const keyExtractor = useCallback((item: Channel) => item.id, []);
 
-  const renderSkeletonFooter = useCallback(
-    () => !hasMore ? null : (
-      <View style={styles.skeletonRow}>
-        {Array.from({ length: numColumns }).map((_, i) => <SkeletonCard key={i} />)}
-      </View>
-    ),
-    [hasMore, numColumns]
-  );
 
   const sectionTitle = selectedGroup
     ? (navKey === 'year'
@@ -444,21 +435,20 @@ export default function HomeScreen() {
           <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
             <FlatList
               style={{ flex: 1 }}
-              data={visibleItems}
+              data={filteredChannels}
               keyExtractor={keyExtractor}
               numColumns={numColumns}
               key={`${navKey}-${selectedGroup}-${numColumns}`}
               renderItem={renderFlatItem}
               contentContainerStyle={styles.grid}
               showsVerticalScrollIndicator={false}
-              initialNumToRender={numColumns * 3}
-              maxToRenderPerBatch={numColumns * 2}
-              updateCellsBatchingPeriod={100}
-              windowSize={5}
+              // Virtualização nativa da FlatList renderiza só a janela visível —
+              // sem paginação manual (que causava solavanco e perda de foco).
+              initialNumToRender={numColumns * 4}
+              maxToRenderPerBatch={numColumns * 3}
+              updateCellsBatchingPeriod={50}
+              windowSize={9}
               removeClippedSubviews={false}
-              onEndReached={loadMore}
-              onEndReachedThreshold={0.5}
-              ListFooterComponent={renderSkeletonFooter}
               getItemLayout={getItemLayout}
             />
           </Animated.View>
@@ -526,7 +516,7 @@ export default function HomeScreen() {
       <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
         <FlatList
           style={{ flex: 1 }}
-          data={visibleItems}
+          data={filteredChannels}
           keyExtractor={keyExtractor}
           numColumns={numColumns}
           key={`${navKey}-${selectedGroup}-${numColumns}`}
@@ -534,14 +524,11 @@ export default function HomeScreen() {
           ListHeaderComponent={listHeader}
           contentContainerStyle={styles.grid}
           showsVerticalScrollIndicator={false}
-          initialNumToRender={numColumns * 3}
-          maxToRenderPerBatch={numColumns * 2}
-          updateCellsBatchingPeriod={100}
-          windowSize={5}
+          initialNumToRender={numColumns * 4}
+          maxToRenderPerBatch={numColumns * 3}
+          updateCellsBatchingPeriod={50}
+          windowSize={7}
           removeClippedSubviews
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={renderSkeletonFooter}
           getItemLayout={getItemLayout}
         />
       </Animated.View>

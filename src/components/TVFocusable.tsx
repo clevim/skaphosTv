@@ -69,7 +69,9 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
   nextFocusDown,
 }, ref) {
   const pressableRef = useRef<any>(null);
-  const [isFocused, setIsFocused] = useState(false);
+  // Já inicia destacado se for o foco preferido — assim o highlight aparece ao
+  // entrar na tela, sem depender do usuário mexer pro listener disparar.
+  const [isFocused, setIsFocused] = useState(IS_TV && hasTVPreferredFocus);
 
   const targetScale = focusScale ?? FOCUS_SCALE;
   const zooming     = targetScale > 1;
