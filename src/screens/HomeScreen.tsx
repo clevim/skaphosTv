@@ -19,7 +19,7 @@ import { RootStackParamList, Channel } from '../types';
 import { loadSourceChannels } from '../utils/sourceLoader';
 import { useChannelFilter } from '../hooks/useChannelFilter';
 import { useAppLayout } from '../hooks/useAppLayout';
-import { detectType, getSeriesBaseName, LAUNCH_YEAR, NAV_ITEMS } from '../utils/channelUtils';
+import { detectType, resolveContentType, getSeriesBaseName, LAUNCH_YEAR, NAV_ITEMS } from '../utils/channelUtils';
 import RemoteHints from '../components/RemoteHints';
 import TVCatalogLayout from '../components/TVCatalogLayout';
 import TVSearchContent from '../components/TVSearchContent';
@@ -121,18 +121,29 @@ export default function HomeScreen() {
     const init = async () => {
       await loadFromStorage();
       const state = useStore.getState();
-      if (state.channels.length === 0 && state.sources.length > 0) {
-        loadAllSources(state.sources);
-      } else if (state.channels.length > 0) {
-        // Sempre atualiza fontes Jellyfin em background (API rápida; substitui só os canais da fonte)
-        const jfSources = state.sources.filter(s => s.type === 'jellyfin');
-        for (const src of jfSources) {
-          loadOneSource(src)
-            .then(({ channels: chs, groups: grps }) => {
-              if (chs.length > 0) replaceSourceChannels(src.id, chs, grps);
-            })
-            .catch(() => {});
-        }
+      if (state.sources.length === 0) return;
+
+      // Reconciliação por fonte: o cache de canais é debounced/serializado, então
+      // pode ficar PARCIAL se o app fechar no meio (ex.: só o Jellyfin — rápido — foi
+      // gravado e o Xtream/M3U faseado não). Decidir "tudo ou nada" por channels.length
+      // deixava a fonte sem canais até recarregar na mão. Aqui carregamos da rede toda
+      // fonte ativa que NÃO tem canais no cache, e atualizamos o Jellyfin em background.
+      const loadedSourceIds = new Set(state.channels.map(c => c.sourceId));
+      const missing = state.sources.filter(s => !loadedSourceIds.has(s.id));
+      const jfCached = state.sources.filter(
+        s => s.type === 'jellyfin' && loadedSourceIds.has(s.id),
+      );
+
+      // Fontes sem canais no cache → carrega da rede (mostra loading se nada na tela)
+      if (missing.length > 0) loadSomeSources(missing);
+
+      // Fontes Jellyfin já em cache → atualiza em background (API rápida; substitui a fonte)
+      for (const src of jfCached) {
+        loadOneSource(src)
+          .then(({ channels: chs, groups: grps }) => {
+            if (chs.length > 0) replaceSourceChannels(src.id, chs, grps);
+          })
+          .catch(() => {});
       }
     };
     init();
@@ -162,6 +173,33 @@ export default function HomeScreen() {
       if (!anyLoaded) setLoadError('Nenhum canal encontrado nas fontes configuradas');
     } finally {
       setLoading(false);
+      isLoadingSourcesRef.current = false;
+    }
+  };
+
+  /** Carrega da rede um subconjunto específico de fontes (sem o guard de "já tem canais"),
+   *  preservando os canais das demais. Usado no boot para reconciliar fontes faltantes. */
+  const loadSomeSources = async (sourcesToLoad: IPTVSource[]) => {
+    if (sourcesToLoad.length === 0 || isLoadingSourcesRef.current) return;
+    isLoadingSourcesRef.current = true;
+    // Só exibe o spinner global se ainda não há nada na tela
+    const showSpinner = useStore.getState().channels.length === 0;
+    if (showSpinner) { setLoading(true); setLoadError(null); }
+    try {
+      const results = await Promise.allSettled(
+        sourcesToLoad.map(async (src) => ({ src, data: await loadOneSource(src) })),
+      );
+      let anyLoaded = false;
+      for (const res of results) {
+        if (res.status === 'rejected') continue;
+        const { src, data } = res.value;
+        if (data.channels.length === 0) continue;
+        replaceSourceChannels(src.id, data.channels, data.groups);
+        anyLoaded = true;
+      }
+      if (showSpinner && !anyLoaded) setLoadError('Nenhum canal encontrado nas fontes configuradas');
+    } finally {
+      if (showSpinner) setLoading(false);
       isLoadingSourcesRef.current = false;
     }
   };
@@ -205,7 +243,7 @@ export default function HomeScreen() {
     const seen = new Set<string>();
     for (const c of channels) {
       if (results.length >= 100) break;
-      const type = detectType(c.group || '', c.name);
+      const type = resolveContentType(c);
       const displayName = type === 'series' ? getSeriesBaseName(c.name) : c.name;
       if (seen.has(displayName)) continue;
       if (displayName.toLowerCase().includes(q) || (c.group || '').toLowerCase().includes(q)) {

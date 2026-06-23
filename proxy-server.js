@@ -1,8 +1,8 @@
 const express = require('express');
-const { createProxyMiddleware } = require('http-proxy-middleware');
 const cors = require('cors');
 const dns = require('dns').promises;
 const net = require('net');
+const { Readable } = require('stream');
 
 const app = express();
 app.use(cors());
@@ -55,20 +55,26 @@ async function hostIsSafe(hostname) {
   }
 }
 
-// Instância ÚNICA do proxy — o alvo é derivado por request via `router`
-// (antes criávamos um middleware novo a cada chamada).
-const proxy = createProxyMiddleware({
-  changeOrigin: true,
-  router: (req) => req.proxyTarget.origin,
-  on: {
-    proxyReq: (proxyReq, req) => {
-      const { pathname, search } = req.proxyTarget;
-      proxyReq.path = pathname + search;
-    },
-  },
-});
+// Headers do cliente que NÃO devem ser repassados ao destino (hop-by-hop e
+// específicos da conexão local). O `Host` é derivado da própria URL pelo fetch.
+const STRIP_REQ_HEADERS = new Set([
+  'host', 'connection', 'content-length', 'origin', 'referer',
+  'accept-encoding', 'sec-fetch-mode', 'sec-fetch-site', 'sec-fetch-dest',
+]);
 
-app.use('/proxy', async (req, res, next) => {
+// Headers da resposta upstream que não fazem sentido repassar (o corpo já vem
+// descomprimido pelo fetch; o comprimento muda; CORS é injetado pelo middleware).
+const STRIP_RES_HEADERS = new Set([
+  'content-encoding', 'content-length', 'transfer-encoding', 'connection',
+  'access-control-allow-origin', 'access-control-allow-credentials',
+]);
+
+// ─── Relay manual via fetch ────────────────────────────────────────────────────
+// Substitui http-proxy-middleware: o jeito que ele montava a requisição (com
+// changeOrigin + reescrita de path) fazia certos servidores Xtream atrás de
+// Cloudflare devolverem uma página-isca do Google. O fetch nativo do Node
+// reproduz exatamente uma requisição HTTP limpa e segue redirects corretamente.
+app.use('/proxy', async (req, res) => {
   const target = req.query.url;
   if (!target) return res.status(400).json({ error: 'url param required' });
 
@@ -87,8 +93,47 @@ app.use('/proxy', async (req, res, next) => {
     return res.status(403).json({ error: 'target host not allowed' });
   }
 
-  req.proxyTarget = parsed;
-  proxy(req, res, next);
+  // Repassa os headers do cliente, exceto os locais/hop-by-hop.
+  const headers = {};
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (!STRIP_REQ_HEADERS.has(key.toLowerCase())) headers[key] = value;
+  }
+
+  // Corpo para métodos não-GET (Jellyfin Quick Connect, playstate, etc.).
+  let body;
+  const method = req.method.toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD') {
+    body = await new Promise((resolve) => {
+      const chunks = [];
+      req.on('data', c => chunks.push(c));
+      req.on('end', () => resolve(Buffer.concat(chunks)));
+      req.on('error', () => resolve(undefined));
+    });
+    if (body && body.length === 0) body = undefined;
+  }
+
+  try {
+    const upstream = await fetch(parsed.href, {
+      method,
+      headers,
+      body,
+      redirect: 'follow', // segue 30x no servidor (o navegador não nos deixa fazê-lo)
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    res.status(upstream.status);
+    upstream.headers.forEach((value, key) => {
+      if (!STRIP_RES_HEADERS.has(key.toLowerCase())) res.setHeader(key, value);
+    });
+
+    if (upstream.body) {
+      Readable.fromWeb(upstream.body).pipe(res);
+    } else {
+      res.end();
+    }
+  } catch (e) {
+    res.status(502).json({ error: 'upstream fetch failed', detail: String(e?.message || e) });
+  }
 });
 
 app.listen(3001, () => console.log('Proxy rodando em http://localhost:3001'));

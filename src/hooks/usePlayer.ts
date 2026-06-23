@@ -10,6 +10,7 @@ import {
   getJellyfinAudioTracks, JellyfinAudioTrack,
 } from '../utils/jellyfinLoader';
 import { SubtitleTrack, AudioTrack } from '../types';
+import { useWatchProgress, resumePositionFor } from '../store/watchProgress';
 const IS_WEB = Platform.OS === 'web';
 const OSD_TIMEOUT = IS_TV ? 6000 : 4000;
 
@@ -22,6 +23,11 @@ export function usePlayer(
   initialSubtitleTracks: SubtitleTrack[] = [],
   initialAudioIndex: number | null = null,
   initialAudioTracks: AudioTrack[] = [],
+  // Playlist explícita (episódios de uma série) → habilita auto-play do próximo ep.
+  playlist: Channel[] = [],
+  // Chamado quando a reprodução termina e NÃO há próximo item (filme/último ep) →
+  // o PlayerScreen fecha o player.
+  onRequestClose?: () => void,
 ) {
   // Seletores individuais — evita re-render do player a cada mudança não-relacionada
   // no store (ações têm identidade estável no Zustand).
@@ -48,7 +54,21 @@ export function usePlayer(
   const seekTargetRef     = useRef(0);   // posição-alvo projetada (evita lag do onProgress entre saltos rápidos)
   const seekAccumRef      = useRef(0);   // total acumulado exibido no indicador durante saltos rápidos
   const sourcesRef        = useRef(sources);
+  const durationRef       = useRef(0);   // duração atual (p/ salvar progresso fora de render)
+  const lastProgressSaveRef = useRef(0); // throttle do save de progresso local
   useEffect(() => { sourcesRef.current = sources; }, [sources]);
+
+  // Ações do store de progresso local (identidade estável no Zustand)
+  const recordProgress = useWatchProgress(s => s.record);
+  const markWatchedLocal = useWatchProgress(s => s.markWatched);
+
+  // Persiste a posição atual no store local (filme/episódio; nunca ao vivo).
+  const saveLocalProgress = useCallback(() => {
+    const ch = playingChannelRef.current;
+    const dur = durationRef.current;
+    if (!ch?.id || !dur || dur <= 0) return; // ao vivo / sem duração → ignora
+    recordProgress(ch.id, positionRef.current, dur);
+  }, [recordProgress]);
 
   const [playingChannel, setPlayingChannel] = useState<Channel>(initialChannel);
   const [videoKey, setVideoKey] = useState(0);
@@ -87,13 +107,27 @@ export function usePlayer(
   const [audioReady, setAudioReady] = useState(false);
 
   const isLive = !duration || duration === 0;
-  // Navegação prev/next fica restrita aos canais do MESMO tipo (zapping de Ao Vivo
-  // não cai em filme/série). M3U sem streamType mantém o comportamento antigo (lista toda).
+  // Navegação prev/next: se há uma playlist explícita (episódios da série), usa ela —
+  // garante prev/next e auto-play na ordem correta dos episódios. Senão, restringe aos
+  // canais do MESMO tipo (zapping de Ao Vivo não cai em filme/série). M3U sem streamType
+  // mantém o comportamento antigo (lista toda).
+  const hasPlaylist = playlist.length > 0;
   const siblings = useMemo(() => {
+    if (hasPlaylist) return playlist;
     const t = playingChannel.streamType;
     return t ? channels.filter(c => c.streamType === t) : channels;
-  }, [channels, playingChannel.streamType]);
+  }, [hasPlaylist, playlist, channels, playingChannel.streamType]);
   const currentIndex = siblings.findIndex(c => c.id === playingChannel.id);
+
+  // Refs p/ uso em callbacks assíncronos (onEnd) sem closures stale
+  const siblingsRef = useRef(siblings);
+  const currentIndexRef = useRef(currentIndex);
+  const hasPlaylistRef = useRef(hasPlaylist);
+  const onRequestCloseRef = useRef(onRequestClose);
+  useEffect(() => { siblingsRef.current = siblings; }, [siblings]);
+  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
+  useEffect(() => { hasPlaylistRef.current = hasPlaylist; }, [hasPlaylist]);
+  useEffect(() => { onRequestCloseRef.current = onRequestClose; }, [onRequestClose]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') {
@@ -102,9 +136,11 @@ export function usePlayer(
     showOSDTemporarily();
     return () => {
       if (Platform.OS !== 'web') ScreenOrientation.unlockAsync();
+      // Salva a posição ao sair do player (voltar, trocar de tela) — garante resume
+      saveLocalProgress();
       clearAllTimers();
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sincroniza refs com estado atual
   useEffect(() => { playingChannelRef.current = playingChannel; }, [playingChannel]);
@@ -199,8 +235,11 @@ export function usePlayer(
   }, []);
 
   const playChannel = useCallback((ch: Channel) => {
+    // Salva o progresso do canal que está saindo antes de trocar
+    saveLocalProgress();
     clearAllTimers();
     setAudioReady(false);
+    durationRef.current = 0;
     playingChannelRef.current = ch;
     setPlayingChannel(ch);
     setCurrentChannel(ch);
@@ -220,7 +259,7 @@ export function usePlayer(
     isFirstLoadRef.current = true;
     setVideoKey(k => k + 1);
     showOSDTemporarily();
-  }, [setCurrentChannel, showOSDTemporarily]);
+  }, [setCurrentChannel, showOSDTemporarily, saveLocalProgress]);
 
   const prevChannel = useCallback(() => {
     if (currentIndex > 0) playChannel(siblings[currentIndex - 1]);
@@ -233,6 +272,7 @@ export function usePlayer(
   const onLoad = useCallback((data: any) => {
     setAudioReady(true); // ← libera selectedAudioTrack só agora (grupos ExoPlayer existem)
     setDuration(data.duration ?? 0);
+    durationRef.current = data.duration ?? 0;
     setIsBuffering(false);
     setError(null);
     if (retryCount > 0) setRetryCount(0);
@@ -249,30 +289,36 @@ export function usePlayer(
       }, 500);
     }
 
-    // Jellyfin: retoma posição anterior e inicia heartbeat de progresso
     const ch = playingChannelRef.current;
+    const firstLoad = isFirstLoadRef.current;
+    isFirstLoadRef.current = false;
+
+    // ── Continuar assistindo ───────────────────────────────────────────────────
+    // Retoma a maior posição entre o progresso LOCAL (este dispositivo) e o do
+    // servidor Jellyfin (resumePositionTicks). Só na carga inicial e quando não há
+    // seek pendente (troca de faixa não deve perder a posição).
+    if (firstLoad && !hadPendingSeek && (data.duration ?? 0) > 0) {
+      const localEntry = useWatchProgress.getState().get(ch?.id ?? '');
+      const localResume = resumePositionFor(localEntry);
+      const serverResume = (ch?.resumePositionTicks ?? 0) / 10_000_000;
+      const resumeSecs = Math.max(localResume, serverResume > 30 ? serverResume : 0);
+      if (resumeSecs > 15) {
+        setTimeout(() => {
+          try { videoRef.current?.seek(resumeSecs); } catch (_) {}
+          positionRef.current = resumeSecs;
+          setPosition(resumeSecs);
+        }, 500);
+      }
+    }
+
+    // Jellyfin: inicia heartbeat de progresso no servidor + faixas de legenda/áudio
     if (ch?.id?.startsWith('jf-')) {
       const parsed = parseJellyfinVideoUrl(ch.url);
       if (parsed) {
         const creds = getJellyfinCreds(parsed.host);
         if (creds?.userId && creds?.apiKey) {
-          // Resume só na carga inicial — não interferir com seek de troca de áudio
-          if (!hadPendingSeek) {
-            const resumeSecs = (ch.resumePositionTicks ?? 0) / 10_000_000;
-            if (resumeSecs > 30) {
-              setTimeout(() => {
-                try { videoRef.current?.seek(resumeSecs); } catch (_) {}
-                positionRef.current = resumeSecs;
-                setPosition(resumeSecs);
-              }, 500);
-            }
-          }
           // Heartbeat a cada 10s
           startJellyfinHeartbeat(parsed.host, creds.apiKey, creds.userId, parsed.itemId);
-
-          // Faixas de legenda e áudio
-          const firstLoad = isFirstLoadRef.current;
-          isFirstLoadRef.current = false;
 
           // Legendas: se pré-carregadas pelo JellyfinTrackSheet, apenas ativa o índice.
           // Caso contrário (troca de canal via sidebar), busca da API.
@@ -311,13 +357,20 @@ export function usePlayer(
     const t = data.currentTime ?? 0;
     positionRef.current = t;
     if (data.seekableDuration) seekDurRef.current = data.seekableDuration;
+    // Salva o progresso local a cada ~10s (independente do OSD) — alimenta o
+    // "continuar assistindo" e os badges. Ignorado para ao vivo (sem duração).
+    const now = Date.now();
+    if (now - lastProgressSaveRef.current > 10_000) {
+      lastProgressSaveRef.current = now;
+      saveLocalProgress();
+    }
     // Só atualiza o estado (→ re-render) quando o OSD está visível; senão, nada
     // consome `position`. Em playback com OSD oculto isto zera os re-renders por tick.
     if (showOSDRef.current) {
       setPosition(t);
       if (data.seekableDuration) setSeekableDuration(data.seekableDuration);
     }
-  }, []);
+  }, [saveLocalProgress]);
 
   const onBuffer = useCallback((data: any) => {
     setIsBuffering(data.isBuffering);
@@ -351,8 +404,10 @@ export function usePlayer(
     setPaused(true);
     if (heartbeatTimer.current) clearInterval(heartbeatTimer.current);
 
-    // Jellyfin: marca como assistido
     const ch = playingChannelRef.current;
+
+    // Marca como assistido — local (todas as fontes) e, se Jellyfin, também no servidor
+    if (ch?.id) markWatchedLocal(ch.id);
     if (ch?.id?.startsWith('jf-')) {
       const parsed = parseJellyfinVideoUrl(ch.url);
       if (parsed) {
@@ -362,7 +417,17 @@ export function usePlayer(
         }
       }
     }
-  }, [getJellyfinCreds]);
+
+    // Auto-play do próximo: só com playlist explícita (episódios da série). Sem playlist
+    // (filme) ou no último episódio → fecha o player. Evita "pular" para outro filme.
+    const idx = currentIndexRef.current;
+    const list = siblingsRef.current;
+    if (hasPlaylistRef.current && idx >= 0 && idx < list.length - 1) {
+      playChannel(list[idx + 1]);
+    } else {
+      onRequestCloseRef.current?.();
+    }
+  }, [getJellyfinCreds, markWatchedLocal, playChannel]);
 
   const seekToSeconds = useCallback((seconds: number) => {
     const v = videoRef.current;

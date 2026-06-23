@@ -48,6 +48,10 @@ export type RootStackParamList = {
     initialSubtitleTracks?: SubtitleTrack[];
     initialAudioIndex?: number | null;
     initialAudioTracks?: AudioTrack[];
+    /** Lista ordenada de episódios (séries) para auto-play do próximo ao terminar. */
+    playlist?: Channel[];
+    /** Índice de `channel` dentro de `playlist`. */
+    playlistIndex?: number;
   };
   Setup: undefined;
   Search: undefined;

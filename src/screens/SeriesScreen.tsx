@@ -13,6 +13,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
+import { useWatchProgress, progressFractionFor } from '../store/watchProgress';
 import TVFocusable from '../components/TVFocusable';
 import GlassButton from '../components/GlassButton';
 import { colors, radius, fontFamily } from '../utils/theme';
@@ -93,6 +94,8 @@ export default function SeriesScreen() {
   const route = useRoute<SeriesRoute>();
   const { seriesName, channels: routeChannels } = route.params;
   const { setCurrentChannel, toggleFavorite, favorites, recentChannels, settings, sources } = useStore();
+  // Progresso de reprodução local (por dispositivo) — badges de assistido / em curso
+  const watchEntries = useWatchProgress(s => s.entries);
 
   // Hook de dimensões — reage a rotação/redimensionamento em tempo real
   const { width: sw, height: sh } = useWindowDimensions();
@@ -263,10 +266,25 @@ export default function SeriesScreen() {
   const episodes = seasons.get(selectedSeason) || [];
 
   const currentEpIdx = useMemo(() => {
+    // 1) Episódio em curso (progresso salvo, ainda não assistido) — o mais recente
+    let bestIdx = -1;
+    let bestTs = 0;
+    episodes.forEach((c, i) => {
+      const e = watchEntries[c.id];
+      if (e && !e.watched && progressFractionFor(e) > 0 && e.updatedAt > bestTs) {
+        bestTs = e.updatedAt;
+        bestIdx = i;
+      }
+    });
+    if (bestIdx >= 0) return bestIdx;
+    // 2) Primeiro episódio ainda não assistido
+    const firstUnwatched = episodes.findIndex(c => !watchEntries[c.id]?.watched);
+    if (firstUnwatched >= 0) return firstUnwatched;
+    // 3) Fallback: último reproduzido (recentChannels)
     const recentIds = new Set(recentChannels.map(c => c.id));
     const idx = episodes.findIndex(c => recentIds.has(c.id));
     return idx >= 0 ? idx : 0;
-  }, [episodes, recentChannels]);
+  }, [episodes, recentChannels, watchEntries]);
 
   const currentEp = episodes[currentEpIdx];
   const currentEpLbl = currentEp ? epLabel(currentEp.name, currentEpIdx) : 'E01';
@@ -281,12 +299,16 @@ export default function SeriesScreen() {
   ) => {
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
     setCurrentChannel(ch);
+    // Playlist = episódios da temporada exibida → habilita auto-play do próximo ep
+    const playlistIndex = episodes.findIndex(e => e.id === ch.id);
     navigation.navigate('Player', {
       channel: ch,
       initialSubtitleIndex: subtitleIndex,
       initialSubtitleTracks: subtitleTracks,
       initialAudioIndex: audioIndex,
       initialAudioTracks: audioTracks,
+      playlist: episodes,
+      playlistIndex: playlistIndex >= 0 ? playlistIndex : 0,
     });
   };
 
@@ -550,6 +572,9 @@ export default function SeriesScreen() {
                 const focused = index === focusedEp;
                 const label = epLabel(item.name, index);
                 const isFirst = index === 0;
+                const entry = watchEntries[item.id];
+                const epWatched = !!entry?.watched;
+                const epFrac = epWatched ? 0 : progressFractionFor(entry);
                 const epName = item.name
                   .replace(/\s*[-–]?\s*S\d+\s*E\d+.*$/i, '')
                   .replace(baseName, '')
@@ -563,6 +588,16 @@ export default function SeriesScreen() {
                   >
                     <View style={[tvStyles.epThumbWrap, { width: cardW, height: cardH }]}>
                       <EpThumb logo={item.logo} size={{ w: cardW, h: cardH }} />
+                      {epWatched && (
+                        <View style={tvStyles.epWatchedBadge}>
+                          <Ionicons name="checkmark" size={Math.round(cardW * 0.06)} color="#0a0a0b" />
+                        </View>
+                      )}
+                      {epFrac > 0 && (
+                        <View style={tvStyles.epProgress}>
+                          <View style={[tvStyles.epProgressFill, { width: `${Math.round(epFrac * 100)}%` }]} />
+                        </View>
+                      )}
                       {focused && (
                         <View style={tvStyles.epPlayOverlay}>
                           <View
@@ -771,7 +806,10 @@ export default function SeriesScreen() {
               .replace(/\s*[-–]?\s*S\d+\s*E\d+.*$/i, '')
               .replace(baseName, '')
               .trim() || item.name;
-            const isCurrent = index === currentEpIdx && currentEpIdx > 0;
+            const entry = watchEntries[item.id];
+            const watched = !!entry?.watched;
+            const frac = watched ? 0 : progressFractionFor(entry);
+            const inProgress = frac > 0;
             return (
               <TVFocusable
                 key={item.id}
@@ -780,12 +818,17 @@ export default function SeriesScreen() {
               >
                 <View style={[styles.epThumbWrap, { width: thumbW }]}>
                   <EpThumb logo={item.logo} size={{ w: thumbW, h: thumbH }} />
-                  {isCurrent && (
+                  {inProgress && (
                     <View style={styles.epProgress}>
-                      <View style={[styles.epProgressFill, { width: '45%' }]} />
+                      <View style={[styles.epProgressFill, { width: `${Math.round(frac * 100)}%` }]} />
                     </View>
                   )}
-                  {!isCurrent && (
+                  {watched && (
+                    <View style={styles.epWatchedBadge}>
+                      <Ionicons name="checkmark" size={12} color="#0a0a0b" />
+                    </View>
+                  )}
+                  {!inProgress && !watched && (
                     <View style={styles.epPlayHint}>
                       <Ionicons name="play-circle" size={26} color="rgba(255,255,255,0.7)" />
                     </View>
@@ -795,7 +838,8 @@ export default function SeriesScreen() {
                 <View style={styles.epMeta}>
                   <View style={styles.epMetaTop}>
                     <Text style={styles.epCode}>{label}</Text>
-                    {isCurrent && <View style={styles.watchingBadge}><Text style={styles.watchingText}>EM CURSO</Text></View>}
+                    {inProgress && <View style={styles.watchingBadge}><Text style={styles.watchingText}>EM CURSO</Text></View>}
+                    {watched && <View style={styles.watchedBadgePill}><Text style={styles.watchedText}>ASSISTIDO</Text></View>}
                   </View>
                   <Text style={styles.epTitle} numberOfLines={2}>{epName}</Text>
                   {item.plot ? (
@@ -970,6 +1014,19 @@ const tvStyles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.35)',
     alignItems: 'center', justifyContent: 'center',
   },
+  epWatchedBadge: {
+    position: 'absolute', top: 8, right: 8,
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: colors.accent,
+    alignItems: 'center', justifyContent: 'center',
+    zIndex: 2,
+  },
+  epProgress: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    height: 4, backgroundColor: 'rgba(255,255,255,0.25)',
+    zIndex: 2,
+  },
+  epProgressFill: { height: '100%', backgroundColor: colors.accent },
   epPlayBtn: {
     // width, height e borderRadius vêm do JSX
     backgroundColor: 'rgba(255,255,255,0.95)',
@@ -1126,6 +1183,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accentSoft, borderWidth: 1, borderColor: colors.accent,
   },
   watchingText: { fontSize: 8, fontWeight: '700', color: colors.accent, letterSpacing: 0.4 },
+  watchedBadgePill: {
+    paddingHorizontal: 6, paddingVertical: 1, borderRadius: 3,
+    backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.borderSoft,
+  },
+  watchedText: { fontSize: 8, fontWeight: '700', color: colors.text3, letterSpacing: 0.4 },
+  epWatchedBadge: {
+    position: 'absolute', top: 4, right: 4,
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: colors.accent,
+    alignItems: 'center', justifyContent: 'center',
+  },
   epTitle: { fontSize: 13, fontWeight: '500', color: colors.text1, lineHeight: 18 },
   epPlot: { fontSize: 11, color: colors.text3, lineHeight: 16, marginTop: 3 },
   epDur: { fontSize: 10, color: colors.text3, marginTop: 4 },

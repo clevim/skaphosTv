@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
-import { detectType, getSeriesBaseName } from '../utils/channelUtils';
+import { resolveContentType, getSeriesBaseName } from '../utils/channelUtils';
 
 interface Props {
   query: string;
@@ -24,7 +24,7 @@ const TYPE_LABEL: Record<string, string> = {
 const SUGGESTIONS = ['Ao Vivo', 'Filmes', 'Séries', 'Lançamentos 2026'];
 
 function ResultItem({ channel, onPress }: { channel: Channel; onPress: () => void }) {
-  const type = detectType(channel.group || '', channel.name);
+  const type = resolveContentType(channel);
   const displayName = type === 'series' ? getSeriesBaseName(channel.name) : channel.name;
   const groupClean = channel.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || '';
 

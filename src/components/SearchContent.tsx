@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
-import { detectType, getSeriesBaseName } from '../utils/channelUtils';
+import { resolveContentType, getSeriesBaseName } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
 
 interface Props {
@@ -24,7 +24,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 function ResultRow({ channel, onPress }: { channel: Channel; onPress: () => void }) {
-  const type = detectType(channel.group || '', channel.name);
+  const type = resolveContentType(channel);
   const displayName = type === 'series' ? getSeriesBaseName(channel.name) : channel.name;
   const groupClean = channel.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || '';
 
@@ -77,7 +77,7 @@ const rowStyles = StyleSheet.create({
 });
 
 function BestMatch({ channel, onPress }: { channel: Channel; onPress: () => void }) {
-  const type = detectType(channel.group || '', channel.name);
+  const type = resolveContentType(channel);
   const displayName = type === 'series' ? getSeriesBaseName(channel.name) : channel.name;
   const groupClean = channel.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || '';
 

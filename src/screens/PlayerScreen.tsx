@@ -43,11 +43,19 @@ export default function PlayerScreen() {
     initialSubtitleTracks = [],
     initialAudioIndex = null,
     initialAudioTracks = [],
+    playlist = [],
   } = route.params;
 
   const channels = useStore(s => s.channels);
   const subtitleSize = useStore(s => s.settings.subtitleSize);
-  const player = usePlayer(channel, initialSubtitleIndex, initialSubtitleTracks, initialAudioIndex, initialAudioTracks);
+  // Ao terminar (filme ou último episódio) o player se fecha sozinho
+  const handleRequestClose = useCallback(() => {
+    if (navigation.canGoBack()) navigation.goBack();
+  }, [navigation]);
+  const player = usePlayer(
+    channel, initialSubtitleIndex, initialSubtitleTracks, initialAudioIndex, initialAudioTracks,
+    playlist, handleRequestClose,
+  );
 
   // Estilo da legenda: paddingBottom levanta da borda (evita corte na base);
   // fontSize vem do ajuste do usuário. (react-native-video 6 só expõe size/padding/opacity.)
@@ -167,6 +175,8 @@ export default function PlayerScreen() {
   const showSidebarRef   = useRef(showSidebar);
   const isLiveRef        = useRef(isLive);
   const showSheetRef     = useRef(false);
+  // true quando a barra de progresso está focada na TV → D-pad esq/dir faz scrubbing
+  const scrubFocusedRef  = useRef(false);
   // Última tecla de seek do D-pad — permite que repetições rápidas façam scrub
   // mesmo com o OSD visível (segurar/spam = avanço acelerado).
   const lastSeekKeyRef   = useRef({ ts: 0, dir: 0 });
@@ -197,6 +207,9 @@ export default function PlayerScreen() {
       showOSDTemporarily();
       if (isLiveRef.current) return;
       if (isMediaSeek) { seekBy(10 * dir); return; }
+
+      // Barra de progresso focada (TV): esquerda/direita sempre faz scrub (segurar acelera).
+      if (scrubFocusedRef.current) { seekBy(10 * dir); return; }
 
       const now = Date.now();
       const prev = lastSeekKeyRef.current;
@@ -349,6 +362,7 @@ export default function PlayerScreen() {
             onToggleSubtitles={() => setShowSubtitleSheet(true)}
             hasAudio={audioTracks.length > 1}
             onToggleAudio={() => setShowAudioSheet(true)}
+            onScrubFocusChange={(f) => { scrubFocusedRef.current = f; }}
           />
         )}
 

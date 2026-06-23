@@ -1,12 +1,12 @@
 // PlayerOSD.tsx — matches MobilePlayer / TVLive design exactly
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Animated,
   Platform, PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Channel } from '../types';
-import TVFocusable from './TVFocusable';
+import TVFocusable, { TVFocusableHandle } from './TVFocusable';
 import PulsingDot from './PulsingDot';
 import { colors, fontSize, radius, spacing } from '@/utils/theme';
 import { IS_TV } from '../utils/tvDetect';
@@ -37,6 +37,9 @@ interface Props {
   onToggleSubtitles?: () => void;
   hasAudio?: boolean;
   onToggleAudio?: () => void;
+  /** TV: avisa o PlayerScreen quando a barra de progresso ganha/perde foco, para que
+   *  o D-pad esquerda/direita faça scrubbing do vídeo em vez de navegar nos botões. */
+  onScrubFocusChange?: (focused: boolean) => void;
 }
 
 function formatTime(seconds: number): string {
@@ -54,10 +57,14 @@ export default function PlayerOSD({
   onBack, onTogglePlay, onPrevChannel, onNextChannel,
   onToggleSidebar, onSeekTo, onSeekBy,
   hasSubtitles, subtitleActive, onToggleSubtitles,
-  hasAudio, onToggleAudio,
+  hasAudio, onToggleAudio, onScrubFocusChange,
 }: Props) {
   const progressPct = duration > 0 ? Math.min(1, position / duration) : 0;
   const seekBarWidth = useRef(0);
+  // TV: barra de progresso focável + auto-trap horizontal (D-pad esq/dir não sai dela)
+  const scrubRef = useRef<TVFocusableHandle>(null);
+  const [scrubTag, setScrubTag] = useState<number | null>(null);
+  const [scrubFocused, setScrubFocused] = useState(false);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -124,14 +131,42 @@ export default function PlayerOSD({
       <View style={styles.osdBottom}>
         {!isLive && duration > 0 ? (
           <View style={styles.progressSection}>
-            <View
-              style={styles.progressBg}
-              onLayout={(e) => { seekBarWidth.current = e.nativeEvent.layout.width; }}
-              {...panResponder.panHandlers}
-            >
-              <View style={[styles.progressFill, { width: `${progressPct * 100}%` }]} />
-              <View style={[styles.progressThumb, { left: `${progressPct * 100}%` }]} />
-            </View>
+            {IS_TV ? (
+              // TV: foca a barra com o D-pad e segura esquerda/direita para scrubbing.
+              // nextFocusLeft/Right apontam para a própria barra → o foco não escapa
+              // enquanto se arrasta; o seek é feito pelo onKeyDown do PlayerScreen.
+              <TVFocusable
+                ref={scrubRef}
+                focusScale={1}
+                onPress={() => {}}
+                onFocus={() => { setScrubFocused(true); onScrubFocusChange?.(true); }}
+                onBlur={() => { setScrubFocused(false); onScrubFocusChange?.(false); }}
+                nextFocusLeft={scrubTag ?? undefined}
+                nextFocusRight={scrubTag ?? undefined}
+                style={styles.progressFocusable}
+                accessibilityLabel="Barra de progresso"
+              >
+                <View
+                  style={styles.progressBg}
+                  onLayout={(e) => {
+                    seekBarWidth.current = e.nativeEvent.layout.width;
+                    if (scrubTag == null) setScrubTag(scrubRef.current?.getTag() ?? null);
+                  }}
+                >
+                  <View style={[styles.progressFill, { width: `${progressPct * 100}%` }, scrubFocused && styles.progressFillActive]} />
+                  <View style={[styles.progressThumb, { left: `${progressPct * 100}%` }, scrubFocused && styles.progressThumbActive]} />
+                </View>
+              </TVFocusable>
+            ) : (
+              <View
+                style={styles.progressBg}
+                onLayout={(e) => { seekBarWidth.current = e.nativeEvent.layout.width; }}
+                {...panResponder.panHandlers}
+              >
+                <View style={[styles.progressFill, { width: `${progressPct * 100}%` }]} />
+                <View style={[styles.progressThumb, { left: `${progressPct * 100}%` }]} />
+              </View>
+            )}
             <View style={styles.timeRow}>
               <Text style={styles.timeText}>{formatTime(position)}</Text>
               <Text style={styles.timeText}>{formatTime(duration)}</Text>
@@ -251,6 +286,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   progressSection: { gap: spacing.sm },
+  progressFocusable: {
+    paddingVertical: 6,
+  },
   progressBg: {
     height: 20,
     justifyContent: 'center',
@@ -264,6 +302,11 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     top: 8.5,
   },
+  // Realce quando a barra está focada na TV (scrubbing ativo)
+  progressFillActive: {
+    height: 5,
+    top: 7.5,
+  },
   progressThumb: {
     position: 'absolute',
     top: 4.5,
@@ -272,6 +315,15 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: '#fff',
     marginLeft: -5.5,
+  },
+  progressThumbActive: {
+    top: 1.5,
+    width: 17,
+    height: 17,
+    borderRadius: 9,
+    marginLeft: -8.5,
+    borderWidth: 2,
+    borderColor: colors.accent,
   },
   timeRow: {
     flexDirection: 'row',

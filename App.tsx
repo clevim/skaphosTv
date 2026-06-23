@@ -1,3 +1,4 @@
+import './src/utils/webHttp'; // web-only: proxy CORS + Alert polyfill (no-op em nativo)
 import React, { useEffect, useRef, useState } from 'react';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -7,8 +8,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as KeepAwake from 'expo-keep-awake';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Updates from 'expo-updates';
-import { Platform, Linking } from 'react-native';
+import { Platform, Linking, AppState } from 'react-native';
 import { useStore } from './src/store/useStore';
+import { useWatchProgress } from './src/store/watchProgress';
 import { useGeistFonts } from './src/hooks/useGeistFonts';
 import HomeScreen from './src/screens/HomeScreen';
 import PlayerScreen from './src/screens/PlayerScreen';
@@ -84,6 +86,7 @@ export default function App() {
 
   useEffect(() => {
     useThemeStore.getState().loadTheme();
+    useWatchProgress.getState().load();
 
     KeepAwake.activateKeepAwakeAsync();
 
@@ -128,9 +131,18 @@ export default function App() {
       else pendingUrl.current = url;
     });
 
+    // Ao mandar o app pra background, força o flush dos saves de canais pendentes
+    // (o save é debounced) — evita que o cache fique parcial se o processo morrer.
+    const appStateSub = AppState.addEventListener('change', (next) => {
+      if (next === 'background' || next === 'inactive') {
+        useStore.getState().saveChannelsToStorage().catch(() => {});
+      }
+    });
+
     return () => {
       KeepAwake.deactivateKeepAwake();
       sub.remove();
+      appStateSub.remove();
     };
   }, []);
 

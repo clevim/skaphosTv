@@ -1,3 +1,5 @@
+import type { Channel } from '../types';
+
 export const LAUNCH_YEAR = new Date().getFullYear().toString();
 
 export const YEAR_GROUPS = ['Filmes', 'Séries'] as const;
@@ -24,6 +26,21 @@ export function detectType(group: string, name?: string): 'live' | 'movies' | 's
     return 'movies';
   }
   return 'live';
+}
+
+/**
+ * Tipo efetivo do conteúdo, normalizado para 'live' | 'movies' | 'series'.
+ * Xtream/Jellyfin definem `streamType` ('live'|'movie'|'series') explicitamente — tem
+ * precedência sobre a heurística por group-title (detectType). Só quando não há
+ * `streamType` (ex.: M3U puro) caímos no detectType. Evita série marcada como "Filme".
+ */
+export function resolveContentType(channel: Channel): 'live' | 'movies' | 'series' {
+  switch (channel.streamType) {
+    case 'series': return 'series';
+    case 'movie':  return 'movies';
+    case 'live':   return 'live';
+    default:       return detectType(channel.group || '', channel.name);
+  }
 }
 
 /**
