@@ -9,6 +9,7 @@
     "build:apk": "npx eas-cli@latest build --platform android --profile preview",
     "build:aab": "npx eas-cli@latest build --platform android --profile production",
     "build:firestick": "bash scripts/build-firestick.sh",
+    "release": "bash scripts/release.sh",
     "set-version": "node scripts/sync-version.js",
     "gen-icons": "node scripts/gen-icons.js",
     "postinstall": "npx patch-package"
