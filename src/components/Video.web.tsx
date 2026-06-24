@@ -58,6 +58,7 @@ const Video = forwardRef(function Video(props: any, ref: any) {
   const videoEl = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const mpegtsRef = useRef<any>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const uri: string = source?.uri ?? '';
 
   useImperativeHandle(ref, () => ({
@@ -65,6 +66,54 @@ const Video = forwardRef(function Video(props: any, ref: any) {
       if (videoEl.current) videoEl.current.currentTime = seconds;
     },
   }));
+
+  // ─── Correção do áudio "abafado" (downmix 5.1 do navegador) ───────────────────
+  // O <video> deixa o navegador fazer o downmix 5.1→estéreo, que joga o canal central
+  // (diálogo) pra baixo → som abafado. Aqui reencaminhamos o áudio por um grafo Web Audio
+  // que refaz a mixagem realçando o central. Para fontes estéreo é transparente (os canais
+  // central/surround vêm silenciosos). createMediaElementSource só pode ser chamado UMA vez
+  // por elemento → este efeito roda só no mount.
+  useEffect(() => {
+    const video = videoEl.current;
+    const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!video || !AC) return;
+    // Só ativa o grafo quando o stream vem same-origin (proxy relativo /proxy). Em fonte
+    // cross-origin sem CORS o MediaElementSource fica "tainted" e sairia SILÊNCIO — pior
+    // que abafado. Nesse caso mantém o áudio padrão do navegador.
+    if (!PROXY_BASE.startsWith('/')) return;
+
+    let ctx: AudioContext;
+    try {
+      ctx = new AC();
+      audioCtxRef.current = ctx;
+
+      const src = ctx.createMediaElementSource(video);
+      const splitter = ctx.createChannelSplitter(6); // FL FR C LFE SL SR
+      const merger   = ctx.createChannelMerger(2);    // Lo Ro
+      src.connect(splitter);
+
+      // Lo = FL + C + 0.5·SL   |   Ro = FR + C + 0.5·SR   (central em ganho cheio p/ diálogo)
+      const gain = (v: number) => { const g = ctx.createGain(); g.gain.value = v; return g; };
+      const gFL = gain(1.0), gFR = gain(1.0), gC = gain(1.0), gSL = gain(0.5), gSR = gain(0.5);
+
+      splitter.connect(gFL, 0); gFL.connect(merger, 0, 0);
+      splitter.connect(gFR, 1); gFR.connect(merger, 0, 1);
+      splitter.connect(gC,  2); gC.connect(merger, 0, 0); gC.connect(merger, 0, 1);
+      splitter.connect(gSL, 4); gSL.connect(merger, 0, 0);
+      splitter.connect(gSR, 5); gSR.connect(merger, 0, 1);
+
+      // Limitador suave evita clipping quando os canais somam acima de 0 dBFS.
+      const limiter = ctx.createDynamicsCompressor();
+      limiter.threshold.value = -3; limiter.ratio.value = 12; limiter.attack.value = 0.003;
+      merger.connect(limiter);
+      limiter.connect(ctx.destination);
+    } catch (_) {
+      // Navegador sem Web Audio (ou elemento já conectado): mantém o áudio padrão.
+      return;
+    }
+
+    return () => { try { ctx.close(); } catch (_) {} audioCtxRef.current = null; };
+  }, []);
 
   // Anexa o engine de playback conforme o tipo do stream.
   useEffect(() => {
@@ -126,7 +175,11 @@ const Video = forwardRef(function Video(props: any, ref: any) {
     const v = videoEl.current;
     if (!v) return;
     if (paused) v.pause();
-    else v.play().catch(() => {});
+    else {
+      // AudioContext nasce suspenso (política de autoplay) → libera ao dar play.
+      if (audioCtxRef.current?.state === 'suspended') audioCtxRef.current.resume().catch(() => {});
+      v.play().catch(() => {});
+    }
   }, [paused]);
 
   useEffect(() => {

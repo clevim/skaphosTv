@@ -318,9 +318,16 @@ export const useStore = create<AppState>((set, get) => ({
         new Set([...merged.map(c => c.group).filter(Boolean) as string[], ...newGroups]),
       ).sort();
       const channelIndex = buildChannelIndex(merged);
-      scheduleChannelsSave(merged, groups, state.sources);
-      return { channels: merged, groups, channelIndex };
+      // Atualiza o total real da fonte: este é o baseline que a reconciliação do boot
+      // usa para detectar cache parcial. Sem isto, um catálogo que mudou de tamanho
+      // deixaria o channelCount defasado e a fonte recarregaria da rede a cada boot.
+      const sources = state.sources.map(s =>
+        s.id === sourceId ? { ...s, channelCount: tagged.length } : s,
+      );
+      scheduleChannelsSave(merged, groups, sources);
+      return { channels: merged, groups, channelIndex, sources };
     });
+    get().saveToStorage();
   },
 
   setSelectedGroup: (group) => set({ selectedGroup: group }),

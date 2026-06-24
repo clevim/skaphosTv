@@ -124,18 +124,54 @@ export default function HomeScreen() {
       if (state.sources.length === 0) return;
 
       // Reconciliação por fonte: o cache de canais é debounced/serializado, então
-      // pode ficar PARCIAL se o app fechar no meio (ex.: só o Jellyfin — rápido — foi
-      // gravado e o Xtream/M3U faseado não). Decidir "tudo ou nada" por channels.length
-      // deixava a fonte sem canais até recarregar na mão. Aqui carregamos da rede toda
-      // fonte ativa que NÃO tem canais no cache, e atualizamos o Jellyfin em background.
-      const loadedSourceIds = new Set(state.channels.map(c => c.sourceId));
-      const missing = state.sources.filter(s => !loadedSourceIds.has(s.id));
+      // pode ficar PARCIAL se o app fechar no meio. O Xtream carrega em 3 fases
+      // (live → filmes → SÉRIES por último), cada uma com save debounced — se o app
+      // fecha antes da fase de séries gravar, o cache fica com a fonte incompleta
+      // (tipicamente sem as séries). Detectar só "fonte sem NENHUM canal" não pegava
+      // esse caso: a fonte tinha live+filmes, era considerada completa e as séries
+      // nunca voltavam. Aqui comparamos o que há em cache com o total esperado
+      // (source.channelCount, gravado após a carga completa) e recarregamos a fonte
+      // inteira quando o cache está abaixo do esperado.
+      const incompleteSources = (srcs: IPTVSource[], chans: Channel[]): IPTVSource[] => {
+        const counts = new Map<string, number>();
+        for (const c of chans) {
+          if (c.sourceId) counts.set(c.sourceId, (counts.get(c.sourceId) ?? 0) + 1);
+        }
+        return srcs.filter(s => {
+          const have = counts.get(s.id) ?? 0;
+          if (have === 0) return true;                          // nada em cache
+          const expected = s.channelCount ?? 0;
+          // Tolerância de 15%: o catálogo do servidor varia um pouco entre cargas.
+          return expected > 0 && have < expected * 0.85;        // cache parcial (ex.: faltam séries)
+        });
+      };
+
+      let missing = incompleteSources(state.sources, state.channels);
+      // Jellyfin completo em cache → atualiza em background (API rápida; não entra no retry)
       const jfCached = state.sources.filter(
-        s => s.type === 'jellyfin' && loadedSourceIds.has(s.id),
+        s => s.type === 'jellyfin' && !missing.some(m => m.id === s.id),
       );
 
-      // Fontes sem canais no cache → carrega da rede (mostra loading se nada na tela)
-      if (missing.length > 0) loadSomeSources(missing);
+      // Fontes faltantes/incompletas → recarrega da rede (mostra loading se nada na tela).
+      // Retry com backoff: no boot frio a rede/proxy pode ainda não estar pronta e a
+      // carga falhava silenciosamente, deixando a fonte vazia/parcial até o reload manual.
+      if (missing.length > 0) {
+        const RETRY_DELAYS = [3000, 6000, 12000];
+        const missingIds = new Set(missing.map(s => s.id));
+        for (let attempt = 0; ; attempt++) {
+          await loadSomeSources(missing);
+          // Reavalia com o MESMO critério de completude (presença não basta: uma fonte
+          // parcial que falhou em recarregar continuaria "presente" e pararia o retry).
+          // Relê as fontes da store: o channelCount pode ter sido atualizado pela recarga.
+          const fresh = useStore.getState();
+          missing = incompleteSources(
+            fresh.sources.filter(s => missingIds.has(s.id)),
+            fresh.channels,
+          );
+          if (missing.length === 0 || attempt >= RETRY_DELAYS.length) break;
+          await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
+        }
+      }
 
       // Fontes Jellyfin já em cache → atualiza em background (API rápida; substitui a fonte)
       for (const src of jfCached) {

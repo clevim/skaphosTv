@@ -54,3 +54,6 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+
+# Local docs/notes (not tracked)
+docs/

@@ -190,7 +190,15 @@ export function usePlayer(
     }, OSD_TIMEOUT);
   }, [osdAnim]);
 
+  const togglePlay = useCallback(() => {
+    setPaused(p => { setIsPlaying(!!p); return !p; });
+    showOSDTemporarily();
+  }, [showOSDTemporarily]);
+
   const handleScreenTap = useCallback(() => {
+    // Web: clicar em qualquer lugar da tela dá play/pause (como nos players do navegador).
+    // togglePlay já reexibe o OSD, então os controles continuam acessíveis.
+    if (IS_WEB) { togglePlay(); return; }
     if (showOSD) {
       if (osdTimer.current) clearTimeout(osdTimer.current);
       Animated.timing(osdAnim, { toValue: 0, duration: 200, useNativeDriver: true })
@@ -198,7 +206,7 @@ export function usePlayer(
     } else {
       showOSDTemporarily();
     }
-  }, [showOSD, osdAnim, showOSDTemporarily]);
+  }, [showOSD, osdAnim, showOSDTemporarily, togglePlay]);
 
   const scheduleRetry = useCallback((attempt: number) => {
     if (attempt >= MAX_RETRIES) {
@@ -468,11 +476,6 @@ export function usePlayer(
     const next = Math.max(0, Math.min(max, pct * max));
     seekToSeconds(next);
   }, [duration, seekableDuration, isLive, seekToSeconds]);
-
-  const togglePlay = useCallback(() => {
-    setPaused(p => { setIsPlaying(!!p); return !p; });
-    showOSDTemporarily();
-  }, [showOSDTemporarily]);
 
   /**
    * Troca a faixa de áudio Jellyfin durante a reprodução.

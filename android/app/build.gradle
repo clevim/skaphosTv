@@ -114,8 +114,8 @@ android {
         applicationId 'com.skaphostv.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10201
-        versionName "1.2.1"
+        versionCode 10202
+        versionName "1.2.2"
     }
     signingConfigs {
         debug {

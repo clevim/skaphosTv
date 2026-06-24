@@ -139,6 +139,24 @@ export default function App() {
       }
     });
 
+    // Web: o AppState do navegador não dispara de forma confiável ao FECHAR a aba,
+    // então o save debounced podia se perder (cache zerava → cards sumiam no reload).
+    // visibilitychange (aba oculta) roda com a página ainda viva → grava em tempo;
+    // pagehide cobre o fechamento. Ambos persistem o cache completo em memória.
+    const flushChannels = () => { useStore.getState().saveChannelsToStorage().catch(() => {}); };
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const onVisibility = () => { if (document.visibilityState === 'hidden') flushChannels(); };
+      document.addEventListener('visibilitychange', onVisibility);
+      window.addEventListener('pagehide', flushChannels);
+      return () => {
+        KeepAwake.deactivateKeepAwake();
+        sub.remove();
+        appStateSub.remove();
+        document.removeEventListener('visibilitychange', onVisibility);
+        window.removeEventListener('pagehide', flushChannels);
+      };
+    }
+
     return () => {
       KeepAwake.deactivateKeepAwake();
       sub.remove();
