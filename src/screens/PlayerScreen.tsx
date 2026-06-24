@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, BackHandler } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, BackHandler, DeviceEventEmitter } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import Video, { ResizeMode, SelectedTrackType, TextTracksType } from 'react-native-video';
 import type { ISO639_1 } from 'react-native-video/src/types/language';
@@ -70,7 +70,7 @@ export default function PlayerScreen() {
     isMuted, volume, error,
     retryCount, retryingIn,
     position, duration,
-    showOSD, showSidebar, seekHint,
+    showOSD, showSidebar,
     isLive, currentIndex, totalSiblings,
     subtitleTracks, selectedSubtitleIndex,
     vttSubtitleIndex, switchSubtitleTrack,
@@ -84,6 +84,10 @@ export default function PlayerScreen() {
 
   const [showSubtitleSheet, setShowSubtitleSheet] = useState(false);
   const [showAudioSheet, setShowAudioSheet] = useState(false);
+  // Modo scrubbing (TV): estado EXPLÍCITO, não derivado de foco. Entra com ↓, sai com ▲.
+  // As teclas chegam pelo canal nativo (SkaphosKeyDown), então não dependemos do foco
+  // ficar na barra — o foco pode até escapar que o seek e o visual seguem este estado.
+  const [scrubMode, setScrubMode] = useState(false);
 
   // ── Track selection ───────────────────────────────────────────────────────────
   //
@@ -164,19 +168,19 @@ export default function PlayerScreen() {
       if (showSubtitleSheet) { setShowSubtitleSheet(false); return true; }
       if (showAudioSheet) { setShowAudioSheet(false); return true; }
       if (showSidebar) { setShowSidebar(false); return true; }
+      if (scrubMode) { setScrubMode(false); return true; }
       navigation.goBack();
       return true;
     });
     return () => handler.remove();
-  }, [navigation, showSidebar, showSubtitleSheet, showAudioSheet]);
+  }, [navigation, showSidebar, showSubtitleSheet, showAudioSheet, scrubMode]);
 
   // Refs para evitar closure stale nos callbacks de key event
   const showOSDRef       = useRef(showOSD);
   const showSidebarRef   = useRef(showSidebar);
   const isLiveRef        = useRef(isLive);
   const showSheetRef     = useRef(false);
-  // true quando a barra de progresso está focada na TV → D-pad esq/dir faz scrubbing
-  const scrubFocusedRef  = useRef(false);
+  const scrubModeRef     = useRef(false);
   // Última tecla de seek do D-pad — permite que repetições rápidas façam scrub
   // mesmo com o OSD visível (segurar/spam = avanço acelerado).
   const lastSeekKeyRef   = useRef({ ts: 0, dir: 0 });
@@ -184,20 +188,17 @@ export default function PlayerScreen() {
   useEffect(() => { showSidebarRef.current = showSidebar; }, [showSidebar]);
   useEffect(() => { isLiveRef.current      = isLive;      }, [isLive]);
   useEffect(() => { showSheetRef.current   = showSubtitleSheet || showAudioSheet; }, [showSubtitleSheet, showAudioSheet]);
+  useEffect(() => { scrubModeRef.current   = scrubMode; }, [scrubMode]);
+  // Ao ocultar o OSD, sai do modo scrubbing (a barra some junto).
+  useEffect(() => { if (!showOSD && scrubMode) setScrubMode(false); }, [showOSD, scrubMode]);
 
-  // onKeyDown no Android TV: onKeyDown fires no View pai mesmo quando
-  // um filho tem o foco — key events sobem na hierarquia de views.
-  // useTVEventHandler NÃO existe em react-native 0.74 padrão (só em tvos).
+  // As teclas do controle chegam pelo canal nativo (SkaphosKeyDown) — ver useEffect.
   const handleKeyDown = useCallback((e: any) => {
     const code: number = e?.nativeEvent?.keyCode ?? 0;
 
     // Quando algum sheet (legenda/áudio) está aberto, ignora — o Modal cuida do foco
     if (showSheetRef.current) return;
 
-    // ── Seek por D-pad ──────────────────────────────────────────────────────────
-    // DPAD_LEFT/RIGHT: direita avança, esquerda volta. Teclas de mídia (FF/RW) sempre
-    // fazem seek. Para o D-pad: com OSD oculto, tap normal faz seek; com OSD visível,
-    // só repetições rápidas (segurar/spam) fazem scrub — tap isolado navega os botões.
     const isMediaSeek = code === KEY.MEDIA_FAST_FWD || code === KEY.MEDIA_REWIND;
     const dir =
       code === KEY.DPAD_RIGHT || code === KEY.MEDIA_FAST_FWD ?  1 :
@@ -206,38 +207,46 @@ export default function PlayerScreen() {
     if (dir !== 0) {
       showOSDTemporarily();
       if (isLiveRef.current) return;
+      // Teclas de mídia (avançar/retroceder do controle) sempre fazem seek.
       if (isMediaSeek) { seekBy(10 * dir); return; }
+      // ◀/▶ só mexem no tempo DENTRO do modo scrubbing (entra com ↓). Fora dele,
+      // apenas mostram o OSD e o foco navega os botões — não avançam o vídeo.
+      if (scrubModeRef.current) seekBy(10 * dir);
+      return;
+    }
 
-      // Barra de progresso focada (TV): esquerda/direita sempre faz scrub (segurar acelera).
-      if (scrubFocusedRef.current) { seekBy(10 * dir); return; }
+    // ── DPAD_DOWN: entra no modo scrubbing (OSD visível, conteúdo com duração) ──
+    if (code === KEY.DPAD_DOWN) {
+      if (showOSDRef.current && !scrubModeRef.current && !isLiveRef.current) {
+        setScrubMode(true);
+        showOSDTemporarily();
+        return;
+      }
+      showOSDTemporarily();
+      if (!showOSDRef.current) setVolume((v: number) => Math.max(0, parseFloat((v - 0.1).toFixed(1))));
+      return;
+    }
 
-      const now = Date.now();
-      const prev = lastSeekKeyRef.current;
-      const rapid = dir === prev.dir && now - prev.ts < 500;
-      lastSeekKeyRef.current = { ts: now, dir };
-
-      // OSD oculto → seek direto. OSD visível → só se for repetição rápida.
-      if (!showOSDRef.current || rapid) seekBy(10 * dir);
+    // ── DPAD_UP: sai do modo scrubbing ──
+    if (code === KEY.DPAD_UP) {
+      if (scrubModeRef.current) { setScrubMode(false); showOSDTemporarily(); return; }
+      showOSDTemporarily();
+      if (!showOSDRef.current) setVolume((v: number) => Math.min(1, parseFloat((v + 0.1).toFixed(1))));
       return;
     }
 
     showOSDTemporarily();
 
-    // Quando OSD está aberto, o D-pad navega nos botões do OSD — não fazemos seek
+    // OK (DPAD_CENTER) é tratado pelo botão focado (Pressable.onPress) — inclusive no
+    // scrubbing, onde o foco fica preso no play (botões de seek ficam disabled). Só as
+    // teclas de mídia (que não têm foco) caem no togglePlay aqui.
     if (showOSDRef.current) return;
 
     switch (code) {
-      case KEY.DPAD_CENTER:
       case KEY.MEDIA_PLAY_PAUSE:
       case KEY.MEDIA_PLAY:
       case KEY.MEDIA_PAUSE:
         togglePlay();
-        break;
-      case KEY.DPAD_UP:
-        setVolume((v: number) => Math.min(1, parseFloat((v + 0.1).toFixed(1))));
-        break;
-      case KEY.DPAD_DOWN:
-        setVolume((v: number) => Math.max(0, parseFloat((v - 0.1).toFixed(1))));
         break;
       case KEY.MENU:
         if (showSidebarRef.current) setShowSidebar(false);
@@ -245,6 +254,17 @@ export default function PlayerScreen() {
         break;
     }
   }, [seekBy, togglePlay, setVolume, setShowSidebar, showOSDTemporarily, navigation]);
+
+  // Android (TV): a prop onKeyDown da <View> NÃO é suportada em RN puro. As teclas do
+  // controle chegam via evento nativo 'SkaphosKeyDown' (MainActivity.dispatchKeyEvent →
+  // RCTDeviceEventEmitter). Reaproveita a mesma lógica de seek/scrubbing.
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = DeviceEventEmitter.addListener('SkaphosKeyDown', (keyCode: number) => {
+      handleKeyDown({ nativeEvent: { keyCode } });
+    });
+    return () => sub.remove();
+  }, [handleKeyDown]);
 
   // Web: o View não tem onKeyDown, então o teclado vira o "D-pad" reaproveitando
   // a mesma lógica de seek/aceleração/indicador via um listener de window.
@@ -269,12 +289,9 @@ export default function PlayerScreen() {
   }, [handleKeyDown]);
 
   return (
-    // onKeyDown no root View captura todos os eventos de tecla do controle remoto.
-    // Platform.OS guard: no iOS/web View não tem onKeyDown.
-    <View
-      style={styles.root}
-      {...(Platform.OS === 'android' ? { onKeyDown: handleKeyDown } as any : {})}
-    >
+    // Teclas do controle remoto (Android TV) chegam via DeviceEventEmitter
+    // 'SkaphosKeyDown' (ver useEffect acima) — a prop onKeyDown da View não existe em RN.
+    <View style={styles.root}>
       <TouchableOpacity style={styles.videoContainer} onPress={handleScreenTap} activeOpacity={1}>
         <Video
           key={videoKey}
@@ -362,17 +379,10 @@ export default function PlayerScreen() {
             onToggleSubtitles={() => setShowSubtitleSheet(true)}
             hasAudio={audioTracks.length > 1}
             onToggleAudio={() => setShowAudioSheet(true)}
-            onScrubFocusChange={(f) => { scrubFocusedRef.current = f; }}
+            scrubMode={scrubMode}
           />
         )}
 
-        {seekHint && (
-          <View pointerEvents="none" style={styles.seekHint}>
-            <Text style={styles.seekHintText}>
-              {seekHint.dir === 'fwd' ? '⏩' : '⏪'} {seekHint.dir === 'fwd' ? '+' : '−'}{seekHint.amount}s
-            </Text>
-          </View>
-        )}
 
         <SubtitleSheet
           visible={showSubtitleSheet}

@@ -304,6 +304,21 @@ export default function HomeScreen() {
     navigation.navigate('Player', { channel });
   }, [navigation, setCurrentChannel, channels]);
 
+  // Hero "Assistir": inicia a reprodução direto (filme/ao vivo → player). Para série,
+  // vai à tela da série (precisa escolher episódio). Diferente de handleChannelPress,
+  // que para filme abre os Detalhes — esse é o comportamento do botão "Detalhes".
+  const handleHeroWatch = useCallback((channel: Channel) => {
+    const type = channel.streamType === 'series' ? 'series'
+      : channel.streamType === 'movie' ? 'movies'
+      : detectType(channel.group || '', channel.name);
+    if (type === 'series') { handleChannelPress(channel); return; }
+    setCurrentChannel(channel);
+    if (Platform.OS !== 'web') {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+    }
+    navigation.navigate('Player', { channel });
+  }, [navigation, setCurrentChannel, handleChannelPress]);
+
   const handleNavPress = useCallback((key: string) => {
     setNavKey(key);
     setSelectedGroup(null);
@@ -420,6 +435,8 @@ export default function HomeScreen() {
           contentH={contentH}
           channels={channels}
           onChannelPress={handleChannelPress}
+          onWatch={handleHeroWatch}
+          onDetails={handleChannelPress}
           onNavPress={handleNavPress}
         />
       );

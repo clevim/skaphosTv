@@ -448,39 +448,16 @@ export function usePlayer(
     setPosition(seconds);
   }, []);
 
-  // Janela (ms) para considerar dois saltos como "rápidos" (segurar/repetir o D-pad).
-  const SEEK_REPEAT_MS = 500;
-
   const seekBy = useCallback((seconds: number) => {
     if (isLive) return;
     const max = seekableDuration || duration;
     if (!max) return;
 
-    const dir = seconds >= 0 ? 1 : -1;
-    const now = Date.now();
-    // Repetição rápida da MESMA direção → acelera o passo (10s → 30s) e acumula o total.
-    const rapid = dir === lastSeekDirRef.current && now - lastSeekTsRef.current < SEEK_REPEAT_MS;
-    lastSeekTsRef.current = now;
-    lastSeekDirRef.current = dir;
-
-    const step = rapid ? 30 : Math.abs(seconds);
-    const signed = dir * step;
-    // Em saltos rápidos parte do alvo projetado (não da posição reportada, que ainda não atualizou).
-    const base = rapid ? seekTargetRef.current : positionRef.current;
-    const next = Math.max(0, Math.min(max, base + signed));
-    seekTargetRef.current = next;
+    // Passo FIXO a partir da posição real atual — sem aceleração (30s) e sem projeção
+    // (seekTargetRef). Isso dá avanço previsível e evita o "overshoot": ao soltar o D-pad,
+    // como cada salto parte da posição efetiva, não há alvo acumulado correndo na frente.
+    const next = Math.max(0, Math.min(max, positionRef.current + seconds));
     seekToSeconds(next);
-
-    // Indicador visual: acumula enquanto os saltos forem rápidos; reinicia em salto isolado.
-    seekAccumRef.current = rapid ? seekAccumRef.current + step : step;
-    setSeekHint({ dir: dir > 0 ? 'fwd' : 'back', amount: seekAccumRef.current });
-    if (seekHintTimer.current) clearTimeout(seekHintTimer.current);
-    seekHintTimer.current = setTimeout(() => {
-      setSeekHint(null);
-      lastSeekDirRef.current = 0;
-      seekAccumRef.current = 0;
-    }, 800);
-
     showOSDTemporarily();
   }, [duration, seekableDuration, isLive, seekToSeconds, showOSDTemporarily]);
 

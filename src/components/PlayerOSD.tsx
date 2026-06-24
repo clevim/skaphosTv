@@ -1,12 +1,12 @@
 // PlayerOSD.tsx — matches MobilePlayer / TVLive design exactly
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import {
   View, Text, StyleSheet, Animated,
   Platform, PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Channel } from '../types';
-import TVFocusable, { TVFocusableHandle } from './TVFocusable';
+import TVFocusable from './TVFocusable';
 import PulsingDot from './PulsingDot';
 import { colors, fontSize, radius, spacing } from '@/utils/theme';
 import { IS_TV } from '../utils/tvDetect';
@@ -37,9 +37,9 @@ interface Props {
   onToggleSubtitles?: () => void;
   hasAudio?: boolean;
   onToggleAudio?: () => void;
-  /** TV: avisa o PlayerScreen quando a barra de progresso ganha/perde foco, para que
-   *  o D-pad esquerda/direita faça scrubbing do vídeo em vez de navegar nos botões. */
-  onScrubFocusChange?: (focused: boolean) => void;
+  /** TV: modo scrubbing ativo (controlado pelo PlayerScreen). Esconde os controles,
+   *  realça a barra e mostra a dica. O seek é feito pelo D-pad no PlayerScreen. */
+  scrubMode?: boolean;
 }
 
 function formatTime(seconds: number): string {
@@ -57,14 +57,10 @@ export default function PlayerOSD({
   onBack, onTogglePlay, onPrevChannel, onNextChannel,
   onToggleSidebar, onSeekTo, onSeekBy,
   hasSubtitles, subtitleActive, onToggleSubtitles,
-  hasAudio, onToggleAudio, onScrubFocusChange,
+  hasAudio, onToggleAudio, scrubMode = false,
 }: Props) {
   const progressPct = duration > 0 ? Math.min(1, position / duration) : 0;
   const seekBarWidth = useRef(0);
-  // TV: barra de progresso focável + auto-trap horizontal (D-pad esq/dir não sai dela)
-  const scrubRef = useRef<TVFocusableHandle>(null);
-  const [scrubTag, setScrubTag] = useState<number | null>(null);
-  const [scrubFocused, setScrubFocused] = useState(false);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -84,8 +80,9 @@ export default function PlayerOSD({
   return (
     <Animated.View style={[styles.osd, { opacity: osdAnim }]}>
 
-      {/* Top bar — back + title + actions */}
-      <View style={styles.osdTop}>
+      {/* Top bar — back + title + actions. Some no modo scrubbing (foco na barra),
+          mas continua montado/focável para o foco poder voltar ao sair da barra. */}
+      <View style={[styles.osdTop, scrubMode && styles.scrubHidden]}>
         <TVFocusable onPress={onBack} style={styles.backBtn}>
           <Ionicons name={IS_TV ? 'chevron-back' : 'chevron-down'} size={20} color="#fff" />
         </TVFocusable>
@@ -112,9 +109,12 @@ export default function PlayerOSD({
         </View>
       </View>
 
-      {/* Center: play controls */}
-      <View style={styles.centerControls} pointerEvents="box-none">
-        <TVFocusable onPress={() => onSeekBy(-10)} style={styles.seekBtn}>
+      {/* Center: play controls. Somem no modo scrubbing (deixa a tela limpa pra arrastar),
+          mas seguem montados/focáveis — apertar ↑ na barra devolve o foco ao play. */}
+      <View style={[styles.centerControls, scrubMode && styles.scrubHidden]} pointerEvents="box-none">
+        {/* disabled durante scrubbing → sem vizinho focável, o D-pad esq/dir borbulha
+            para o onKeyDown (seek) em vez de mover o foco para cá. */}
+        <TVFocusable onPress={() => onSeekBy(-10)} style={styles.seekBtn} disabled={scrubMode}>
           <Ionicons name="play-back" size={IS_TV ? 32 : 28} color="rgba(255,255,255,0.85)" />
         </TVFocusable>
 
@@ -122,7 +122,7 @@ export default function PlayerOSD({
           <Ionicons name={isPlaying ? 'pause' : 'play'} size={IS_TV ? 28 : 24} color="#0a0a0b" />
         </TVFocusable>
 
-        <TVFocusable onPress={() => onSeekBy(10)} style={styles.seekBtn}>
+        <TVFocusable onPress={() => onSeekBy(10)} style={styles.seekBtn} disabled={scrubMode}>
           <Ionicons name="play-forward" size={IS_TV ? 32 : 28} color="rgba(255,255,255,0.85)" />
         </TVFocusable>
       </View>
@@ -131,32 +131,25 @@ export default function PlayerOSD({
       <View style={styles.osdBottom}>
         {!isLive && duration > 0 ? (
           <View style={styles.progressSection}>
+            {IS_TV && scrubMode && (
+              <View style={styles.scrubHint}>
+                <Ionicons name="play-back" size={12} color={colors.accent} />
+                <Text style={styles.scrubHintText}>Segure ◀ ▶ para mover · OK pausa · ▲ volta</Text>
+                <Ionicons name="play-forward" size={12} color={colors.accent} />
+              </View>
+            )}
             {IS_TV ? (
-              // TV: foca a barra com o D-pad e segura esquerda/direita para scrubbing.
-              // nextFocusLeft/Right apontam para a própria barra → o foco não escapa
-              // enquanto se arrasta; o seek é feito pelo onKeyDown do PlayerScreen.
-              <TVFocusable
-                ref={scrubRef}
-                focusScale={1}
-                onPress={() => {}}
-                onFocus={() => { setScrubFocused(true); onScrubFocusChange?.(true); }}
-                onBlur={() => { setScrubFocused(false); onScrubFocusChange?.(false); }}
-                nextFocusLeft={scrubTag ?? undefined}
-                nextFocusRight={scrubTag ?? undefined}
-                style={styles.progressFocusable}
-                accessibilityLabel="Barra de progresso"
-              >
+              // TV: barra apenas VISUAL (não-focável). O modo scrubbing é estado do
+              // PlayerScreen (liga na ↓); o seek vem do D-pad pelo canal nativo.
+              <View style={styles.progressFocusable}>
                 <View
                   style={styles.progressBg}
-                  onLayout={(e) => {
-                    seekBarWidth.current = e.nativeEvent.layout.width;
-                    if (scrubTag == null) setScrubTag(scrubRef.current?.getTag() ?? null);
-                  }}
+                  onLayout={(e) => { seekBarWidth.current = e.nativeEvent.layout.width; }}
                 >
-                  <View style={[styles.progressFill, { width: `${progressPct * 100}%` }, scrubFocused && styles.progressFillActive]} />
-                  <View style={[styles.progressThumb, { left: `${progressPct * 100}%` }, scrubFocused && styles.progressThumbActive]} />
+                  <View style={[styles.progressFill, { width: `${progressPct * 100}%` }, scrubMode && styles.progressFillActive]} />
+                  <View style={[styles.progressThumb, { left: `${progressPct * 100}%` }, scrubMode && styles.progressThumbActive]} />
                 </View>
-              </TVFocusable>
+              </View>
             ) : (
               <View
                 style={styles.progressBg}
@@ -286,6 +279,21 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   progressSection: { gap: spacing.sm },
+  // Esconde elementos da OSD durante o scrubbing, mantendo-os montados/focáveis
+  scrubHidden: { opacity: 0 },
+  scrubHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  scrubHintText: {
+    color: colors.accent,
+    fontSize: fontSize.xs,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
   progressFocusable: {
     paddingVertical: 6,
   },

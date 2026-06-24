@@ -682,6 +682,13 @@ export default function SettingsScreen() {
           </View>
         </SettingsGroup>
 
+        <SettingsGroup title="Sistema">
+          <SettingsRow icon="language-outline" label="Idioma" value={settings.language || 'pt-BR'} />
+          <UpdateCheckRow />
+          <LogoRefreshRow />
+          <SettingsRow icon="information-circle-outline" label="Versão" value={VERSION_LABEL} />
+        </SettingsGroup>
+
         <View style={styles.footer}>
           <View style={styles.footerLogoRow}>
             <View style={styles.footerLogoIcon}>

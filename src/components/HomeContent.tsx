@@ -28,6 +28,10 @@ interface Props {
   contentH: number;
   channels?: Channel[];
   onChannelPress?: (channel: Channel) => void;
+  /** Hero "Assistir" — inicia a reprodução direto (filme/ao vivo → player). */
+  onWatch?: (channel: Channel) => void;
+  /** Hero "Detalhes" — abre a página de detalhes. */
+  onDetails?: (channel: Channel) => void;
   onNavPress?: (key: string) => void;
 }
 
@@ -290,7 +294,7 @@ const vStyles = StyleSheet.create({
 // ── Main HomeContent ──────────────────────────────────────────
 export default function HomeContent({
   recentChannels, favoriteChannels, sourcesEmpty, renderCard, contentH,
-  channels = [], onChannelPress, onNavPress,
+  channels = [], onChannelPress, onWatch, onDetails, onNavPress,
 }: Props) {
   const navigation = useNavigation();
   const isEmpty = recentChannels.length === 0 && favoriteChannels.length === 0;
@@ -426,7 +430,7 @@ export default function HomeContent({
               </Text>
               <View style={styles.heroActions}>
                 <TVFocusable
-                  onPress={() => handlePress(heroChannel)}
+                  onPress={() => (onWatch ? onWatch(heroChannel) : handlePress(heroChannel))}
                   style={styles.heroPlayBtn}
                   hasTVPreferredFocus={IS_TV}
                 >
@@ -437,12 +441,13 @@ export default function HomeContent({
                   <Ionicons name="add" size={IS_TV ? 18 : 16} color={colors.text1} />
                   {IS_TV && <Text style={styles.heroPlusBtnText}>Lista</Text>}
                 </TVFocusable>
-                {IS_TV && (
-                  <TVFocusable onPress={() => {}} style={styles.heroPlusBtn}>
-                    <Ionicons name="information-circle-outline" size={18} color={colors.text1} />
-                    <Text style={styles.heroPlusBtnText}>Detalhes</Text>
-                  </TVFocusable>
-                )}
+                <TVFocusable
+                  onPress={() => (onDetails ? onDetails(heroChannel) : handlePress(heroChannel))}
+                  style={styles.heroPlusBtn}
+                >
+                  <Ionicons name="information-circle-outline" size={18} color={colors.text1} />
+                  {IS_TV && <Text style={styles.heroPlusBtnText}>Detalhes</Text>}
+                </TVFocusable>
               </View>
             </View>
           </View>
