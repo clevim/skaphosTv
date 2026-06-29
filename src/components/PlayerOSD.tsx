@@ -37,6 +37,9 @@ interface Props {
   onToggleSubtitles?: () => void;
   hasAudio?: boolean;
   onToggleAudio?: () => void;
+  /** Séries: mostra o botão de "próximo episódio" (canto sup. direito) quando há próximo. */
+  showNextEpisode?: boolean;
+  onNextEpisode?: () => void;
   /** TV: modo scrubbing ativo (controlado pelo PlayerScreen). Esconde os controles,
    *  realça a barra e mostra a dica. O seek é feito pelo D-pad no PlayerScreen. */
   scrubMode?: boolean;
@@ -57,7 +60,9 @@ export default function PlayerOSD({
   onBack, onTogglePlay, onPrevChannel, onNextChannel,
   onToggleSidebar, onSeekTo, onSeekBy,
   hasSubtitles, subtitleActive, onToggleSubtitles,
-  hasAudio, onToggleAudio, scrubMode = false,
+  hasAudio, onToggleAudio,
+  showNextEpisode, onNextEpisode,
+  scrubMode = false,
 }: Props) {
   const progressPct = duration > 0 ? Math.min(1, position / duration) : 0;
   const seekBarWidth = useRef(0);
@@ -106,6 +111,11 @@ export default function PlayerOSD({
           <TVFocusable onPress={onToggleSidebar} style={styles.iconBtn}>
             <Ionicons name="scan-outline" size={18} color="#fff" />
           </TVFocusable>
+          {showNextEpisode && onNextEpisode && (
+            <TVFocusable onPress={onNextEpisode} style={styles.iconBtn}>
+              <Ionicons name="play-skip-forward" size={18} color="#fff" />
+            </TVFocusable>
+          )}
         </View>
       </View>
 

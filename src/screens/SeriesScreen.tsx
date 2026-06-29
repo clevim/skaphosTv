@@ -129,7 +129,8 @@ export default function SeriesScreen() {
       const userId = src?.userId || jellyfinCreds.userId;
       fetchJellyfinEpisodes(jellyfinCreds.host, apiKey, userId, jellyfinCreds.seriesId)
         .then(eps => {
-          setAllEpisodes(eps);
+          // seriesRef → "continuar assistindo" guarda a série, não o episódio.
+          setAllEpisodes(eps.map(e => ({ ...e, seriesRef: seriesChannel })));
           setLoadingEpisodes(false);
         })
         .catch(e => {
@@ -191,6 +192,8 @@ export default function SeriesScreen() {
               plot: ep.info?.plot,
               releaseDate: ep.info?.releasedate,
               isFavorite: false,
+              // seriesRef → "continuar assistindo" guarda a série, não o episódio solto.
+              seriesRef: seriesChannel,
             });
           }
         }
@@ -254,14 +257,43 @@ export default function SeriesScreen() {
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
   const [focusedEp, setFocusedEp] = useState(0);
 
-  // Atualiza temporada selecionada quando episódios são carregados
+  // Episódio a retomar, considerando TODAS as temporadas — define a temporada que abre
+  // por padrão e o card que recebe foco. Prioriza: (1) em curso mais recente,
+  // (2) próximo após o último assistido. Sem progresso → null (abre a 1ª temporada).
+  const resumeEpisode = useMemo(() => {
+    let inProgress: Channel | null = null;
+    let inProgressTs = 0;
+    let lastWatched: Channel | null = null;
+    let lastWatchedTs = 0;
+    allEpisodes.forEach(ep => {
+      const e = watchEntries[ep.id];
+      if (!e) return;
+      if (!e.watched && progressFractionFor(e) > 0 && e.updatedAt > inProgressTs) {
+        inProgressTs = e.updatedAt;
+        inProgress = ep;
+      }
+      if (e.watched && e.updatedAt > lastWatchedTs) {
+        lastWatchedTs = e.updatedAt;
+        lastWatched = ep;
+      }
+    });
+    if (inProgress) return inProgress;
+    if (lastWatched) {
+      const idx = allEpisodes.findIndex(ep => ep.id === (lastWatched as Channel).id);
+      return allEpisodes[idx + 1] ?? lastWatched; // próximo episódio, ou o último se for o fim
+    }
+    return null;
+  }, [allEpisodes, watchEntries]);
+
+  // Atualiza temporada selecionada quando episódios são carregados — abre na temporada
+  // do episódio a retomar (assistido/em curso), não sempre na primeira.
   const seasonInitialized = useRef(false);
   useEffect(() => {
     if (!seasonInitialized.current && seasonKeys.length > 0) {
       seasonInitialized.current = true;
-      setSelectedSeason(seasonKeys[0]);
+      setSelectedSeason(resumeEpisode ? parseSeason(resumeEpisode.name) : seasonKeys[0]);
     }
-  }, [seasonKeys.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [seasonKeys.length, resumeEpisode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const episodes = seasons.get(selectedSeason) || [];
 
@@ -289,6 +321,23 @@ export default function SeriesScreen() {
   const currentEp = episodes[currentEpIdx];
   const currentEpLbl = currentEp ? epLabel(currentEp.name, currentEpIdx) : 'E01';
   const seasonNum = selectedSeason;
+
+  // Ao abrir a série, foca/rola até o episódio a retomar (uma única vez). Só atua na
+  // temporada que abriu automaticamente — trocas manuais de temporada começam do topo.
+  const didFocusResume = useRef(false);
+  useEffect(() => {
+    if (didFocusResume.current || !seasonInitialized.current || episodes.length === 0) return;
+    if (resumeEpisode && parseSeason(resumeEpisode.name) !== selectedSeason) return;
+    didFocusResume.current = true;
+    if (currentEpIdx > 0) {
+      setFocusedEp(currentEpIdx);
+      if (IS_TV) {
+        requestAnimationFrame(() => {
+          railRef.current?.scrollToIndex({ index: currentEpIdx, viewPosition: 0.5, animated: false });
+        });
+      }
+    }
+  }, [episodes, currentEpIdx, selectedSeason, resumeEpisode]);
 
   const lockAndNavigate = (
     ch: Channel,
@@ -565,13 +614,13 @@ export default function SeriesScreen() {
                 { paddingHorizontal: pH, gap },
               ]}
               showsHorizontalScrollIndicator={false}
-              initialScrollIndex={0}
+              initialScrollIndex={Math.min(currentEpIdx, Math.max(0, episodes.length - 1))}
               getItemLayout={(_, index) => ({ length: stride, offset: stride * index + pH, index })}
               onScrollToIndexFailed={() => {}}
               renderItem={({ item, index }) => {
                 const focused = index === focusedEp;
                 const label = epLabel(item.name, index);
-                const isFirst = index === 0;
+                const isResumeEp = index === currentEpIdx;
                 const entry = watchEntries[item.id];
                 const epWatched = !!entry?.watched;
                 const epFrac = epWatched ? 0 : progressFractionFor(entry);
@@ -584,7 +633,7 @@ export default function SeriesScreen() {
                     onFocus={() => focusEpisode(index)}
                     onPress={() => { setFocusedEp(index); handlePlay(item); }}
                     style={[tvStyles.epCard, { width: cardW }, focused && tvStyles.epCardFocused]}
-                    hasTVPreferredFocus={isFirst}
+                    hasTVPreferredFocus={isResumeEp}
                   >
                     <View style={[tvStyles.epThumbWrap, { width: cardW, height: cardH }]}>
                       <EpThumb logo={item.logo} size={{ w: cardW, h: cardH }} />

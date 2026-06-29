@@ -1,7 +1,11 @@
 package com.skaphostv.app
 
+import android.app.PictureInPictureParams
+import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.util.Rational
 import android.view.KeyEvent
 
 import com.facebook.react.ReactActivity
@@ -15,6 +19,10 @@ import com.facebook.react.defaults.DefaultReactActivityDelegate
 import expo.modules.ReactActivityDelegateWrapper
 
 class MainActivity : ReactActivity() {
+  /** Ligado pelo PipModule (JS) enquanto um vídeo não-ao-vivo está em reprodução.
+   *  Quando true, sair do app (onUserLeaveHint) entra em Picture-in-Picture. */
+  var pipEnabled = false
+
   override fun onCreate(savedInstanceState: Bundle?) {
     // Set the theme to AppTheme BEFORE onCreate to support
     // coloring the background, status bar, and navigation bar.
@@ -68,6 +76,10 @@ class MainActivity : ReactActivity() {
   }
 
   private fun emitKeyEvent(keyCode: Int) {
+    emitEvent("SkaphosKeyDown", keyCode)
+  }
+
+  private fun emitEvent(name: String, value: Any) {
     try {
       val reactContext: ReactContext? =
         (application as? ReactApplication)
@@ -76,10 +88,38 @@ class MainActivity : ReactActivity() {
           ?.currentReactContext
       reactContext
         ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-        ?.emit("SkaphosKeyDown", keyCode)
+        ?.emit(name, value)
     } catch (_: Exception) {
       // bridge ainda não pronto — ignora
     }
+  }
+
+  // ── Picture-in-Picture ────────────────────────────────────────────────────────
+  // Entra em PiP ao sair do app (Home/recents) enquanto um vídeo não-ao-vivo toca.
+  override fun onUserLeaveHint() {
+    super.onUserLeaveHint()
+    enterPipNow()
+  }
+
+  /** Entra em PiP se habilitado e suportado. Chamado por onUserLeaveHint e pelo PipModule. */
+  fun enterPipNow() {
+    if (!pipEnabled) return
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
+    try {
+      val params = PictureInPictureParams.Builder()
+        .setAspectRatio(Rational(16, 9))
+        .build()
+      enterPictureInPictureMode(params)
+    } catch (_: Exception) {
+      // alguns aparelhos recusam PiP em certos estados — ignora
+    }
+  }
+
+  // Avisa o JS para esconder o OSD/controles enquanto está em PiP (mostra só o vídeo).
+  override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+    super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+    emitEvent("SkaphosPipChanged", isInPictureInPictureMode)
   }
 
   /**

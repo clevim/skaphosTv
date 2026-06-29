@@ -21,6 +21,13 @@ export interface Channel {
   backdrop?: string;
   // Jellyfin: posição de retomada em ticks de 100ns (dividir por 10_000_000 para segundos)
   resumePositionTicks?: number;
+  /**
+   * Episódios de série (Xtream/Jellyfin) carregam uma referência ao canal da SÉRIE-pai.
+   * Usado para que "continuar assistindo" guarde a série (e reabra a SeriesScreen) em vez
+   * do episódio solto — cujo id/URL não permitem rebuscar a lista de episódios.
+   * Nunca é persistido (só o canal da série, que é plano, vai para os recentes).
+   */
+  seriesRef?: Channel;
 }
 
 /** Shape compartilhado das faixas de legenda Jellyfin (evita importação circular com jellyfinLoader) */

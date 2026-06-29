@@ -77,6 +77,9 @@ export function usePlayer(
   const [paused, setPaused] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1.0);
+  // Velocidade de reprodução. 1.0 normal; vira 2.0 enquanto o usuário segura o canto
+  // da tela (volta a 1.0 ao soltar). Não usado em ao vivo.
+  const [rate, setRate] = useState(1.0);
 
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -259,6 +262,7 @@ export function usePlayer(
     setDuration(0);
     setSeekableDuration(0);
     setPaused(false);
+    setRate(1.0); // volta à velocidade normal ao trocar de episódio/canal
     setSubtitleTracks([]);
     setSelectedSubtitleIndex(null);
     setAudioTracks([]);
@@ -507,10 +511,11 @@ export function usePlayer(
     videoRef, osdAnim, videoKey, paused,
     playingChannel, isPlaying, isBuffering,
     isMuted, volume, error,
+    rate, setRate,
     retryCount, retryingIn,
     position, duration, seekableDuration,
     showOSD, showSidebar, seekHint,
-    isLive, currentIndex, totalSiblings: siblings.length,
+    isLive, hasPlaylist, currentIndex, totalSiblings: siblings.length,
     subtitleTracks, selectedSubtitleIndex, setSelectedSubtitleIndex,
     vttSubtitleIndex,
     audioTracks, currentAudioIndex, audioReady, switchAudioTrack,

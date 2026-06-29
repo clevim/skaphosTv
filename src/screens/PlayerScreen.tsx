@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, BackHandler, DeviceEventEmitter } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Pressable, Platform, BackHandler, DeviceEventEmitter } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import Video, { ResizeMode, SelectedTrackType, TextTracksType } from 'react-native-video';
 import type { ISO639_1 } from 'react-native-video/src/types/language';
@@ -16,6 +16,8 @@ import PlayerError from '@/components/PlayerError';
 import SubtitleSheet from '@/components/SubtitleSheet';
 import AudioTrackSheet from '@/components/AudioTrackSheet';
 import { fixStreamUrl } from '../utils/m3uParser';
+import { IS_TV } from '../utils/tvDetect';
+import { setPipEnabled } from '../utils/pip';
 
 // Teclas do controle FireTV / Android TV
 const KEY = {
@@ -68,10 +70,11 @@ export default function PlayerScreen() {
     videoRef, osdAnim, videoKey, paused,
     playingChannel, isPlaying, isBuffering,
     isMuted, volume, error,
+    rate, setRate,
     retryCount, retryingIn,
     position, duration,
     showOSD, showSidebar,
-    isLive, currentIndex, totalSiblings,
+    isLive, hasPlaylist, currentIndex, totalSiblings,
     subtitleTracks, selectedSubtitleIndex,
     vttSubtitleIndex, switchSubtitleTrack,
     audioTracks, currentAudioIndex, audioReady, switchAudioTrack,
@@ -88,6 +91,35 @@ export default function PlayerScreen() {
   // As teclas chegam pelo canal nativo (SkaphosKeyDown), então não dependemos do foco
   // ficar na barra — o foco pode até escapar que o seek e o visual seguem este estado.
   const [scrubMode, setScrubMode] = useState(false);
+  // Velocidade 2x ao segurar o canto (toque) — volta ao normal ao soltar.
+  const [speedActive, setSpeedActive] = useState(false);
+  const handleHoldStart = useCallback(() => {
+    if (isLive) return;            // sem sentido em ao vivo
+    setRate(2.0);
+    setSpeedActive(true);
+  }, [isLive, setRate]);
+  const handleHoldEnd = useCallback(() => {
+    setSpeedActive(prev => {
+      if (prev) setRate(1.0);
+      return false;
+    });
+  }, [setRate]);
+
+  // Botão "próximo episódio" — só com playlist de série e havendo um próximo.
+  const hasNextEpisode = hasPlaylist && currentIndex < totalSiblings - 1;
+
+  // Picture-in-Picture (Android, mobile): habilita a entrada automática em PiP enquanto
+  // um vídeo não-ao-vivo está aberto; desliga ao sair do player. Em PiP, esconde o OSD.
+  const [inPip, setInPip] = useState(false);
+  useEffect(() => {
+    if (IS_TV) return;
+    setPipEnabled(!isLive);
+    return () => setPipEnabled(false);
+  }, [isLive]);
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('SkaphosPipChanged', (v: boolean) => setInPip(!!v));
+    return () => sub.remove();
+  }, []);
 
   // ── Track selection ───────────────────────────────────────────────────────────
   //
@@ -308,6 +340,7 @@ export default function PlayerScreen() {
           paused={paused}
           muted={isMuted}
           volume={volume}
+          rate={rate}
           repeat={false}
           bufferConfig={{
             minBufferMs: 5000,
@@ -316,7 +349,9 @@ export default function PlayerScreen() {
             bufferForPlaybackAfterRebufferMs: 5000,
           }}
           ignoreSilentSwitch="ignore"
-          playInBackground={false}
+          // Android mobile: mantém a reprodução ao entrar em PiP (senão o frame congela).
+          // TV/web e ao vivo seguem sem playback em segundo plano.
+          playInBackground={!IS_TV && Platform.OS === 'android' && !isLive}
           playWhenInactive={false}
           textTracks={activeVttTrack}
           selectedTextTrack={selectedTextTrack}
@@ -328,6 +363,26 @@ export default function PlayerScreen() {
           onError={onError}
           onEnd={onEnd}
         />
+
+        {/* Zona de "segurar para 2x" — canto direito (toque). Tap normal ainda
+            mostra/esconde o OSD; segurar acelera para 2x e soltar volta ao normal.
+            Fica abaixo do OSD (renderizado depois), então os botões do OSD têm prioridade. */}
+        {!IS_TV && Platform.OS !== 'web' && !isLive && !inPip && (
+          <Pressable
+            style={styles.speedZone}
+            onPress={handleScreenTap}
+            onLongPress={handleHoldStart}
+            onPressOut={handleHoldEnd}
+            delayLongPress={280}
+          />
+        )}
+
+        {speedActive && (
+          <View style={styles.speedIndicator} pointerEvents="none">
+            <Ionicons name="play-forward" size={16} color="#0a0a0b" />
+            <Text style={styles.speedIndicatorText}>2x</Text>
+          </View>
+        )}
 
         {isBuffering && !error && (
           <View style={styles.bufferingOverlay}>
@@ -352,7 +407,7 @@ export default function PlayerScreen() {
           />
         )}
 
-        {showOSD && (
+        {showOSD && !inPip && (
           <PlayerOSD
             osdAnim={osdAnim}
             channel={playingChannel}
@@ -379,6 +434,8 @@ export default function PlayerScreen() {
             onToggleSubtitles={() => setShowSubtitleSheet(true)}
             hasAudio={audioTracks.length > 1}
             onToggleAudio={() => setShowAudioSheet(true)}
+            showNextEpisode={hasNextEpisode}
+            onNextEpisode={nextChannel}
             scrubMode={scrubMode}
           />
         )}
@@ -400,7 +457,7 @@ export default function PlayerScreen() {
         />
       </TouchableOpacity>
 
-      {showSidebar && (
+      {showSidebar && !inPip && (
         <View style={styles.sidebarOverlay}>
           <TouchableOpacity
             style={styles.sidebarBackdrop}
@@ -425,6 +482,25 @@ export default function PlayerScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
   videoContainer: { flex: 1 },
+  // Zona de toque do canto direito para o gesto de segurar = 2x
+  speedZone: {
+    position: 'absolute',
+    top: 0, bottom: 0, right: 0,
+    width: '40%',
+  },
+  speedIndicator: {
+    position: 'absolute',
+    top: 24,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+  },
+  speedIndicatorText: { fontSize: 14, fontWeight: '800', color: '#0a0a0b', letterSpacing: 0.5 },
   bufferingOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center', justifyContent: 'center',

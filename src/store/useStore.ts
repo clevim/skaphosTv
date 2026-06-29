@@ -336,7 +336,11 @@ export const useStore = create<AppState>((set, get) => ({
 
   setCurrentChannel: (channel) => {
     set(state => {
-      const recent = [channel, ...state.recentChannels.filter(c => c.id !== channel.id)].slice(0, 20);
+      // Para episódios de série (Xtream/Jellyfin), guarda a SÉRIE-pai nos recentes —
+      // o episódio solto não tem como rebuscar a lista de episódios (id/URL são do ep).
+      // seriesRef é plano (canal da série, com sourceId) → a redação de segredos funciona.
+      const recentCh = channel.seriesRef ?? channel;
+      const recent = [recentCh, ...state.recentChannels.filter(c => c.id !== recentCh.id)].slice(0, 20);
       return { currentChannel: channel, recentChannels: recent };
     });
     get().saveToStorage();
