@@ -9,6 +9,7 @@ import { LAUNCH_YEAR } from '../utils/channelUtils';
 
 const STATIC_TABS_BEFORE = [
   { id: 'home',      label: 'Início',    icon: 'home-outline',   activeIcon: 'home'   },
+  { id: 'favorites', label: 'Favoritos', icon: 'heart-outline',  activeIcon: 'heart'  },
   { id: 'live',      label: 'Ao Vivo',   icon: 'radio-outline',  activeIcon: 'radio'  },
   { id: 'movies',    label: 'Filmes',    icon: 'film-outline',   activeIcon: 'film'   },
   { id: 'series',    label: 'Séries',    icon: 'tv-outline',     activeIcon: 'tv'     },
@@ -16,7 +17,6 @@ const STATIC_TABS_BEFORE = [
 
 const STATIC_TABS_AFTER = [
   { id: 'year',      label: LAUNCH_YEAR, icon: 'star-outline',   activeIcon: 'star'   },
-  { id: 'favorites', label: 'Favoritos', icon: 'heart-outline',  activeIcon: 'heart'  },
   { id: 'search',    label: 'Buscar',    icon: 'search-outline', activeIcon: 'search' },
 ];
 

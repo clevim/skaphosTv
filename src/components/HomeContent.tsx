@@ -465,6 +465,17 @@ export default function HomeContent({
         </Section>
       )}
 
+      {/* Favoritos — logo após o início (Continue assistindo), não no fim da página */}
+      {favoriteChannels.length > 0 && (
+        <Section title="Meus Favoritos" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('favorites')}>
+          <Row>
+            {favoriteChannels.slice(0, MAX).map((ch, i) => (
+              <View key={ch.id}>{renderCard(ch, i)}</View>
+            ))}
+          </Row>
+        </Section>
+      )}
+
       {/* Ao vivo agora */}
       {displayLive.length > 0 && (
         <Section title="Ao vivo agora" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('live')}>
@@ -521,17 +532,6 @@ export default function HomeContent({
                 displayName={detectType(ch.group || '', ch.name) === 'series' ? getSeriesBaseName(ch.name) : ch.name}
                 isNew
               />
-            ))}
-          </Row>
-        </Section>
-      )}
-
-      {/* Favoritos */}
-      {favoriteChannels.length > 0 && (
-        <Section title="Meus Favoritos" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('favorites')}>
-          <Row>
-            {favoriteChannels.slice(0, MAX).map((ch, i) => (
-              <View key={ch.id}>{renderCard(ch, i)}</View>
             ))}
           </Row>
         </Section>

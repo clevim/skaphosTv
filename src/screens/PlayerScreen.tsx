@@ -17,7 +17,8 @@ import SubtitleSheet from '@/components/SubtitleSheet';
 import AudioTrackSheet from '@/components/AudioTrackSheet';
 import { fixStreamUrl } from '../utils/m3uParser';
 import { IS_TV } from '../utils/tvDetect';
-import { setPipEnabled } from '../utils/pip';
+import { setPipEnabled, setPipPlaying } from '../utils/pip';
+import { useMiniPlayer } from '../store/miniPlayer';
 
 // Teclas do controle FireTV / Android TV
 const KEY = {
@@ -108,18 +109,38 @@ export default function PlayerScreen() {
   // Botão "próximo episódio" — só com playlist de série e havendo um próximo.
   const hasNextEpisode = hasPlaylist && currentIndex < totalSiblings - 1;
 
+  // Mini-player (PiP dentro do app): ao entrar na tela cheia, fecha qualquer mini ativo.
+  useEffect(() => {
+    useMiniPlayer.getState().close();
+  }, []);
+
+  // Minimiza para o mini-player flutuante e volta à tela anterior (o mini segue tocando).
+  const handleMinimize = useCallback(() => {
+    useMiniPlayer.getState().open(playingChannel, position);
+    if (navigation.canGoBack()) navigation.goBack();
+  }, [playingChannel, position, navigation]);
+
   // Picture-in-Picture (Android, mobile): habilita a entrada automática em PiP enquanto
-  // um vídeo não-ao-vivo está aberto; desliga ao sair do player. Em PiP, esconde o OSD.
+  // o player está aberto (filme, série OU ao vivo); desliga ao sair. Em PiP, esconde o OSD.
   const [inPip, setInPip] = useState(false);
   useEffect(() => {
     if (IS_TV) return;
-    setPipEnabled(!isLive);
+    setPipEnabled(true);
     return () => setPipEnabled(false);
-  }, [isLive]);
+  }, []);
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('SkaphosPipChanged', (v: boolean) => setInPip(!!v));
-    return () => sub.remove();
-  }, []);
+    // Botão de play/pause da janela do PiP do sistema → alterna a reprodução
+    const actionSub = DeviceEventEmitter.addListener('SkaphosPipAction', (action: string) => {
+      if (action === 'playpause') togglePlay();
+    });
+    return () => { sub.remove(); actionSub.remove(); };
+  }, [togglePlay]);
+
+  // Mantém o ícone play/pause da janela do PiP em sincronia com o estado real
+  useEffect(() => {
+    setPipPlaying(isPlaying);
+  }, [isPlaying]);
 
   // ── Track selection ───────────────────────────────────────────────────────────
   //
@@ -184,8 +205,13 @@ export default function PlayerScreen() {
     return { type: SelectedTrackType.DISABLED };
   }, [audioReady, selectedSubtitleIndex, subtitleTracks, vttSubtitleIndex]);
 
+  // Lista lateral do player:
+  //  • Série: episódios da temporada atual (a própria playlist passada pela SeriesScreen).
+  //  • Filme/Ao vivo: outras mídias da MESMA subcategoria (mesmo grupo).
   const groupChannels = channels.filter(c => c.group === playingChannel.group);
-  const sidebarChannels = groupChannels.length > 0 ? groupChannels : channels;
+  const sidebarChannels = playlist.length > 0
+    ? playlist
+    : (groupChannels.length > 0 ? groupChannels : channels);
 
   // URL estável — não varia com audioIndex/subtitleIndex.
   // Para Direct Play (static=true) o servidor ignora audioStreamIndex de qualquer forma;
@@ -350,8 +376,8 @@ export default function PlayerScreen() {
           }}
           ignoreSilentSwitch="ignore"
           // Android mobile: mantém a reprodução ao entrar em PiP (senão o frame congela).
-          // TV/web e ao vivo seguem sem playback em segundo plano.
-          playInBackground={!IS_TV && Platform.OS === 'android' && !isLive}
+          // TV/web seguem sem playback em segundo plano.
+          playInBackground={!IS_TV && Platform.OS === 'android'}
           playWhenInactive={false}
           textTracks={activeVttTrack}
           selectedTextTrack={selectedTextTrack}
@@ -436,6 +462,8 @@ export default function PlayerScreen() {
             onToggleAudio={() => setShowAudioSheet(true)}
             showNextEpisode={hasNextEpisode}
             onNextEpisode={nextChannel}
+            showMinimize={!IS_TV}
+            onMinimize={handleMinimize}
             scrubMode={scrubMode}
           />
         )}
@@ -468,6 +496,7 @@ export default function PlayerScreen() {
             <PlayerSidebar
               channels={sidebarChannels}
               currentChannel={playingChannel}
+              title={playlist.length > 0 ? 'Episódios' : undefined}
               onSelectChannel={(ch) => { playChannel(ch); setShowSidebar(false); }}
               onClose={() => setShowSidebar(false)}
             />

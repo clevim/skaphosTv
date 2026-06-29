@@ -30,6 +30,13 @@ class PipModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMod
     activity.runOnUiThread { activity.enterPipNow() }
   }
 
+  /** Atualiza o ícone play/pause da janela do PiP conforme o estado do player. */
+  @ReactMethod
+  fun setPlaying(playing: Boolean) {
+    val activity = currentActivity as? MainActivity ?: return
+    activity.runOnUiThread { activity.setPipPlaying(playing) }
+  }
+
   /** Resolve true se o aparelho suporta PiP (SDK >= 26 e feature presente). */
   @ReactMethod
   fun isSupported(promise: Promise) {

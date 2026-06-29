@@ -12,6 +12,8 @@ interface Props {
   currentChannel: Channel;
   onSelectChannel: (ch: Channel) => void;
   onClose: () => void;
+  /** Título do cabeçalho. Padrão: grupo do canal atual (ex.: "Episódios" para séries). */
+  title?: string;
 }
 
 export default function PlayerSidebar({
@@ -19,6 +21,7 @@ export default function PlayerSidebar({
   currentChannel,
   onSelectChannel,
   onClose,
+  title,
 }: Props) {
   const currentIndex = channels.findIndex(c => c.id === currentChannel.id);
 
@@ -26,7 +29,7 @@ export default function PlayerSidebar({
     <View style={styles.sidebar}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title} numberOfLines={1}>{currentChannel.group}</Text>
+        <Text style={styles.title} numberOfLines={1}>{title ?? currentChannel.group}</Text>
         <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
           <Ionicons name="close" size={20} color={colors.text2} />
         </TouchableOpacity>

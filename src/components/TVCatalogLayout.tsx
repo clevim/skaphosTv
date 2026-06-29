@@ -12,11 +12,13 @@ interface Props {
   selectedGroup: string | null;
   onGroupSelect: (g: string | null) => void;
   onReload?: () => void;
+  /** "Estou com sorte": abre uma mídia aleatória da subcategoria atual. */
+  onRandom?: () => void;
   children: React.ReactNode;
 }
 
 export default function TVCatalogLayout({
-  title, count, groups, selectedGroup, onGroupSelect, onReload, children,
+  title, count, groups, selectedGroup, onGroupSelect, onReload, onRandom, children,
 }: Props) {
   return (
     <View style={styles.root}>
@@ -27,11 +29,18 @@ export default function TVCatalogLayout({
             <Text style={styles.sidebarTitle}>{title}</Text>
             <Text style={styles.sidebarCount}>{count} itens</Text>
           </View>
-          {onReload && (
-            <TVFocusable onPress={onReload} style={styles.reloadBtn} borderRadius={8}>
-              <Ionicons name="refresh-outline" size={16} color={colors.text2} />
-            </TVFocusable>
-          )}
+          <View style={styles.headerActions}>
+            {onRandom && (
+              <TVFocusable onPress={onRandom} style={styles.reloadBtn} borderRadius={8}>
+                <Ionicons name="dice-outline" size={16} color={colors.accent} />
+              </TVFocusable>
+            )}
+            {onReload && (
+              <TVFocusable onPress={onReload} style={styles.reloadBtn} borderRadius={8}>
+                <Ionicons name="refresh-outline" size={16} color={colors.text2} />
+              </TVFocusable>
+            )}
+          </View>
         </View>
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -106,6 +115,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSoft,
   },
+  headerActions: { flexDirection: 'row', gap: 8 },
   reloadBtn: {
     width: 32, height: 32,
     borderRadius: 8,

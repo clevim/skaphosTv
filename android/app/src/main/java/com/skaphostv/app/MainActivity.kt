@@ -1,8 +1,15 @@
 package com.skaphostv.app
 
+import android.app.PendingIntent
 import android.app.PictureInPictureParams
+import android.app.RemoteAction
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
@@ -19,6 +26,11 @@ import com.facebook.react.defaults.DefaultReactActivityDelegate
 import expo.modules.ReactActivityDelegateWrapper
 
 class MainActivity : ReactActivity() {
+  companion object {
+    private const val ACTION_PIP_CONTROL = "com.skaphostv.app.PIP_CONTROL"
+    private const val EXTRA_CONTROL = "control"
+  }
+
   /** Ligado pelo PipModule (JS) enquanto um vídeo não-ao-vivo está em reprodução.
    *  Quando true, sair do app (onUserLeaveHint) entra em Picture-in-Picture. */
   var pipEnabled = false
@@ -96,9 +108,36 @@ class MainActivity : ReactActivity() {
 
   // ── Picture-in-Picture ────────────────────────────────────────────────────────
   // Entra em PiP ao sair do app (Home/recents) enquanto um vídeo não-ao-vivo toca.
+  // A janela do PiP ganha um botão de play/pause (RemoteAction) ligado ao player JS;
+  // o "expandir" e o "fechar" são providos pelo próprio sistema.
+  private var pipIsPlaying = true
+  private var pipReceiver: BroadcastReceiver? = null
+
   override fun onUserLeaveHint() {
     super.onUserLeaveHint()
     enterPipNow()
+  }
+
+  /** Monta a action de play/pause exibida na janela do PiP. */
+  private fun buildPipActions(): ArrayList<RemoteAction> {
+    val actions = ArrayList<RemoteAction>()
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return actions
+    val iconRes = if (pipIsPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+    val label = if (pipIsPlaying) "Pausar" else "Reproduzir"
+    val intent = Intent(ACTION_PIP_CONTROL)
+      .setPackage(packageName)
+      .putExtra(EXTRA_CONTROL, "playpause")
+    var flags = PendingIntent.FLAG_UPDATE_CURRENT
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags = flags or PendingIntent.FLAG_IMMUTABLE
+    val pi = PendingIntent.getBroadcast(this, 1, intent, flags)
+    actions.add(RemoteAction(Icon.createWithResource(this, iconRes), label, label, pi))
+    return actions
+  }
+
+  private fun buildPipParams(): PictureInPictureParams {
+    val builder = PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9))
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) builder.setActions(buildPipActions())
+    return builder.build()
   }
 
   /** Entra em PiP se habilitado e suportado. Chamado por onUserLeaveHint e pelo PipModule. */
@@ -107,19 +146,43 @@ class MainActivity : ReactActivity() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
     try {
-      val params = PictureInPictureParams.Builder()
-        .setAspectRatio(Rational(16, 9))
-        .build()
-      enterPictureInPictureMode(params)
+      enterPictureInPictureMode(buildPipParams())
     } catch (_: Exception) {
       // alguns aparelhos recusam PiP em certos estados — ignora
     }
   }
 
-  // Avisa o JS para esconder o OSD/controles enquanto está em PiP (mostra só o vídeo).
+  /** Atualiza o ícone play/pause da janela do PiP (chamado pelo JS quando o estado muda). */
+  fun setPipPlaying(playing: Boolean) {
+    pipIsPlaying = playing
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode) {
+      try { setPictureInPictureParams(buildPipParams()) } catch (_: Exception) {}
+    }
+  }
+
+  // Avisa o JS para esconder o OSD/controles em PiP, e (des)registra o receiver da action.
   override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
     super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
     emitEvent("SkaphosPipChanged", isInPictureInPictureMode)
+    if (isInPictureInPictureMode) {
+      if (pipReceiver == null) {
+        pipReceiver = object : BroadcastReceiver() {
+          override fun onReceive(c: Context?, i: Intent?) {
+            if (i?.getStringExtra(EXTRA_CONTROL) == "playpause") emitEvent("SkaphosPipAction", "playpause")
+          }
+        }
+        val filter = IntentFilter(ACTION_PIP_CONTROL)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+          registerReceiver(pipReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+          @Suppress("UnspecifiedRegisterReceiverFlag")
+          registerReceiver(pipReceiver, filter)
+        }
+      }
+    } else {
+      pipReceiver?.let { runCatching { unregisterReceiver(it) } }
+      pipReceiver = null
+    }
   }
 
   /**

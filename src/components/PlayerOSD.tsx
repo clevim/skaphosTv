@@ -40,6 +40,9 @@ interface Props {
   /** Séries: mostra o botão de "próximo episódio" (canto sup. direito) quando há próximo. */
   showNextEpisode?: boolean;
   onNextEpisode?: () => void;
+  /** Mini-player: botão de minimizar (PiP dentro do app). */
+  showMinimize?: boolean;
+  onMinimize?: () => void;
   /** TV: modo scrubbing ativo (controlado pelo PlayerScreen). Esconde os controles,
    *  realça a barra e mostra a dica. O seek é feito pelo D-pad no PlayerScreen. */
   scrubMode?: boolean;
@@ -62,6 +65,7 @@ export default function PlayerOSD({
   hasSubtitles, subtitleActive, onToggleSubtitles,
   hasAudio, onToggleAudio,
   showNextEpisode, onNextEpisode,
+  showMinimize, onMinimize,
   scrubMode = false,
 }: Props) {
   const progressPct = duration > 0 ? Math.min(1, position / duration) : 0;
@@ -98,6 +102,11 @@ export default function PlayerOSD({
         </View>
 
         <View style={styles.topActions}>
+          {showMinimize && onMinimize && (
+            <TVFocusable onPress={onMinimize} style={styles.iconBtn}>
+              <Ionicons name="contract-outline" size={18} color="#fff" />
+            </TVFocusable>
+          )}
           {hasAudio && onToggleAudio && (
             <TVFocusable onPress={onToggleAudio} style={styles.iconBtn}>
               <Ionicons name="musical-notes-outline" size={18} color="#fff" />

@@ -47,15 +47,16 @@ const RecRow = React.memo(function RecRow({
 });
 
 const FavCard = React.memo(function FavCard({
-  item, isFavorite, onPress,
-}: { item: Channel; isFavorite: boolean; onPress: (ch: Channel) => void }) {
+  item, isFavorite, onPress, onToggleFavorite,
+}: { item: Channel; isFavorite: boolean; onPress: (ch: Channel) => void; onToggleFavorite: (id: string) => void }) {
   const handlePress = useCallback(() => onPress(item), [onPress, item]);
-  return <ChannelCard channel={item} isFavorite={isFavorite} onPress={handlePress} />;
+  const handleToggleFav = useCallback(() => onToggleFavorite(item.id), [onToggleFavorite, item.id]);
+  return <ChannelCard channel={item} isFavorite={isFavorite} onPress={handlePress} onLongPress={handleToggleFav} onToggleFavorite={handleToggleFav} />;
 });
 
 export function FavoritesScreen() {
   const navigation = useNavigation();
-  const { channels, favorites, recentChannels, setCurrentChannel } = useStore();
+  const { channels, favorites, recentChannels, setCurrentChannel, toggleFavorite } = useStore();
   const [activeTab, setActiveTab] = useState<Tab>('Minha Lista');
 
   const favChannels = useMemo(
@@ -82,9 +83,9 @@ export function FavoritesScreen() {
   );
   const renderFavCard = useCallback(
     ({ item }: { item: Channel }) => (
-      <FavCard item={item} isFavorite={favorites.includes(item.id)} onPress={playChannel} />
+      <FavCard item={item} isFavorite={favorites.includes(item.id)} onPress={playChannel} onToggleFavorite={toggleFavorite} />
     ),
-    [playChannel, favorites]
+    [playChannel, favorites, toggleFavorite]
   );
 
   // Data based on active tab

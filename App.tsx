@@ -11,6 +11,7 @@ import * as Updates from 'expo-updates';
 import { Platform, Linking, AppState } from 'react-native';
 import { useStore } from './src/store/useStore';
 import { useWatchProgress } from './src/store/watchProgress';
+import { useRecentSearches } from './src/store/recentSearches';
 import { useGeistFonts } from './src/hooks/useGeistFonts';
 import HomeScreen from './src/screens/HomeScreen';
 import PlayerScreen from './src/screens/PlayerScreen';
@@ -24,6 +25,7 @@ import TVEPGScreen from './src/screens/TVEPGScreen';
 import { useThemeStore } from './src/store/useThemeStore';
 import AnimatedSplash from './src/components/AnimatedSplash';
 import VideoSplash from './src/components/VideoSplash';
+import MiniPlayer from './src/components/MiniPlayer';
 import introSource from './src/generated/introSource';
 import { IS_TV } from './src/utils/tvDetect';
 import { activate as activateTvFocus } from './modules/tv-focus';
@@ -87,6 +89,7 @@ export default function App() {
   useEffect(() => {
     useThemeStore.getState().loadTheme();
     useWatchProgress.getState().load();
+    useRecentSearches.getState().load();
 
     KeepAwake.activateKeepAwakeAsync();
 
@@ -208,6 +211,14 @@ export default function App() {
             <Stack.Screen name="EPG" component={TVEPGScreen} />
           </Stack.Navigator>
         </NavigationContainer>
+
+        {/* Mini-player flutuante (PiP dentro do app) — acima do navegador para
+            continuar tocando enquanto o usuário navega. Expandir volta ao Player. */}
+        <MiniPlayer
+          onExpand={(channel) => {
+            if (navigationRef.isReady()) navigationRef.navigate('Player', { channel });
+          }}
+        />
 
         {splashVisible && (
           introSource && Platform.OS !== 'web' ? (

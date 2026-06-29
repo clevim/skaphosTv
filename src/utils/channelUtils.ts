@@ -6,11 +6,11 @@ export const YEAR_GROUPS = ['Filmes', 'Séries'] as const;
 
 export const NAV_ITEMS = [
   { key: 'home',      label: 'Início',    icon: 'home-outline'   },
+  { key: 'favorites', label: 'Favoritos', icon: 'heart-outline'  },
   { key: 'live',      label: 'Ao Vivo',   icon: 'radio-outline'  },
   { key: 'movies',    label: 'Filmes',    icon: 'film-outline'   },
   { key: 'series',    label: 'Séries',    icon: 'tv-outline'     },
   { key: 'year',      label: LAUNCH_YEAR, icon: 'star-outline'   },
-  { key: 'favorites', label: 'Favoritos', icon: 'heart-outline'  },
   { key: 'search',    label: 'Busca',     icon: 'search-outline' },
 ];
 

@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
@@ -8,6 +8,8 @@ import { useThemeStore } from '../store/useThemeStore';
 import { Channel } from '../types';
 import { IS_TV } from '../utils/tvDetect';
 
+const IS_WEB = Platform.OS === 'web';
+
 interface ChannelCardProps {
   channel: Channel;
   displayName?: string;
@@ -15,6 +17,8 @@ interface ChannelCardProps {
   isFavorite?: boolean;
   onPress: () => void;
   onLongPress?: () => void;
+  /** Alterna favorito. No web (sem long-press de mouse) vira um botão de estrela no card. */
+  onToggleFavorite?: () => void;
   hasTVPreferredFocus?: boolean;
   episodeCount?: number;
   contentType?: 'live' | 'movies' | 'series';
@@ -38,7 +42,7 @@ const QUALITY_COLORS: Record<string, string> = {
 };
 
 function ChannelCard({
-  channel, displayName, isPlaying, isFavorite, onPress, onLongPress,
+  channel, displayName, isPlaying, isFavorite, onPress, onLongPress, onToggleFavorite,
   hasTVPreferredFocus, episodeCount, contentType = 'live', progress,
   cardWidth, cardHeight,
 }: ChannelCardProps) {
@@ -101,11 +105,27 @@ function ChannelCard({
           <View style={[styles.playingDot, { backgroundColor: preset.primary }]} />
         )}
 
-        {/* Favorito */}
-        {isFavorite && (
+        {/* Favorito — indicador estático (mobile/TV; no web o botão abaixo já mostra o estado) */}
+        {isFavorite && !IS_WEB && (
           <View style={styles.favBadge}>
             <Ionicons name="star" size={9} color="#facc15" />
           </View>
+        )}
+
+        {/* Favorito — botão clicável no web (não há long-press de mouse). stopPropagation
+            evita que o clique abra o card. */}
+        {IS_WEB && onToggleFavorite && (
+          <Pressable
+            onPress={(e: any) => { e?.stopPropagation?.(); onToggleFavorite(); }}
+            style={styles.favToggle}
+            accessibilityLabel={isFavorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+          >
+            <Ionicons
+              name={isFavorite ? 'star' : 'star-outline'}
+              size={14}
+              color={isFavorite ? '#facc15' : '#fff'}
+            />
+          </Pressable>
         )}
 
         {/* Play overlay for continue-watching */}
@@ -225,6 +245,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Botão de favorito no web — canto inferior direito do pôster
+  favToggle: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5,
+    // @ts-ignore — cursor é válido no react-native-web
+    cursor: 'pointer',
   },
   info: {
     padding: IS_TV ? 10 : 7,

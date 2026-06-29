@@ -9,17 +9,30 @@ import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
 import { resolveContentType, getSeriesBaseName } from '../utils/channelUtils';
+import { SearchType } from '../utils/search';
 
 interface Props {
   query: string;
   onQueryChange: (q: string) => void;
   results: Channel[];
   onResultPress: (channel: Channel) => void;
+  searchType: SearchType;
+  onSearchTypeChange: (t: SearchType) => void;
+  recent: string[];
+  onRecentPress: (q: string) => void;
+  onClearRecent: () => void;
 }
 
 const TYPE_LABEL: Record<string, string> = {
   live: 'CANAL', movies: 'FILME', series: 'SÉRIE',
 };
+
+const TYPE_FILTERS: { key: SearchType; label: string }[] = [
+  { key: 'all',    label: 'Tudo'    },
+  { key: 'movies', label: 'Filmes'  },
+  { key: 'series', label: 'Séries'  },
+  { key: 'live',   label: 'Ao Vivo' },
+];
 
 const SUGGESTIONS = ['Ao Vivo', 'Filmes', 'Séries', 'Lançamentos 2026'];
 
@@ -49,7 +62,10 @@ function ResultItem({ channel, onPress }: { channel: Channel; onPress: () => voi
   );
 }
 
-export default function TVSearchContent({ query, onQueryChange, results, onResultPress }: Props) {
+export default function TVSearchContent({
+  query, onQueryChange, results, onResultPress,
+  searchType, onSearchTypeChange, recent, onRecentPress, onClearRecent,
+}: Props) {
   const inputRef = useRef<TextInput>(null);
   const hasResults = results.length > 0;
   const isEmpty = query.trim() === '';
@@ -84,6 +100,23 @@ export default function TVSearchContent({ query, onQueryChange, results, onResul
           </View>
         </TVFocusable>
 
+        {/* Filtros de tipo */}
+        <View style={styles.filterRow}>
+          {TYPE_FILTERS.map(f => {
+            const active = searchType === f.key;
+            return (
+              <TVFocusable
+                key={f.key}
+                onPress={() => onSearchTypeChange(f.key)}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                focusScale={1}
+              >
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{f.label}</Text>
+              </TVFocusable>
+            );
+          })}
+        </View>
+
         <View style={styles.stateArea}>
           {isEmpty ? (
             <>
@@ -110,7 +143,23 @@ export default function TVSearchContent({ query, onQueryChange, results, onResul
       <View style={styles.rightPanel}>
         {isEmpty ? (
           <>
-            <Text style={styles.sectionLabel}>SUGESTÕES</Text>
+            {recent.length > 0 && (
+              <>
+                <View style={styles.recentHeaderRow}>
+                  <Text style={styles.sectionLabel}>BUSCAS RECENTES</Text>
+                  <TVFocusable onPress={onClearRecent} focusScale={1}>
+                    <Text style={styles.recentClear}>Limpar</Text>
+                  </TVFocusable>
+                </View>
+                {recent.map((q) => (
+                  <TVFocusable key={q} onPress={() => onRecentPress(q)} style={styles.suggestionItem}>
+                    <Ionicons name="time-outline" size={14} color={colors.text3} />
+                    <Text style={styles.suggestionText} numberOfLines={1}>{q}</Text>
+                  </TVFocusable>
+                ))}
+              </>
+            )}
+            <Text style={[styles.sectionLabel, recent.length > 0 && { marginTop: spacing.lg }]}>SUGESTÕES</Text>
             {SUGGESTIONS.map((s) => (
               <TVFocusable
                 key={s}
@@ -185,6 +234,19 @@ const styles = StyleSheet.create({
     color: colors.text1,
     height: '100%',
   },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  filterChip: {
+    paddingHorizontal: 16, paddingVertical: 8,
+    borderRadius: 999, backgroundColor: colors.bg1,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  filterChipActive: { backgroundColor: colors.text1, borderColor: colors.text1 },
+  filterChipText: { fontSize: fontSize.sm, fontWeight: '500', color: colors.text1 },
+  filterChipTextActive: { color: '#0a0a0b', fontWeight: '600' },
+  recentHeaderRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  recentClear: { fontSize: fontSize.xs, color: colors.accent, fontWeight: '500' },
   stateArea: {
     flex: 1,
     alignItems: 'center',

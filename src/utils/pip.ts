@@ -16,6 +16,12 @@ export function enterPip(): void {
   try { SkaphosPip.enter(); } catch (_) {}
 }
 
+/** Atualiza o ícone play/pause exibido na janela do PiP do sistema. */
+export function setPipPlaying(playing: boolean): void {
+  if (Platform.OS !== 'android' || !SkaphosPip?.setPlaying) return;
+  try { SkaphosPip.setPlaying(playing); } catch (_) {}
+}
+
 /** true se o aparelho suporta PiP. */
 export async function isPipSupported(): Promise<boolean> {
   if (Platform.OS !== 'android' || !SkaphosPip?.isSupported) return false;

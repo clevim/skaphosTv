@@ -7,10 +7,11 @@ import { colors, spacing, radius, fontFamily } from '../utils/theme';
 import { LAUNCH_YEAR } from '../utils/channelUtils';
 
 const TV_NAV_STATIC_BEFORE = [
-  { key: 'home',    label: 'Início'  },
-  { key: 'live',    label: 'Ao vivo' },
-  { key: 'movies',  label: 'Filmes'  },
-  { key: 'series',  label: 'Séries'  },
+  { key: 'home',      label: 'Início'    },
+  { key: 'favorites', label: 'Favoritos' },
+  { key: 'live',      label: 'Ao vivo'   },
+  { key: 'movies',    label: 'Filmes'    },
+  { key: 'series',    label: 'Séries'    },
 ];
 
 const TV_NAV_STATIC_AFTER = [

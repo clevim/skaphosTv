@@ -19,7 +19,9 @@ import { RootStackParamList, Channel } from '../types';
 import { loadSourceChannels } from '../utils/sourceLoader';
 import { useChannelFilter } from '../hooks/useChannelFilter';
 import { useAppLayout } from '../hooks/useAppLayout';
-import { detectType, resolveContentType, getSeriesBaseName, LAUNCH_YEAR, NAV_ITEMS } from '../utils/channelUtils';
+import { detectType, getSeriesBaseName, LAUNCH_YEAR, NAV_ITEMS } from '../utils/channelUtils';
+import { searchChannels, SearchType } from '../utils/search';
+import { useRecentSearches } from '../store/recentSearches';
 import RemoteHints from '../components/RemoteHints';
 import TVCatalogLayout from '../components/TVCatalogLayout';
 import TVSearchContent from '../components/TVSearchContent';
@@ -27,7 +29,8 @@ import TVSearchContent from '../components/TVSearchContent';
 import { IS_TV } from '../utils/tvDetect';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
-const IS_MOBILE = !IS_TV && Platform.OS !== 'web';
+// Barra de abas inferior: presente no mobile E no web (só a TV usa a top bar).
+const HAS_BOTTOM_NAV = !IS_TV;
 
 // ── FlatItem ─────────────────────────────────────────────────────────────────
 // Componente intermediário com React.memo + useCallback por item.
@@ -61,6 +64,7 @@ const FlatItem = memo(function FlatItem({
       isFavorite={isFavorite}
       onPress={handlePress}
       onLongPress={handleLongPress}
+      onToggleFavorite={handleLongPress}
       hasTVPreferredFocus={index === 0 && IS_TV}
       episodeCount={epCount > 1 ? epCount : undefined}
       contentType={contentType}
@@ -90,6 +94,11 @@ export default function HomeScreen() {
 
   const [navKey, setNavKey]         = useState('home');
   const [searchQuery, setSearchQuery] = useState('');
+  // Query com debounce (evita re-buscar a cada tecla em listas grandes) + filtro de tipo
+  const [searchDebounced, setSearchDebounced] = useState('');
+  const [searchType, setSearchType] = useState<SearchType>('all');
+  const recentQueries = useRecentSearches(s => s.queries);
+  const clearRecentSearches = useRecentSearches(s => s.clear);
   const [categorySearch, setCategorySearch] = useState('');
   const [clock, setClock]           = useState('');
   const { mainContentH } = useAppLayout();
@@ -272,23 +281,16 @@ export default function HomeScreen() {
     });
   }, [navKey, selectedGroup]);
 
+  // Debounce da query (200ms) — evita re-buscar a cada tecla na lista inteira
+  useEffect(() => {
+    const t = setTimeout(() => setSearchDebounced(searchQuery), 200);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
   const searchResults = useMemo(() => {
-    if (navKey !== 'search' || !searchQuery.trim()) return [];
-    const q = searchQuery.toLowerCase();
-    const results: Channel[] = [];
-    const seen = new Set<string>();
-    for (const c of channels) {
-      if (results.length >= 100) break;
-      const type = resolveContentType(c);
-      const displayName = type === 'series' ? getSeriesBaseName(c.name) : c.name;
-      if (seen.has(displayName)) continue;
-      if (displayName.toLowerCase().includes(q) || (c.group || '').toLowerCase().includes(q)) {
-        seen.add(displayName);
-        results.push({ ...c, name: displayName });
-      }
-    }
-    return results;
-  }, [channels, searchQuery, navKey]);
+    if (navKey !== 'search') return [];
+    return searchChannels(channels, searchDebounced, searchType);
+  }, [channels, searchDebounced, searchType, navKey]);
 
   const handleChannelPress = useCallback((channel: Channel) => {
     // Xtream/Jellyfin definem streamType explicitamente — tem precedência sobre heurística
@@ -301,8 +303,21 @@ export default function HomeScreen() {
 
     if (type === 'series') {
       if (isSingleEpisodeSeries) {
-        // Xtream/Jellyfin: um canal por série, SeriesScreen busca episódios via API
-        navigation.navigate('Series', { seriesName: channel.name, channels: [channel] });
+        // Xtream/Jellyfin: um canal por série; a SeriesScreen busca os episódios via API
+        // usando o id da SÉRIE. Se o que chegou aqui for um EPISÓDIO solto (recente salvo
+        // por versões antigas, ou hero), o id/URL são do episódio e a API não acha nada
+        // ("Nenhum episódio disponível"). Então recuperamos a série-pai:
+        //   1) seriesRef embutido (episódios criados nesta versão);
+        //   2) casamento pelo nome-base na lista de canais (cobre recentes antigos).
+        const looksLikeEpisode = /S\d+\s*E\d+/i.test(channel.name) || channel.id?.startsWith('ep-');
+        const seriesEntry =
+          channel.seriesRef ??
+          (looksLikeEpisode
+            ? channels.find(c => c.streamType === 'series' &&
+                getSeriesBaseName(c.name) === getSeriesBaseName(channel.name))
+            : undefined) ??
+          channel;
+        navigation.navigate('Series', { seriesName: seriesEntry.name, channels: [seriesEntry] });
         return;
       }
       // M3U: agrupa todos os episódios pelo nome base (comportamento original)
@@ -355,11 +370,25 @@ export default function HomeScreen() {
     navigation.navigate('Player', { channel });
   }, [navigation, setCurrentChannel, handleChannelPress]);
 
+  // Busca: ao abrir um resultado, registra a query nas buscas recentes
+  const handleSearchResultPress = useCallback((channel: Channel) => {
+    if (searchQuery.trim()) useRecentSearches.getState().add(searchQuery.trim());
+    handleChannelPress(channel);
+  }, [searchQuery, handleChannelPress]);
+
   const handleNavPress = useCallback((key: string) => {
     setNavKey(key);
     setSelectedGroup(null);
     setSearchQuery('');
   }, []);
+
+  // "Estou com sorte": abre uma mídia aleatória dentro do que está filtrado no momento
+  // (categoria + subcategoria selecionada). Usa a mesma lista exibida no grid.
+  const handleRandomPick = useCallback(() => {
+    if (filteredChannels.length === 0) return;
+    const pick = filteredChannels[Math.floor(Math.random() * filteredChannels.length)];
+    handleChannelPress(pick);
+  }, [filteredChannels, handleChannelPress]);
 
   // Responsive card grid — formato portrait (poster 2:3)
   const CARD_MARGIN = IS_TV ? 6 : 4;
@@ -439,7 +468,7 @@ export default function HomeScreen() {
   );
 
   // Content area height: subtract tab bar on mobile, top bar on TV
-  const contentH = IS_MOBILE ? mainContentH - 60 : mainContentH;
+  const contentH = HAS_BOTTOM_NAV ? mainContentH - 60 : mainContentH;
 
   const renderContent = () => {
     if (isLoading) {
@@ -484,7 +513,12 @@ export default function HomeScreen() {
             query={searchQuery}
             onQueryChange={setSearchQuery}
             results={searchResults}
-            onResultPress={handleChannelPress}
+            onResultPress={handleSearchResultPress}
+            searchType={searchType}
+            onSearchTypeChange={setSearchType}
+            recent={recentQueries}
+            onRecentPress={setSearchQuery}
+            onClearRecent={clearRecentSearches}
           />
         );
       }
@@ -493,8 +527,13 @@ export default function HomeScreen() {
           query={searchQuery}
           onQueryChange={setSearchQuery}
           results={searchResults}
-          onResultPress={handleChannelPress}
+          onResultPress={handleSearchResultPress}
           contentH={contentH}
+          searchType={searchType}
+          onSearchTypeChange={setSearchType}
+          recent={recentQueries}
+          onRecentPress={setSearchQuery}
+          onClearRecent={clearRecentSearches}
         />
       );
     }
@@ -522,6 +561,7 @@ export default function HomeScreen() {
           selectedGroup={selectedGroup}
           onGroupSelect={setSelectedGroup}
           onReload={handleRefresh}
+          onRandom={handleRandomPick}
         >
           <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
             <FlatList
@@ -559,6 +599,9 @@ export default function HomeScreen() {
               {filteredChannels.length} item{filteredChannels.length !== 1 ? 's' : ''}
             </Text>
           </View>
+          <TVFocusable onPress={handleRandomPick} style={[styles.topbarIconBtn, { marginRight: 8 }]}>
+            <Ionicons name="dice-outline" size={18} color={colors.accent} />
+          </TVFocusable>
           <TVFocusable onPress={handleRefresh} style={styles.topbarIconBtn}>
             <Ionicons name="refresh-outline" size={18} color={colors.text2} />
           </TVFocusable>
@@ -651,8 +694,8 @@ export default function HomeScreen() {
         />
       )}
 
-      {/* Bottom tab bar — mobile only */}
-      {IS_MOBILE && (
+      {/* Bottom tab bar — mobile e web (TV usa a top bar) */}
+      {HAS_BOTTOM_NAV && (
         <BottomTabBar active={navKey} onPress={handleNavPress} jellyfinSources={jellyfinSources} />
       )}
 
@@ -744,7 +787,7 @@ const styles = StyleSheet.create({
 
   grid: {
     padding: spacing.md,
-    paddingBottom: IS_MOBILE ? 80 : spacing.md,
+    paddingBottom: HAS_BOTTOM_NAV ? 80 : spacing.md,
   },
   skeletonRow: {
     flexDirection: 'row',

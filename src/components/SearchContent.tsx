@@ -9,6 +9,7 @@ import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
 import { resolveContentType, getSeriesBaseName } from '../utils/channelUtils';
+import { SearchType } from '../utils/search';
 import { IS_TV } from '../utils/tvDetect';
 
 interface Props {
@@ -17,11 +18,23 @@ interface Props {
   results: Channel[];
   onResultPress: (channel: Channel) => void;
   contentH: number;
+  searchType: SearchType;
+  onSearchTypeChange: (t: SearchType) => void;
+  recent: string[];
+  onRecentPress: (q: string) => void;
+  onClearRecent: () => void;
 }
 
 const TYPE_LABEL: Record<string, string> = {
   live: 'CANAL', movies: 'FILME', series: 'SÉRIE',
 };
+
+const TYPE_FILTERS: { key: SearchType; label: string }[] = [
+  { key: 'all',    label: 'Tudo'    },
+  { key: 'movies', label: 'Filmes'  },
+  { key: 'series', label: 'Séries'  },
+  { key: 'live',   label: 'Ao Vivo' },
+];
 
 function ResultRow({ channel, onPress }: { channel: Channel; onPress: () => void }) {
   const type = resolveContentType(channel);
@@ -143,6 +156,7 @@ const bmStyles = StyleSheet.create({
 
 export default function SearchContent({
   query, onQueryChange, results, onResultPress, contentH,
+  searchType, onSearchTypeChange, recent, onRecentPress, onClearRecent,
 }: Props) {
   const otherResults = results.slice(1);
 
@@ -166,6 +180,28 @@ export default function SearchContent({
         )}
       </View>
 
+      {/* Type filter chips */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterScroll}
+        contentContainerStyle={styles.filterRow}
+        keyboardShouldPersistTaps="handled"
+      >
+        {TYPE_FILTERS.map(f => {
+          const active = searchType === f.key;
+          return (
+            <TVFocusable
+              key={f.key}
+              onPress={() => onSearchTypeChange(f.key)}
+              style={[styles.filterChip, active && styles.filterChipActive]}
+            >
+              <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{f.label}</Text>
+            </TVFocusable>
+          );
+        })}
+      </ScrollView>
+
       {/* Result count */}
       {results.length > 0 && (
         <Text style={styles.countLabel}>
@@ -175,11 +211,33 @@ export default function SearchContent({
 
       {/* States */}
       {query.trim() === '' ? (
-        <View style={styles.empty}>
-          <Ionicons name="search" size={48} color={colors.text3} />
-          <Text style={styles.emptyTitle}>Digite para buscar</Text>
-          <Text style={styles.emptySub}>Pesquise em toda a sua lista</Text>
-        </View>
+        recent.length > 0 ? (
+          <ScrollView
+            style={{ flex: 1 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.recentHeader}>
+              <Text style={styles.recentTitle}>BUSCAS RECENTES</Text>
+              <TVFocusable onPress={onClearRecent}>
+                <Text style={styles.recentClear}>Limpar</Text>
+              </TVFocusable>
+            </View>
+            {recent.map(q => (
+              <TVFocusable key={q} onPress={() => onRecentPress(q)} style={styles.recentRow}>
+                <Ionicons name="time-outline" size={16} color={colors.text3} />
+                <Text style={styles.recentText} numberOfLines={1}>{q}</Text>
+                <Ionicons name="arrow-up-outline" size={14} color={colors.text3} style={{ transform: [{ rotate: '45deg' }] }} />
+              </TVFocusable>
+            ))}
+          </ScrollView>
+        ) : (
+          <View style={styles.empty}>
+            <Ionicons name="search" size={48} color={colors.text3} />
+            <Text style={styles.emptyTitle}>Digite para buscar</Text>
+            <Text style={styles.emptySub}>Pesquise em toda a sua lista</Text>
+          </View>
+        )
       ) : results.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="alert-circle-outline" size={48} color={colors.text3} />
@@ -221,6 +279,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 12,
   },
   input: { flex: 1, color: colors.text1, fontSize: fontSize.md },
+  filterScroll: { flexGrow: 0, marginBottom: 12 },
+  filterRow: {
+    flexDirection: 'row', gap: 8,
+    paddingHorizontal: IS_TV ? spacing.xxxl : 22,
+  },
+  filterChip: {
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 999, backgroundColor: colors.bg1,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  filterChipActive: { backgroundColor: colors.text1, borderColor: colors.text1 },
+  filterChipText: { fontSize: 12, fontWeight: '500', color: colors.text1 },
+  filterChipTextActive: { color: '#0a0a0b', fontWeight: '600' },
+  recentHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: IS_TV ? spacing.xxxl : 22,
+    marginBottom: 6,
+  },
+  recentTitle: {
+    fontSize: 10, color: colors.text3, letterSpacing: 0.6,
+    textTransform: 'uppercase', fontWeight: '500',
+  },
+  recentClear: { fontSize: 12, color: colors.accent, fontWeight: '500' },
+  recentRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: IS_TV ? spacing.xxxl : 22,
+    borderBottomWidth: 1, borderBottomColor: colors.borderSoft,
+  },
+  recentText: { flex: 1, fontSize: 14, color: colors.text1 },
   countLabel: {
     fontSize: 10, color: colors.text3,
     letterSpacing: 0.4, textTransform: 'uppercase',
