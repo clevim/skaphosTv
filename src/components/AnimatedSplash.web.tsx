@@ -88,7 +88,9 @@ function runCanvasAnim(canvas: HTMLCanvasElement, container: HTMLElement): () =>
 
   function resize() {
     const dpr = Math.min(window.devicePixelRatio||1, 1.5);
-    W = container.clientWidth; H = container.clientHeight;
+    // Fallback para window caso o container ainda não tenha sido pintado pelo browser
+    W = container.clientWidth || window.innerWidth;
+    H = container.clientHeight || window.innerHeight;
     scale = Math.min(Math.max(Math.min(W,H)/760, 0.5), 1.35);
     canvas.width  = Math.round(W*dpr);
     canvas.height = Math.round(H*dpr);
@@ -216,8 +218,9 @@ function runCanvasAnim(canvas: HTMLCanvasElement, container: HTMLElement): () =>
     else rafId = null;
   }
 
-  seed(); resize();
-  rafId = requestAnimationFrame(frame);
+  seed();
+  // Aguarda um frame para garantir que o container foi pintado e clientWidth é válido
+  requestAnimationFrame(() => { resize(); rafId = requestAnimationFrame(frame); });
 
   const onResize = () => resize();
   const onVisibility = () => {
