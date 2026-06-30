@@ -120,11 +120,11 @@ export default function PlayerScreen() {
     if (navigation.canGoBack()) navigation.goBack();
   }, [playingChannel, position, navigation]);
 
-  // Picture-in-Picture (Android, mobile): habilita a entrada automática em PiP enquanto
-  // o player está aberto (filme, série OU ao vivo); desliga ao sair. Em PiP, esconde o OSD.
+  // Picture-in-Picture (Android): habilita a entrada automática em PiP enquanto
+  // o player está aberto; desliga ao sair. Em PiP, esconde o OSD.
+  // TV Android também suporta PiP do sistema — ao pressionar Home o vídeo fica numa janelinha.
   const [inPip, setInPip] = useState(false);
   useEffect(() => {
-    if (IS_TV) return;
     setPipEnabled(true);
     return () => setPipEnabled(false);
   }, []);
@@ -375,9 +375,8 @@ export default function PlayerScreen() {
             bufferForPlaybackAfterRebufferMs: 5000,
           }}
           ignoreSilentSwitch="ignore"
-          // Android mobile: mantém a reprodução ao entrar em PiP (senão o frame congela).
-          // TV/web seguem sem playback em segundo plano.
-          playInBackground={!IS_TV && Platform.OS === 'android'}
+          // Android (mobile + TV): mantém a reprodução ao entrar em PiP do sistema.
+          playInBackground={Platform.OS === 'android'}
           playWhenInactive={false}
           textTracks={activeVttTrack}
           selectedTextTrack={selectedTextTrack}
@@ -462,7 +461,7 @@ export default function PlayerScreen() {
             onToggleAudio={() => setShowAudioSheet(true)}
             showNextEpisode={hasNextEpisode}
             onNextEpisode={nextChannel}
-            showMinimize={!IS_TV}
+            showMinimize={!inPip}
             onMinimize={handleMinimize}
             scrubMode={scrubMode}
           />

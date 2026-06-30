@@ -13,8 +13,8 @@ import { colors } from '../utils/theme';
 import { IS_TV } from '../utils/tvDetect';
 
 const IS_WEB = Platform.OS === 'web';
-const W = IS_WEB ? 300 : 176;
-const H = Math.round(W * 9 / 16);
+const WIN_W = IS_TV ? 340 : IS_WEB ? 300 : 176;
+const WIN_H = Math.round(WIN_W * 9 / 16);
 
 interface Props {
   /** Expandir = voltar à tela cheia (Player). Fornecido pelo App (usa navigationRef). */
@@ -70,15 +70,19 @@ export default function MiniPlayer({ onExpand }: Props) {
 
   const onEnd = useCallback(() => { close(); }, [close]);
 
-  // Não renderiza na TV (navegação por controle não combina com janela flutuante)
-  if (IS_TV || !visible || !channel) return null;
+  if (!visible || !channel) return null;
 
   const url = fixStreamUrl(channel.url);
 
   return (
-    <View style={styles.wrap} pointerEvents="box-none">
-      <View style={styles.window}>
-        <Pressable style={styles.videoTouch} onPress={handleExpand}>
+    <View style={[styles.wrap, IS_TV && styles.wrapTV]} pointerEvents="box-none">
+      <View style={[styles.window, IS_TV && styles.windowTV]}>
+        {/* Toque/OK no vídeo expande para tela cheia */}
+        <Pressable
+          style={styles.videoTouch}
+          onPress={handleExpand}
+          hasTVPreferredFocus={IS_TV}
+        >
           <Video
             ref={videoRef}
             source={{ uri: url, headers: { 'User-Agent': 'okhttp/4.9.0' } }}
@@ -91,22 +95,29 @@ export default function MiniPlayer({ onExpand }: Props) {
           />
         </Pressable>
 
-        {/* Barra de controles sobreposta */}
-        <View style={styles.controls} pointerEvents="box-none">
+        {/* Controles: na TV ficam sempre visíveis; no touch só aparecem sobrepostos */}
+        <View style={[styles.controls, IS_TV && styles.controlsTV]} pointerEvents="box-none">
           <View style={styles.topRow}>
-            <Pressable onPress={handleExpand} style={styles.iconBtn} hitSlop={6}>
-              <Ionicons name="expand" size={14} color="#fff" />
+            <Pressable onPress={handleExpand} style={[styles.iconBtn, IS_TV && styles.iconBtnTV]} hitSlop={6}>
+              <Ionicons name="expand" size={IS_TV ? 20 : 14} color="#fff" />
             </Pressable>
             <View style={{ flex: 1 }} />
-            <Pressable onPress={handleClose} style={styles.iconBtn} hitSlop={6}>
-              <Ionicons name="close" size={16} color="#fff" />
-            </Pressable>
+            {!IS_TV && (
+              <Pressable onPress={handleClose} style={styles.iconBtn} hitSlop={6}>
+                <Ionicons name="close" size={16} color="#fff" />
+              </Pressable>
+            )}
           </View>
           <View style={styles.bottomRow}>
-            <Pressable onPress={() => setPaused(p => !p)} style={styles.iconBtn} hitSlop={6}>
-              <Ionicons name={paused ? 'play' : 'pause'} size={16} color="#fff" />
+            <Pressable onPress={() => setPaused(p => !p)} style={[styles.iconBtn, IS_TV && styles.iconBtnTV]} hitSlop={6}>
+              <Ionicons name={paused ? 'play' : 'pause'} size={IS_TV ? 20 : 16} color="#fff" />
             </Pressable>
-            <Text style={styles.title} numberOfLines={1}>{channel.name}</Text>
+            <Text style={[styles.title, IS_TV && styles.titleTV]} numberOfLines={1}>{channel.name}</Text>
+            {IS_TV && (
+              <Pressable onPress={handleClose} style={[styles.iconBtn, styles.iconBtnTV]} hitSlop={6}>
+                <Ionicons name="close" size={20} color="#fff" />
+              </Pressable>
+            )}
           </View>
         </View>
       </View>
@@ -120,11 +131,15 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     alignItems: 'flex-end',
   },
+  wrapTV: {
+    // TV: canto superior direito (longe da navegação central)
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+  },
   window: {
-    width: W,
-    height: H,
-    // acima da barra de abas inferior
-    marginBottom: 76,
+    width: WIN_W,
+    height: WIN_H,
+    marginBottom: 76,  // acima da barra de abas (mobile/web)
     marginRight: 12,
     borderRadius: 12,
     overflow: 'hidden',
@@ -137,11 +152,24 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
   },
+  windowTV: {
+    marginTop: 52,
+    marginBottom: 0,
+    marginRight: 40,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: colors.accent,
+  },
   videoTouch: { ...StyleSheet.absoluteFillObject },
   controls: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'space-between',
     padding: 6,
+  },
+  // TV: fundo escuro sempre visível para garantir legibilidade sem hover
+  controlsTV: {
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    padding: 10,
   },
   topRow: { flexDirection: 'row', alignItems: 'center' },
   bottomRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -150,5 +178,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center', justifyContent: 'center',
   },
+  iconBtnTV: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+  },
   title: { flex: 1, color: '#fff', fontSize: 10, fontWeight: '600' },
+  titleTV: { fontSize: 14, fontWeight: '700' },
 });
