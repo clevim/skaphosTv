@@ -10,6 +10,30 @@ import TVFocusable from './TVFocusable';
 import PulsingDot from './PulsingDot';
 import { colors, fontSize, radius, spacing } from '@/utils/theme';
 import { IS_TV } from '../utils/tvDetect';
+import { useStore } from '../store/useStore';
+import { useNowNext } from '../store/epgStore';
+
+/** "Agora / A seguir" do EPG — só para canal ao vivo com o guia habilitado. */
+function NowNextLine({ channel, isLive }: { channel: Channel; isLive: boolean }) {
+  const showEpg = useStore(s => s.settings.showEpg);
+  const enabled = isLive && showEpg && !channel.id.startsWith('jf-');
+  const { now, next } = useNowNext(enabled ? channel.id : undefined);
+  if (!now && !next) return null;
+  const fmt = (ms: number) => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return (
+    <Text style={nnStyles.line} numberOfLines={1}>
+      {now && <Text style={nnStyles.now}>Agora: {now.title} · {fmt(now.start)}–{fmt(now.end)}</Text>}
+      {now && next ? '   ' : ''}
+      {next && <Text style={nnStyles.next}>A seguir: {next.title}</Text>}
+    </Text>
+  );
+}
+
+const nnStyles = StyleSheet.create({
+  line: { marginTop: 3, fontSize: IS_TV ? 12 : 11 },
+  now: { color: colors.accent2, fontWeight: '600' },
+  next: { color: colors.text2 },
+});
 
 interface Props {
   osdAnim: Animated.Value;
@@ -99,6 +123,7 @@ export default function PlayerOSD({
         <View style={styles.titleWrap}>
           <Text style={styles.titleLabel}>REPRODUZINDO</Text>
           <Text style={styles.titleName} numberOfLines={1}>{channel.name}</Text>
+          <NowNextLine channel={channel} isLive={isLive} />
         </View>
 
         <View style={styles.topActions}>

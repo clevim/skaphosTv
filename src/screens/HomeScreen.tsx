@@ -19,7 +19,7 @@ import { RootStackParamList, Channel } from '../types';
 import { loadSourceChannels } from '../utils/sourceLoader';
 import { useChannelFilter } from '../hooks/useChannelFilter';
 import { useAppLayout } from '../hooks/useAppLayout';
-import { detectType, getSeriesBaseName, LAUNCH_YEAR, NAV_ITEMS } from '../utils/channelUtils';
+import { detectType, getSeriesBaseName, isAdultGroup, LAUNCH_YEAR, NAV_ITEMS } from '../utils/channelUtils';
 import { searchChannels, SearchType } from '../utils/search';
 import { useRecentSearches } from '../store/recentSearches';
 import RemoteHints from '../components/RemoteHints';
@@ -103,6 +103,14 @@ export default function HomeScreen() {
   const toggleFavorite        = useStore(s => s.toggleFavorite);
   const loadFromStorage       = useStore(s => s.loadFromStorage);
   const replaceSourceChannels = useStore(s => s.replaceSourceChannels);
+  const parentalPin           = useStore(s => s.settings.parentalPin);
+  const adultUnlocked         = useStore(s => s.adultUnlocked);
+
+  // Controle parental: com PIN e sessão bloqueada, conteúdo adulto some da Home e da busca
+  const visibleChannels = useMemo(() => {
+    if (!parentalPin || adultUnlocked) return channels;
+    return channels.filter(c => !isAdultGroup(c.group));
+  }, [channels, parentalPin, adultUnlocked]);
 
   const [navKey, setNavKey]         = useState('home');
   const [searchQuery, setSearchQuery] = useState('');
@@ -175,9 +183,19 @@ export default function HomeScreen() {
       };
 
       let missing = incompleteSources(state.sources, state.channels);
-      // Jellyfin completo em cache → atualiza em background (API rápida; não entra no retry)
-      const jfCached = state.sources.filter(
-        s => s.type === 'jellyfin' && !missing.some(m => m.id === s.id),
+
+      // Cache completo porém VELHO: painéis Xtream rotacionam os ids de VOD com
+      // frequência — URLs em cache passam a responder 406/404 e o player fica
+      // "reconectando" sem fim. Revalida TODAS as fontes em background (a lista
+      // em cache continua na tela; os dados novos entram silenciosamente).
+      const CACHE_STALE_MS = 12 * 60 * 60 * 1000;
+      const cacheStale = Date.now() - (state.channelsSavedAt || 0) > CACHE_STALE_MS;
+
+      // Fontes completas que serão atualizadas em background:
+      //  - Jellyfin sempre (API rápida);
+      //  - todas quando o cache está velho (rotação de ids).
+      const bgRefresh = state.sources.filter(
+        s => !missing.some(m => m.id === s.id) && (cacheStale || s.type === 'jellyfin'),
       );
 
       // Fontes faltantes/incompletas → recarrega da rede (mostra loading se nada na tela).
@@ -201,8 +219,8 @@ export default function HomeScreen() {
         }
       }
 
-      // Fontes Jellyfin já em cache → atualiza em background (API rápida; substitui a fonte)
-      for (const src of jfCached) {
+      // Atualização em background das fontes completas (Jellyfin sempre; todas se cache velho)
+      for (const src of bgRefresh) {
         loadOneSource(src)
           .then(({ channels: chs, groups: grps }) => {
             if (chs.length > 0) replaceSourceChannels(src.id, chs, grps);
@@ -308,8 +326,8 @@ export default function HomeScreen() {
 
   const searchResults = useMemo(() => {
     if (navKey !== 'search') return [];
-    return searchChannels(channels, searchDebounced, searchType);
-  }, [channels, searchDebounced, searchType, navKey]);
+    return searchChannels(visibleChannels, searchDebounced, searchType);
+  }, [visibleChannels, searchDebounced, searchType, navKey]);
 
   const handleChannelPress = useCallback((channel: Channel) => {
     // Xtream/Jellyfin definem streamType explicitamente — tem precedência sobre heurística
@@ -392,10 +410,15 @@ export default function HomeScreen() {
   }, [searchQuery, handleChannelPress]);
 
   const handleNavPress = useCallback((key: string) => {
+    // Guia de programação é uma TELA (não uma seção da Home)
+    if (key === 'epg') {
+      navigation.navigate('EPG');
+      return;
+    }
     setNavKey(key);
     setSelectedGroup(null);
     setSearchQuery('');
-  }, []);
+  }, [navigation]);
 
   // "Estou com sorte": abre uma mídia aleatória dentro do que está filtrado no momento
   // (categoria + subcategoria selecionada). Usa a mesma lista exibida no grid.
@@ -514,7 +537,7 @@ export default function HomeScreen() {
           sourcesEmpty={sources.length === 0}
           renderCard={renderCard}
           contentH={contentH}
-          channels={channels}
+          channels={visibleChannels}
           onChannelPress={handleChannelPress}
           onWatch={handleHeroWatch}
           onDetails={handleChannelPress}

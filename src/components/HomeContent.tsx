@@ -13,6 +13,8 @@ import { colors, spacing, fontSize, radius, fontFamily } from '../utils/theme';
 import { detectType, getSeriesBaseName, isLaunchYear, LAUNCH_YEAR } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
 import { useWatchProgress, progressFractionFor, resumePositionFor, WatchEntry } from '../store/watchProgress';
+import { useNowNext } from '../store/epgStore';
+import { useStore } from '../store/useStore';
 
 interface Props {
   recentChannels: Channel[];
@@ -115,7 +117,11 @@ const cStyles = StyleSheet.create({
 });
 
 // ── Live Card ─────────────────────────────────────────────────
-function LiveCard({ channel, onPress }: { channel: Channel; onPress: () => void }) {
+function LiveCard({ channel, onPress, nowPlaying }: {
+  channel: Channel; onPress: () => void;
+  /** Programa no ar (EPG) — substitui o grupo no subtítulo. */
+  nowPlaying?: string;
+}) {
   const isJellyfin = channel.id?.startsWith('jf-');
   return (
     <TVFocusable onPress={onPress} style={lStyles.card}>
@@ -140,11 +146,18 @@ function LiveCard({ channel, onPress }: { channel: Channel; onPress: () => void 
         )}
       </View>
       <Text style={lStyles.title} numberOfLines={1}>{channel.name}</Text>
-      <Text style={lStyles.sub} numberOfLines={1}>
-        {channel.group ? channel.group.replace(/[♦◆️]\s*/g, '').trim() : ''}
+      <Text style={[lStyles.sub, nowPlaying != null && lStyles.subNow]} numberOfLines={1}>
+        {nowPlaying ?? (channel.group ? channel.group.replace(/[♦◆️]\s*/g, '').trim() : '')}
       </Text>
     </TVFocusable>
   );
+}
+
+/** LiveCard com "agora no ar" do EPG no subtítulo (quando o guia está ativo). */
+function LiveCardWithEpg({ channel, onPress }: { channel: Channel; onPress: () => void }) {
+  const showEpg = useStore(s => s.settings.showEpg);
+  const { now } = useNowNext(showEpg && !channel.id.startsWith('jf-') ? channel.id : undefined);
+  return <LiveCard channel={channel} onPress={onPress} nowPlaying={now?.title} />;
 }
 
 const lStyles = StyleSheet.create({
@@ -179,6 +192,7 @@ const lStyles = StyleSheet.create({
   badgeText: { fontSize: 9, fontWeight: '600', color: colors.white },
   title: { fontSize: 12, fontWeight: '600', color: colors.text1, marginTop: 8 },
   sub: { fontSize: 11, color: colors.text2, marginTop: 2 },
+  subNow: { color: colors.accent },
 });
 
 // ── Section header ────────────────────────────────────────────
@@ -321,7 +335,10 @@ export default function HomeContent({
     const rest: Channel[] = [];
     for (const ch of recentChannels) {
       const entry = watchEntries[ch.id];
-      if (entry && !entry.watched && resumePositionFor(entry) > 0) {
+      // Ao vivo nunca entra como "em curso" (entradas antigas podem existir de quando
+      // streams live com duração reportada gravavam progresso indevidamente)
+      const isLiveCh = ch.streamType ? ch.streamType === 'live' : detectType(ch.group || '', ch.name) === 'live';
+      if (!isLiveCh && entry && !entry.watched && resumePositionFor(entry) > 0) {
         inProgress.push({ channel: ch, progress: progressFractionFor(entry), entry });
       } else {
         rest.push(ch);
@@ -530,7 +547,7 @@ export default function HomeContent({
         <Section title="Ao vivo agora" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('live')}>
           <Row>
             {displayLive.map(ch => (
-              <LiveCard key={ch.id} channel={ch} onPress={() => handlePress(ch)} />
+              <LiveCardWithEpg key={ch.id} channel={ch} onPress={() => handlePress(ch)} />
             ))}
           </Row>
         </Section>

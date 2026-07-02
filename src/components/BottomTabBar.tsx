@@ -6,11 +6,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import TVFocusable from './TVFocusable';
 import { colors } from '../utils/theme';
 import { LAUNCH_YEAR } from '../utils/channelUtils';
+import { useStore } from '../store/useStore';
 
 const STATIC_TABS_BEFORE = [
   { id: 'home',      label: 'Início',    icon: 'home-outline',   activeIcon: 'home'   },
   { id: 'favorites', label: 'Favoritos', icon: 'heart-outline',  activeIcon: 'heart'  },
   { id: 'live',      label: 'Ao Vivo',   icon: 'radio-outline',  activeIcon: 'radio'  },
+  { id: 'epg',       label: 'Guia',      icon: 'calendar-outline', activeIcon: 'calendar' },
   { id: 'movies',    label: 'Filmes',    icon: 'film-outline',   activeIcon: 'film'   },
   { id: 'series',    label: 'Séries',    icon: 'tv-outline',     activeIcon: 'tv'     },
 ];
@@ -27,8 +29,9 @@ interface Props {
 }
 
 export default function BottomTabBar({ active, onPress, jellyfinSources }: Props) {
+  const showEpg = useStore(s => s.settings.showEpg);
   const tabs = [
-    ...STATIC_TABS_BEFORE,
+    ...STATIC_TABS_BEFORE.filter(t => t.id !== 'epg' || showEpg),
     ...(jellyfinSources ?? []).map(s => ({
       id: `jf-${s.id}`,
       label: s.serverName || s.name,

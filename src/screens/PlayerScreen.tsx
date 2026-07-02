@@ -51,6 +51,7 @@ export default function PlayerScreen() {
 
   const channels = useStore(s => s.channels);
   const subtitleSize = useStore(s => s.settings.subtitleSize);
+  const bufferSizeMs = useStore(s => s.settings.bufferSize);
   // Ao terminar (filme ou último episódio) o player se fecha sozinho
   const handleRequestClose = useCallback(() => {
     if (navigation.canGoBack()) navigation.goBack();
@@ -370,7 +371,8 @@ export default function PlayerScreen() {
           repeat={false}
           bufferConfig={{
             minBufferMs: 5000,
-            maxBufferMs: 30000,
+            // Configurável em Ajustes → Reprodução (15s conexão fraca / 30s / 60s estável)
+            maxBufferMs: bufferSizeMs >= 15000 ? bufferSizeMs : 30000,
             bufferForPlaybackMs: 2500,
             bufferForPlaybackAfterRebufferMs: 5000,
           }}

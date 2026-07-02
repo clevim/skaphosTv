@@ -15,8 +15,6 @@ import { useGeistFonts } from './src/hooks/useGeistFonts';
 import HomeScreen from './src/screens/HomeScreen';
 import PlayerScreen from './src/screens/PlayerScreen';
 import SetupScreen from './src/screens/SetupScreen';
-import SearchScreen from './src/screens/SearchScreen';
-import FavoritesScreen from './src/screens/FavoritesScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import SeriesScreen from './src/screens/SeriesScreen';
 import DetailScreen from './src/screens/DetailScreen';
@@ -199,8 +197,6 @@ export default function App() {
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="Player" component={PlayerScreen} />
             <Stack.Screen name="Setup" component={SetupScreen} />
-            <Stack.Screen name="Search" component={SearchScreen} />
-            <Stack.Screen name="Favorites" component={FavoritesScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="Series" component={SeriesScreen} />
             <Stack.Screen name="Detail" component={DetailScreen} />

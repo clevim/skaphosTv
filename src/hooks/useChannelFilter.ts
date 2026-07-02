@@ -1,8 +1,8 @@
 import { useMemo, useCallback } from 'react';
 import { Channel } from '../types';
 import { ChannelIndex } from '../store/channelIndex';
-import { detectType, getSeriesBaseName, isLaunchYear, YEAR_GROUPS } from '../utils/channelUtils';
-import { IPTVSource } from '../store/useStore';
+import { detectType, getSeriesBaseName, isLaunchYear, isAdultGroup, YEAR_GROUPS } from '../utils/channelUtils';
+import { IPTVSource, useStore } from '../store/useStore';
 
 interface UseChannelFilterProps {
   navKey: string;
@@ -29,6 +29,11 @@ export function useChannelFilter({
 }: UseChannelFilterProps) {
   const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
 
+  // Controle parental: com PIN definido e sessão bloqueada, grupos adultos somem
+  const parentalPin   = useStore(s => s.settings.parentalPin);
+  const adultUnlocked = useStore(s => s.adultUnlocked);
+  const hideAdult = !!parentalPin && !adultUnlocked;
+
   // O(1) — índice já tem o map pronto
   const episodeCountMap = channelIndex?.episodeCountMap ?? EMPTY_MAP;
 
@@ -42,19 +47,20 @@ export function useChannelFilter({
 
   // O(1) — listas de grupos pré-computadas por tipo
   const filteredGroups = useMemo(() => {
+    let groups: string[];
     if (!channelIndex) return [];
-    if (navKey === 'live')    return channelIndex.liveGroups;
-    if (navKey === 'movies')  return channelIndex.movieGroups;
-    if (navKey === 'series')  return channelIndex.seriesGroups;
-    if (navKey === 'year')    return [...YEAR_GROUPS];
-    if (jellyfinServerName) {
+    if (navKey === 'live')         groups = channelIndex.liveGroups;
+    else if (navKey === 'movies')  groups = channelIndex.movieGroups;
+    else if (navKey === 'series')  groups = channelIndex.seriesGroups;
+    else if (navKey === 'year')    groups = [...YEAR_GROUPS];
+    else if (jellyfinServerName) {
       // Grupos que pertencem a esta fonte Jellyfin
-      return [...channelIndex.byGroup.keys()].filter(g =>
+      groups = [...channelIndex.byGroup.keys()].filter(g =>
         g.startsWith(`${jellyfinServerName} ·`)
       );
-    }
-    return [];
-  }, [channelIndex, navKey, jellyfinServerName]);
+    } else return [];
+    return hideAdult ? groups.filter(g => !isAdultGroup(g)) : groups;
+  }, [channelIndex, navKey, jellyfinServerName, hideAdult]);
 
   const filteredChannels = useMemo(() => {
     if (navKey === 'home' || navKey === 'search') return [];
@@ -119,8 +125,10 @@ export function useChannelFilter({
       });
     }
 
+    if (hideAdult) list = list.filter(c => !isAdultGroup(c.group));
+
     return list;
-  }, [channelIndex, navKey, selectedGroup, favoritesSet, categorySearch, channels, jellyfinServerName, filteredGroups]);
+  }, [channelIndex, navKey, selectedGroup, favoritesSet, categorySearch, channels, jellyfinServerName, filteredGroups, hideAdult]);
 
   // O(1) — usa contagens pré-computadas
   const navCount = useCallback((key: string): number => {

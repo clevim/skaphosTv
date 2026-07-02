@@ -26,6 +26,9 @@ interface AppState {
   sources: IPTVSource[];
   activeSourceId: string | null;
   channels: Channel[];
+  /** Quando o cache de canais foi gravado/atualizado pela última vez (epoch ms).
+   *  Painéis rotacionam ids de VOD — cache velho = URLs mortas (HTTP 406/404). */
+  channelsSavedAt: number;
   channelIndex: ChannelIndex | null;
   groups: string[];
   selectedGroup: string | null;
@@ -35,19 +38,26 @@ interface AppState {
   recentChannels: Channel[];
   favorites: string[];
   settings: {
-    defaultPlayer: 'expo-av' | 'vlc';
     autoPlay: boolean;
+    /** Buffer máximo do player em ms (15000 | 30000 | 60000). */
     bufferSize: number;
+    /** Relógio na top bar da TV. */
     showClock: boolean;
+    /** PIN do controle parental — null = desativado. Com PIN, grupos adultos somem. */
     parentalPin: string | null;
     language: string;
+    /** Ativa legendas automaticamente quando o conteúdo tiver (Jellyfin). */
     subtitleEnabled: boolean;
     subtitleSize: 'small' | 'medium' | 'large';
-    epgEnabled: boolean;
+    /** Mostra o Guia (EPG) na navegação. (chave nova — o antigo epgEnabled ficava false) */
+    showEpg: boolean;
     tmdbApiKey: string;
     jellyfinPreferredAudio: string;
     jellyfinPreferredSubtitle: string;
   };
+  /** Conteúdo adulto desbloqueado NESTA sessão (não persiste). */
+  adultUnlocked: boolean;
+  setAdultUnlocked: (v: boolean) => void;
 
   addSource: (source: IPTVSource) => void;
   updateSource: (id: string, patch: Partial<IPTVSource>) => void;
@@ -139,7 +149,7 @@ async function flushChannelsSave(channels: Channel[], groups: string[], sources:
   for (let i = 0; i < chunks.length; i++) {
     await AsyncStorage.setItem(`${CHANNELS_KEY}_${i}`, JSON.stringify(chunks[i]));
   }
-  await AsyncStorage.setItem(CHANNELS_META_KEY, JSON.stringify({ chunks: chunks.length, groups }));
+  await AsyncStorage.setItem(CHANNELS_META_KEY, JSON.stringify({ chunks: chunks.length, groups, savedAt: Date.now() }));
   // Remove chunks órfãos remanescentes de uma lista anterior maior
   if (lastWrittenChunks > chunks.length) {
     await Promise.all(
@@ -177,7 +187,7 @@ function saveChannelsNow(channels: Channel[], groups: string[], sources: IPTVSou
   return saveChain;
 }
 
-async function loadChannelsChunked(): Promise<{ channels: Channel[]; groups: string[] } | null> {
+async function loadChannelsChunked(): Promise<{ channels: Channel[]; groups: string[]; savedAt: number } | null> {
   const metaRaw = await AsyncStorage.getItem(CHANNELS_META_KEY);
   if (!metaRaw) return null;
   const meta = JSON.parse(metaRaw);
@@ -188,7 +198,7 @@ async function loadChannelsChunked(): Promise<{ channels: Channel[]; groups: str
   );
   lastWrittenChunks = meta.chunks; // sincroniza para limpeza de órfãos futura
   const channels: Channel[] = chunkRaws.flatMap(raw => (raw ? JSON.parse(raw) : []));
-  return { channels, groups: meta.groups || [] };
+  return { channels, groups: meta.groups || [], savedAt: meta.savedAt ?? 0 };
 }
 
 /** Atribui sourceId a canais legados (cache anterior à introdução do campo). */
@@ -214,6 +224,7 @@ export const useStore = create<AppState>((set, get) => ({
   sources: [],
   activeSourceId: null,
   channels: [],
+  channelsSavedAt: 0,
   channelIndex: null,
   groups: [],
   selectedGroup: null,
@@ -223,19 +234,20 @@ export const useStore = create<AppState>((set, get) => ({
   recentChannels: [],
   favorites: [],
   settings: {
-    defaultPlayer: 'expo-av',
     autoPlay: true,
-    bufferSize: 3000,
+    bufferSize: 30000,
     showClock: true,
     parentalPin: null,
     language: 'pt-BR',
     subtitleEnabled: false,
     subtitleSize: 'medium',
-    epgEnabled: false,
+    showEpg: true,
     tmdbApiKey: '',
     jellyfinPreferredAudio: 'pt-BR',
     jellyfinPreferredSubtitle: 'pt-BR',
   },
+  adultUnlocked: false,
+  setAdultUnlocked: (v) => set({ adultUnlocked: v }),
 
   addSource: (source) => {
     set(state => ({ sources: [...state.sources, source] }));
@@ -286,7 +298,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   setChannels: (channels, groups) => {
     const channelIndex = buildChannelIndex(channels);
-    set({ channels, groups, channelIndex });
+    set({ channels, groups, channelIndex, channelsSavedAt: Date.now() });
     scheduleChannelsSave(channels, groups, get().sources);
   },
 
@@ -303,7 +315,7 @@ export const useStore = create<AppState>((set, get) => ({
       const groups = Array.from(groupSet).sort();
       const channelIndex = buildChannelIndex(merged);
       scheduleChannelsSave(merged, groups, state.sources);
-      return { channels: merged, groups, channelIndex };
+      return { channels: merged, groups, channelIndex, channelsSavedAt: Date.now() };
     });
   },
 
@@ -327,7 +339,7 @@ export const useStore = create<AppState>((set, get) => ({
         s.id === sourceId ? { ...s, channelCount: tagged.length } : s,
       );
       scheduleChannelsSave(merged, groups, sources);
-      return { channels: merged, groups, channelIndex, sources };
+      return { channels: merged, groups, channelIndex, sources, channelsSavedAt: Date.now() };
     });
     get().saveToStorage();
   },
@@ -397,11 +409,14 @@ export const useStore = create<AppState>((set, get) => ({
       }));
 
       const storedRecent: Channel[] = recentRaw ? JSON.parse(recentRaw) : [];
+      const mergedSettings = settingsRaw ? { ...get().settings, ...JSON.parse(settingsRaw) } : get().settings;
+      // Migração: bufferSize antigo era 3000 (sem efeito); agora é o maxBuffer real em ms
+      if (!mergedSettings.bufferSize || mergedSettings.bufferSize < 15000) mergedSettings.bufferSize = 30000;
       set({
         sources,
         favorites: favRaw ? JSON.parse(favRaw) : [],
         recentChannels: transformChannelSecrets(storedRecent, sources, 'restore'),
-        settings: settingsRaw ? { ...get().settings, ...JSON.parse(settingsRaw) } : get().settings,
+        settings: mergedSettings,
       });
 
       // Reescreve as fontes em AsyncStorage já sem segredos (limpa texto puro legado)
@@ -415,7 +430,7 @@ export const useStore = create<AppState>((set, get) => ({
         // Restaura os segredos mascarados nas URLs (player/imagens precisam delas em memória)
         const rehydrated = transformChannelSecrets(migrated, sources, 'restore');
         const channelIndex = buildChannelIndex(rehydrated);
-        set({ channels: rehydrated, groups: cached.groups, channelIndex });
+        set({ channels: rehydrated, groups: cached.groups, channelIndex, channelsSavedAt: cached.savedAt });
         if (migrated !== cached.channels) scheduleChannelsSave(rehydrated, cached.groups, sources);
         return; // Cache encontrado — não precisa baixar da rede
       }

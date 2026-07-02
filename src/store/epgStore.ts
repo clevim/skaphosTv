@@ -11,11 +11,12 @@
  * comparado ao custo de manter MBs no AsyncStorage.
  */
 import { create } from 'zustand';
+import { useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useStore } from './useStore';
 import { normalizeHost } from '../utils/xtreamApi';
 import {
-  EpgProgram, parseXmltvChannels, parseXmltvProgrammes, normalizeChannelName,
+  EpgProgram, parseXmltvChannels, parseXmltvProgrammes, normalizeChannelName, nowNextFor,
 } from '../utils/epg';
 
 const TTL_MS = 3 * 60 * 60_000;         // guia vale por 3h
@@ -136,3 +137,17 @@ export const useEpgStore = create<EpgState>((set, get) => ({
     });
   },
 }));
+
+/**
+ * Programa atual e seguinte de um canal. Passe `channelId` undefined para
+ * desativar (ex.: EPG desligado nos Ajustes) — o hook não dispara download.
+ * O load respeita o TTL do guia (3h), então chamadas repetidas são baratas.
+ */
+export function useNowNext(channelId: string | undefined): { now?: EpgProgram; next?: EpgProgram } {
+  const programs = useEpgStore(s => (channelId ? s.byChannelId[channelId] : undefined));
+  const load = useEpgStore(s => s.load);
+  useEffect(() => {
+    if (channelId) load();
+  }, [channelId, load]);
+  return useMemo(() => nowNextFor(programs), [programs]);
+}

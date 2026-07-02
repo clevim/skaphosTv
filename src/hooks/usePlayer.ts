@@ -11,6 +11,13 @@ import {
 } from '../utils/jellyfinLoader';
 import { SubtitleTrack, AudioTrack } from '../types';
 import { useWatchProgress, resumePositionFor } from '../store/watchProgress';
+import { resolveContentType } from '../utils/channelUtils';
+
+/** Live pelo TIPO do canal — nunca pela duração: streams HLS/TS ao vivo reportam a
+ *  janela de buffer como duração, o que fazia o app tratá-los como VOD (resume
+ *  indevido, progresso gravado e auto-close no fim do buffer). */
+const channelIsLive = (ch: Channel | null | undefined) =>
+  !!ch && resolveContentType(ch) === 'live';
 const OSD_TIMEOUT = IS_TV ? 6000 : 4000;
 
 export const MAX_RETRIES = 5;
@@ -65,7 +72,9 @@ export function usePlayer(
   const saveLocalProgress = useCallback(() => {
     const ch = playingChannelRef.current;
     const dur = durationRef.current;
-    if (!ch?.id || !dur || dur <= 0) return; // ao vivo / sem duração → ignora
+    if (!ch?.id || !dur || dur <= 0) return; // sem duração → ignora
+    // Ao vivo NUNCA grava progresso — mesmo quando o stream reporta duração (janela HLS)
+    if (channelIsLive(ch)) return;
     recordProgress(ch.id, positionRef.current, dur);
     // Espelha na série-pai: os recentes da Home guardam a SÉRIE (não o episódio),
     // então o "Continue assistindo" busca progresso pelo id da série.
@@ -111,7 +120,7 @@ export function usePlayer(
   // (quando groups.length=0, type:'index' com value.asInt() causa crash UnexpectedNativeTypeException)
   const [audioReady, setAudioReady] = useState(false);
 
-  const isLive = !duration || duration === 0;
+  const isLive = channelIsLive(playingChannel) || !duration || duration === 0;
   // Navegação prev/next: se há uma playlist explícita (episódios da série), usa ela —
   // garante prev/next e auto-play na ordem correta dos episódios. Senão, restringe aos
   // canais do MESMO tipo (zapping de Ao Vivo não cai em filme/série). M3U sem streamType
@@ -309,7 +318,7 @@ export function usePlayer(
     // Retoma a maior posição entre o progresso LOCAL (este dispositivo) e o do
     // servidor Jellyfin (resumePositionTicks). Só na carga inicial e quando não há
     // seek pendente (troca de faixa não deve perder a posição).
-    if (firstLoad && !hadPendingSeek && (data.duration ?? 0) > 0) {
+    if (firstLoad && !hadPendingSeek && (data.duration ?? 0) > 0 && !channelIsLive(ch)) {
       const localEntry = useWatchProgress.getState().get(ch?.id ?? '');
       const localResume = resumePositionFor(localEntry);
       const serverResume = (ch?.resumePositionTicks ?? 0) / 10_000_000;
@@ -396,10 +405,16 @@ export function usePlayer(
 
     if (exception.includes('UnknownHostException') || exception.includes('SocketException')) {
       msg = 'Sem conexão com o servidor.';
+    } else if (exception.includes('406')) {
+      // Painéis Xtream respondem 406 para stream inexistente — típico de rotação
+      // de ids de VOD com lista em cache desatualizada.
+      msg = 'O servidor recusou este conteúdo — sua lista pode estar desatualizada. Recarregue a fonte na tela de Fontes.';
     } else if (exception.includes('FileNotFoundException') || exception.includes('404')) {
-      msg = 'Canal não encontrado no servidor.';
+      msg = 'Conteúdo não encontrado no servidor — sua lista pode estar desatualizada. Recarregue a fonte na tela de Fontes.';
     } else if (exception.includes('403') || exception.includes('Forbidden')) {
       msg = 'Acesso negado. Verifique sua assinatura.';
+    } else if (exception.includes('429')) {
+      msg = 'Limite de conexões do servidor atingido. Feche outros players e tente de novo.';
     } else if (exception.includes('IllegalArgumentException')) {
       msg = 'Erro de configuração do player.';
     } else if (code === '1001') {
@@ -412,11 +427,21 @@ export function usePlayer(
   }, [retryCount, scheduleRetry]);
 
   const onEnd = useCallback(() => {
+    const ch = playingChannelRef.current;
+
+    // AO VIVO: "fim" de stream = queda do feed (fim da janela de buffer), não fim de
+    // conteúdo. Reconecta silenciosamente em vez de marcar assistido e fechar o player.
+    if (channelIsLive(ch)) {
+      setPaused(false);
+      setIsPlaying(true);
+      setIsBuffering(true);
+      setVideoKey(k => k + 1);
+      return;
+    }
+
     setIsPlaying(false);
     setPaused(true);
     if (heartbeatTimer.current) clearInterval(heartbeatTimer.current);
-
-    const ch = playingChannelRef.current;
 
     // Marca como assistido — local (todas as fontes) e, se Jellyfin, também no servidor
     if (ch?.id) markWatchedLocal(ch.id);

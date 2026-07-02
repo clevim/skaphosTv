@@ -29,12 +29,12 @@ SkaphosTV é um player IPTV completo construído com **React Native + Expo**, pr
 | **Ao Vivo** | Canais em tempo real com guia EPG |
 | **Filmes** | Catálogo VOD com posters, badges de qualidade e lançamentos |
 | **Séries** | Navegação por temporada e episódio, progresso individual |
-| **Busca** | Busca em tempo real com card de "Melhor Resultado" |
-| **Favoritos** | Minha Lista, Histórico, Gravações e Baixados |
+| **Busca** | Busca em tempo real com filtros por tipo e buscas recentes |
+| **Favoritos** | Minha Lista com acesso rápido na navegação e na Home |
 | **Player** | Vídeo full-screen com OSD, sidebar de canais e controle de qualidade |
 | **TV Focus** | Navegação por D-pad com anel de foco animado em todos os elementos |
-| **EPG** | Grade de canais × horários com programação atual e futura |
-| **Temas** | Suporte a temas customizados persistidos no dispositivo |
+| **EPG** | Guia real (XMLTV) com grade de canais × horários e "Agora/A seguir" |
+| **Configuração por QR** | Preencha as credenciais pelo celular escaneando o QR da TV |
 | **Deep Links** | Abertura direta de séries/canais por URI externa |
 
 ---
@@ -45,8 +45,8 @@ SkaphosTV é um player IPTV completo construído com **React Native + Expo**, pr
 Home         →  Hero dinâmico + seções (Ao Vivo / Filmes / Séries / Lançamentos)
 Player       →  Player full-screen com OSD e sidebar de canais
 Setup        →  Configuração de lista Xtream ou M3U, toggles de opções
-Search       →  Busca com melhor resultado + lista de matches
-Favorites    →  Minha Lista / Gravações / Histórico / Baixados
+Busca        →  Inline na Home, com filtros por tipo e buscas recentes
+Favoritos    →  Inline na Home (aba Favoritos da navegação)
 Series       →  Hero da série, temporadas, grade de episódios
 Detail       →  Detalhes de VOD, tabs Sobre / Mais como este
 EPG          →  Grade de programação (TV only)

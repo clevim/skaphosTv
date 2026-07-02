@@ -11,6 +11,7 @@ import { fixStreamUrl } from '../utils/m3uParser';
 import { Channel } from '../types';
 import { colors } from '../utils/theme';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import { resolveContentType } from '../utils/channelUtils';
 
 const WIN_W = IS_TV ? 340 : IS_WEB ? 300 : 176;
 const WIN_H = Math.round(WIN_W * 9 / 16);
@@ -43,10 +44,11 @@ export default function MiniPlayer({ onExpand }: Props) {
     positionRef.current = t;
     const dur = durationRef.current;
     const now = Date.now();
-    // Salva o progresso a cada ~10s → expandir/retomar continua de onde parou
+    // Salva o progresso a cada ~10s → expandir/retomar continua de onde parou.
+    // Ao vivo nunca grava (streams HLS reportam a janela de buffer como duração).
     if (dur > 0 && now - lastSaveRef.current > 10_000) {
       lastSaveRef.current = now;
-      if (channel?.id) {
+      if (channel?.id && resolveContentType(channel) !== 'live') {
         record(channel.id, t, dur);
         // Espelha na série-pai — a Home mostra progresso pelo id da SÉRIE
         if (channel.seriesRef?.id) record(channel.seriesRef.id, t, dur);
@@ -55,7 +57,7 @@ export default function MiniPlayer({ onExpand }: Props) {
   }, [channel, record]);
 
   const saveNow = useCallback(() => {
-    if (channel?.id && durationRef.current > 0) {
+    if (channel?.id && durationRef.current > 0 && resolveContentType(channel) !== 'live') {
       record(channel.id, positionRef.current, durationRef.current);
       if (channel.seriesRef?.id) record(channel.seriesRef.id, positionRef.current, durationRef.current);
     }

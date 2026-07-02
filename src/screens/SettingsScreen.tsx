@@ -2,7 +2,7 @@
 // Mobile: vertical scroll layout
 // TV: two-panel (left sidebar with categories + right panel with settings)
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, ActivityIndicator, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Switch, ActivityIndicator, TextInput, Alert, Modal, Platform } from 'react-native';
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -87,6 +87,12 @@ const SUBSIZE_OPTIONS = [
   { value: 'small',  label: 'Pequena' },
   { value: 'medium', label: 'Média' },
   { value: 'large',  label: 'Grande' },
+] as const;
+
+const BUFFER_OPTIONS = [
+  { value: '15000', label: '15 s · conexão instável' },
+  { value: '30000', label: '30 s · padrão' },
+  { value: '60000', label: '60 s · conexão estável' },
 ] as const;
 
 // ── SettingsGroup / SettingsRow ─────────────────────────────────────────────
@@ -288,6 +294,72 @@ function UpdateCheckRow() {
   );
 }
 
+// ── ForceUpdateRow ──────────────────────────────────────────────────────────
+// Baixa e reinstala o último APK do GitHub MESMO que a versão não seja mais nova
+// que a atual — útil para reinstalar uma build corrompida ou "voltar ao oficial".
+// Android instala por cima quando a assinatura confere (downgrade o sistema recusa).
+
+const FORCE_SUB_IDLE = 'Baixa e reinstala a última versão do GitHub, mesmo igual à atual';
+
+function ForceUpdateRow() {
+  const [sub, setSub] = useState(FORCE_SUB_IDLE);
+  const [busy, setBusy] = useState(false);
+
+  // Instalação de APK só existe no Android nativo (TV/celular) — some no web
+  if (Platform.OS !== 'android') return null;
+
+  const run = async () => {
+    if (busy) return;
+    setBusy(true);
+    setSub('Buscando última versão no GitHub…');
+    try {
+      const rel = await fetchLatestRelease();
+      if (!rel) { setSub('Não foi possível consultar o GitHub'); return; }
+      if (!rel.apkUrl) { setSub(`v${rel.version} está sem APK anexado no release`); return; }
+
+      const isSameOrOlder = !isNewerVersion(rel.version, APP_VERSION);
+      setBusy(false);
+      Alert.alert(
+        'Forçar atualização',
+        `Baixar e reinstalar a v${rel.version}?` +
+          (isSameOrOlder ? `\n\nVocê já está na ${VERSION_LABEL} — o APK será reinstalado por cima.` : ''),
+        [
+          { text: 'Cancelar', style: 'cancel', onPress: () => setSub(FORCE_SUB_IDLE) },
+          {
+            text: 'Baixar e instalar',
+            onPress: async () => {
+              setBusy(true);
+              try {
+                await downloadAndInstallApk(rel.apkUrl!, p => setSub(`Baixando… ${Math.round(p * 100)}%`));
+                setSub('Abrindo instalador…');
+              } catch {
+                setSub('Falha ao baixar o APK');
+                Alert.alert('Erro', 'Não foi possível baixar/instalar o APK.');
+              } finally {
+                setBusy(false);
+              }
+            },
+          },
+        ],
+      );
+    } catch {
+      setSub('Erro ao buscar o release');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingsRow
+      icon="refresh-circle-outline"
+      label="Forçar atualização"
+      sub={sub}
+      value={busy ? '…' : undefined}
+      onPress={busy ? undefined : run}
+    />
+  );
+}
+
 // ── XtreamSourceCard ────────────────────────────────────────────────────────
 
 function XtreamSourceCard({ source, authInfo }: {
@@ -392,6 +464,212 @@ function JellyfinSourceCard({ source }: {
 
 // ── TV category definitions ─────────────────────────────────────────────────
 
+// ── Blocos compartilhados TV/mobile (todas as opções têm efeito REAL) ────────
+
+/** Linhas de Reprodução: autoplay, buffer (bufferConfig do player) e legenda automática. */
+function PlaybackRows({ settings, updateSettings }: {
+  settings: any; updateSettings: (s: any) => void;
+}) {
+  return (
+    <>
+      <SettingsRow
+        icon="sparkles-outline"
+        label="Reprodução automática"
+        toggle
+        on={settings.autoPlay}
+        onToggle={v => updateSettings({ autoPlay: v })}
+      />
+      <SettingsRowSelect
+        icon="speedometer-outline"
+        label="Buffer de vídeo"
+        sub="Quanto o player pré-carrega — maior aguenta mais oscilação de rede"
+        options={BUFFER_OPTIONS}
+        value={String(settings.bufferSize)}
+        onChange={v => updateSettings({ bufferSize: parseInt(v, 10) })}
+      />
+      <SettingsRow
+        icon="chatbox-ellipses-outline"
+        label="Legendas automáticas"
+        sub="Ativa a legenda preferida quando o conteúdo tiver (Jellyfin)"
+        toggle
+        on={settings.subtitleEnabled}
+        onToggle={v => updateSettings({ subtitleEnabled: v })}
+      />
+    </>
+  );
+}
+
+/** Grupo Interface: Guia (EPG) na navegação e relógio da TV. */
+function InterfaceGroup({ settings, updateSettings }: {
+  settings: any; updateSettings: (s: any) => void;
+}) {
+  return (
+    <SettingsGroup title="Interface">
+      <SettingsRow
+        icon="calendar-outline"
+        label="Guia de programação (EPG)"
+        sub="Mostra a aba Guia na navegação"
+        toggle
+        on={settings.showEpg}
+        onToggle={v => updateSettings({ showEpg: v })}
+      />
+      <SettingsRow
+        icon="time-outline"
+        label="Relógio na barra da TV"
+        toggle
+        on={settings.showClock}
+        onToggle={v => updateSettings({ showClock: v })}
+      />
+    </SettingsGroup>
+  );
+}
+
+/** Modal de PIN: definir (digitar 2×), desbloquear e remover (exigem o PIN atual). */
+function PinModal({ mode, currentPin, onClose, onConfirm }: {
+  mode: null | 'set' | 'unlock' | 'remove';
+  currentPin: string | null;
+  onClose: () => void;
+  onConfirm: (pin: string) => void;
+}) {
+  const [pin, setPin] = useState('');
+  const [pin2, setPin2] = useState('');
+  const [err, setErr] = useState('');
+  useEffect(() => { setPin(''); setPin2(''); setErr(''); }, [mode]);
+  if (!mode) return null;
+
+  const title = mode === 'set' ? (currentPin ? 'Alterar PIN' : 'Definir PIN')
+    : mode === 'unlock' ? 'Digite o PIN' : 'Remover PIN';
+
+  const confirm = () => {
+    if (mode === 'set') {
+      if (!/^\d{4,8}$/.test(pin)) { setErr('Use de 4 a 8 números.'); return; }
+      if (pin !== pin2) { setErr('Os PINs não conferem.'); return; }
+      onConfirm(pin);
+    } else {
+      if (pin !== currentPin) { setErr('PIN incorreto.'); return; }
+      onConfirm(pin);
+    }
+  };
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={pinStyles.overlay}>
+        <View style={pinStyles.box}>
+          <View style={pinStyles.iconWrap}>
+            <Ionicons name="lock-closed" size={20} color={colors.accent} />
+          </View>
+          <Text style={pinStyles.title}>{title}</Text>
+          <TextInput
+            style={pinStyles.input}
+            value={pin}
+            onChangeText={t => { setPin(t.replace(/\D/g, '')); setErr(''); }}
+            keyboardType="number-pad"
+            secureTextEntry
+            maxLength={8}
+            placeholder="PIN"
+            placeholderTextColor={colors.text3}
+            autoFocus
+          />
+          {mode === 'set' && (
+            <TextInput
+              style={pinStyles.input}
+              value={pin2}
+              onChangeText={t => { setPin2(t.replace(/\D/g, '')); setErr(''); }}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={8}
+              placeholder="Repita o PIN"
+              placeholderTextColor={colors.text3}
+            />
+          )}
+          {!!err && <Text style={pinStyles.err}>{err}</Text>}
+          <View style={pinStyles.actions}>
+            <TVFocusable onPress={onClose} style={[pinStyles.btn, pinStyles.btnGhost]}>
+              <Text style={pinStyles.btnGhostText}>Cancelar</Text>
+            </TVFocusable>
+            <TVFocusable onPress={confirm} style={[pinStyles.btn, pinStyles.btnPrimary]}>
+              <Text style={pinStyles.btnPrimaryText}>Confirmar</Text>
+            </TVFocusable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const pinStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: colors.overlay, alignItems: 'center', justifyContent: 'center' },
+  box: {
+    width: 320, maxWidth: '88%',
+    backgroundColor: colors.bg1, borderRadius: radius.xl,
+    borderWidth: 1, borderColor: colors.border,
+    padding: spacing.xl, alignItems: 'center',
+  },
+  iconWrap: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: colors.accentSoft,
+    alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm,
+  },
+  title: { fontSize: fontSize.md, fontWeight: '700', color: colors.text1, marginBottom: spacing.md },
+  input: {
+    width: '100%', textAlign: 'center', letterSpacing: 6,
+    backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.md, color: colors.text1, fontSize: 18,
+    paddingVertical: 10, marginBottom: spacing.sm,
+  },
+  err: { color: colors.red, fontSize: fontSize.xs, marginBottom: spacing.sm },
+  actions: { flexDirection: 'row', gap: 10, marginTop: spacing.xs },
+  btn: { paddingHorizontal: 22, paddingVertical: 10, borderRadius: radius.md },
+  btnGhost: { backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border },
+  btnGhostText: { color: colors.text2, fontWeight: '600', fontSize: fontSize.sm },
+  btnPrimary: { backgroundColor: colors.accent3 },
+  btnPrimaryText: { color: colors.white, fontWeight: '600', fontSize: fontSize.sm },
+});
+
+/** Controle parental: PIN oculta grupos adultos das listas/busca; desbloqueio por sessão. */
+function ParentalGroup() {
+  const parentalPin      = useStore(s => s.settings.parentalPin);
+  const adultUnlocked    = useStore(s => s.adultUnlocked);
+  const setAdultUnlocked = useStore(s => s.setAdultUnlocked);
+  const updateSettings   = useStore(s => s.updateSettings);
+  const [modal, setModal] = useState<null | 'set' | 'unlock' | 'remove'>(null);
+
+  return (
+    <SettingsGroup title="Controle parental">
+      <SettingsRow
+        icon="lock-closed-outline"
+        label={parentalPin ? 'Alterar PIN' : 'Definir PIN'}
+        sub={parentalPin ? 'Conteúdo adulto oculto das listas e da busca' : 'Oculta grupos adultos das listas e da busca'}
+        onPress={() => setModal('set')}
+      />
+      {!!parentalPin && (
+        <SettingsRow
+          icon="eye-outline"
+          label="Mostrar conteúdo adulto"
+          sub={adultUnlocked ? 'Visível até fechar o app' : 'Exige o PIN'}
+          toggle
+          on={adultUnlocked}
+          onToggle={v => { v ? setModal('unlock') : setAdultUnlocked(false); }}
+        />
+      )}
+      {!!parentalPin && (
+        <SettingsRow icon="lock-open-outline" label="Remover PIN" onPress={() => setModal('remove')} />
+      )}
+      <PinModal
+        mode={modal}
+        currentPin={parentalPin}
+        onClose={() => setModal(null)}
+        onConfirm={(pin) => {
+          if (modal === 'set')    { updateSettings({ parentalPin: pin }); setAdultUnlocked(false); }
+          if (modal === 'unlock') setAdultUnlocked(true);
+          if (modal === 'remove') { updateSettings({ parentalPin: null }); setAdultUnlocked(false); }
+          setModal(null);
+        }}
+      />
+    </SettingsGroup>
+  );
+}
+
 type CategoryKey = 'reproducao' | 'conta' | 'sistema';
 
 const TV_CATEGORIES: { key: CategoryKey; label: string; icon: string }[] = [
@@ -416,16 +694,9 @@ function TVPanel({
     return (
       <>
         <SettingsGroup title="Reprodução">
-          <SettingsRow icon="play-outline"            label="Qualidade do streaming"  value="Auto · até 4K" />
-          <SettingsRow icon="download-outline"         label="Qualidade dos downloads" value="HD" />
-          <SettingsRow
-            icon="sparkles-outline"
-            label="Reprodução automática"
-            toggle
-            on={settings.autoPlay}
-            onToggle={v => updateSettings({ autoPlay: v })}
-          />
+          <PlaybackRows settings={settings} updateSettings={updateSettings} />
         </SettingsGroup>
+        <InterfaceGroup settings={settings} updateSettings={updateSettings} />
         <SettingsGroup title="Jellyfin · Preferências">
           <SettingsRowSelect
             icon="musical-note-outline"
@@ -486,9 +757,11 @@ function TVPanel({
   // sistema
   return (
     <>
+      <ParentalGroup />
       <SettingsGroup title="Sistema">
         <SettingsRow icon="language-outline"           label="Idioma"   value={settings.language || 'pt-BR'} />
         <UpdateCheckRow />
+        <ForceUpdateRow />
         <LogoRefreshRow />
         <SettingsRow icon="information-circle-outline" label="Versão"   value={VERSION_LABEL} />
       </SettingsGroup>
@@ -600,15 +873,12 @@ export default function SettingsScreen() {
 
       <ScrollView style={styles.content} contentContainerStyle={styles.inner}>
         <SettingsGroup title="Reprodução">
-          <SettingsRow icon="play-outline"   label="Qualidade do streaming"  value="Auto · até 4K" />
-          <SettingsRow icon="download-outline" label="Qualidade dos downloads" value="HD" />
-          <SettingsRow
-            icon="sparkles-outline"
-            label="Reprodução automática"
-            toggle on={settings.autoPlay}
-            onToggle={v => updateSettings({ autoPlay: v })}
-          />
+          <PlaybackRows settings={settings} updateSettings={updateSettings} />
         </SettingsGroup>
+
+        <InterfaceGroup settings={settings} updateSettings={updateSettings} />
+
+        <ParentalGroup />
 
         <SettingsGroup title="Jellyfin · Preferências">
           <SettingsRowSelect
@@ -687,6 +957,7 @@ export default function SettingsScreen() {
         <SettingsGroup title="Sistema">
           <SettingsRow icon="language-outline" label="Idioma" value={settings.language || 'pt-BR'} />
           <UpdateCheckRow />
+        <ForceUpdateRow />
           <LogoRefreshRow />
           <SettingsRow icon="information-circle-outline" label="Versão" value={VERSION_LABEL} />
         </SettingsGroup>

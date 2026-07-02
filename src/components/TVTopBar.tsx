@@ -5,11 +5,13 @@ import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, radius, fontFamily } from '../utils/theme';
 import { LAUNCH_YEAR } from '../utils/channelUtils';
+import { useStore } from '../store/useStore';
 
 const TV_NAV_STATIC_BEFORE = [
   { key: 'home',      label: 'Início'    },
   { key: 'favorites', label: 'Favoritos' },
   { key: 'live',      label: 'Ao vivo'   },
+  { key: 'epg',       label: 'Guia'      },
   { key: 'movies',    label: 'Filmes'    },
   { key: 'series',    label: 'Séries'    },
 ];
@@ -64,8 +66,10 @@ function NavItem({
 }
 
 export default function TVTopBar({ active, clock, onNavPress, onSettingsPress, jellyfinSources }: Props) {
+  const showClock = useStore(s => s.settings.showClock);
+  const showEpg   = useStore(s => s.settings.showEpg);
   const navItems = [
-    ...TV_NAV_STATIC_BEFORE,
+    ...TV_NAV_STATIC_BEFORE.filter(i => i.key !== 'epg' || showEpg),
     ...(jellyfinSources ?? []).map(s => ({ key: `jf-${s.id}`, label: s.serverName || s.name })),
     ...TV_NAV_STATIC_AFTER,
   ];
@@ -96,8 +100,12 @@ export default function TVTopBar({ active, clock, onNavPress, onSettingsPress, j
 
       {/* Right: clock + settings */}
       <View style={styles.rightSection}>
-        <Text style={styles.clock}>{clock}</Text>
-        <View style={styles.separator} />
+        {showClock && (
+          <>
+            <Text style={styles.clock}>{clock}</Text>
+            <View style={styles.separator} />
+          </>
+        )}
         <TVFocusable
           onPress={onSettingsPress || (() => {})}
           style={styles.settingsBtn}

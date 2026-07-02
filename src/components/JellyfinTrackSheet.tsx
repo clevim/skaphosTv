@@ -110,8 +110,11 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
         setSubtitleTracks(subs);
         const prefAudioTrack = audio.find(x => matchesLang(x.language, x.displayTitle, prefAudio));
         setSelectedAudio(prefAudioTrack?.index ?? null);
-        const prefSubTrack = subs.find(x => matchesLang(x.language, x.displayTitle, prefSub));
-        setSelectedSubtitle(prefSubTrack?.index ?? null);
+        // Legenda automática só quando habilitada em Ajustes → Reprodução
+        if (settings.subtitleEnabled) {
+          const prefSubTrack = subs.find(x => matchesLang(x.language, x.displayTitle, prefSub));
+          setSelectedSubtitle(prefSubTrack?.index ?? null);
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));

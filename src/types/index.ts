@@ -61,8 +61,6 @@ export type RootStackParamList = {
     playlistIndex?: number;
   };
   Setup: undefined;
-  Search: undefined;
-  Favorites: undefined;
   Settings: undefined;
   Series: { seriesName: string; channels: Channel[] };
   Detail: { channel: Channel; relatedChannels?: Channel[] };

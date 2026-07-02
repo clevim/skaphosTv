@@ -957,6 +957,14 @@ export default function SetupScreen() {
           </TVFocusable>
         </View>
 
+        {/* Pareamento via QR — só builds nativos (o web não abre servidor local) */}
+        {!IS_WEB && (
+          <TVFocusable onPress={() => setShowPairing(true)} style={styles.pairBtn} borderRadius={10}>
+            <Ionicons name="qr-code-outline" size={16} color={colors.accent} />
+            <Text style={styles.pairBtnText}>Configurar por QR code (preencher em outro aparelho)</Text>
+          </TVFocusable>
+        )}
+
         {activeTab === 'xtream' ? xtreamForm : activeTab === 'jellyfin' ? jellyfinForm : m3uForm}
 
         {/* Security note */}
@@ -1013,6 +1021,12 @@ export default function SetupScreen() {
         status={qcStatus}
         error={qcError}
         onCancel={cancelQuickConnect}
+      />
+
+      <PairingSetupModal
+        visible={showPairing}
+        onClose={() => setShowPairing(false)}
+        onSource={handlePairedSource}
       />
 
       {/* Delete confirmation modal */}
@@ -1261,6 +1275,15 @@ const styles = StyleSheet.create({
   tabActive: { backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border },
   tabText: { fontSize: fontSize.sm, fontWeight: '500', color: colors.text3 },
   tabTextActive: { color: colors.text1, fontWeight: '600' },
+  pairBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    marginTop: spacing.sm,
+    paddingVertical: 11,
+    borderRadius: radius.md,
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1, borderColor: colors.borderHover,
+  },
+  pairBtnText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.accent },
 
   optionsBox: { backgroundColor: colors.bg1, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
 
