@@ -15,7 +15,7 @@ import { EpgProgram } from '../utils/epg';
 import TVFocusable from '../components/TVFocusable';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
 import { RootStackParamList, Channel } from '../types';
-import { detectType } from '../utils/channelUtils';
+import { resolveContentType } from '../utils/channelUtils';
 
 type Nav = StackNavigationProp<RootStackParamList>;
 
@@ -83,9 +83,11 @@ export default function TVEPGScreen() {
 
   useEffect(() => { loadEpg(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Only live channels for EPG — com programação primeiro (canais com guia sobem)
+  // Only live channels for EPG — com programação primeiro (canais com guia sobem).
+  // resolveContentType respeita o streamType do Xtream/Jellyfin: só a heurística
+  // por ♦ no grupo classificava TODO o VOD Xtream como "live" e lotava o guia.
   const liveChannels = useMemo(() => {
-    const live = channels.filter(c => detectType(c.group || '', c.name) === 'live');
+    const live = channels.filter(c => resolveContentType(c) === 'live');
     const withEpg = live.filter(c => epgByChannel[c.id]?.length);
     const without = live.filter(c => !epgByChannel[c.id]?.length);
     return [...withEpg, ...without].slice(0, 60);
@@ -316,6 +318,9 @@ const styles = StyleSheet.create({
   hScroll: {
     marginLeft: CHANNEL_COL,
     height: ROW_HEIGHT * 0.75,
+    // react-native-web dá flexGrow:1 a ScrollView por padrão — sem isto o
+    // cabeçalho de horários crescia e empurrava as linhas pro fundo da tela.
+    flexGrow: 0,
   },
   timeHeader: {
     flexDirection: 'row',
@@ -345,9 +350,10 @@ const styles = StyleSheet.create({
   },
 
   // Rows
+  // Sem marginTop: o cabeçalho (hScroll) está no fluxo normal e já ocupa a
+  // própria altura — o offset extra criava um vão entre o cabeçalho e as linhas.
   rowsOuter: {
     flex: 1,
-    marginTop: ROW_HEIGHT * 0.75,
   },
   epgRow: {
     flexDirection: 'row',

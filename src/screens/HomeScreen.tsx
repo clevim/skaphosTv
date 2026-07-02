@@ -19,7 +19,7 @@ import { RootStackParamList, Channel } from '../types';
 import { loadSourceChannels } from '../utils/sourceLoader';
 import { useChannelFilter } from '../hooks/useChannelFilter';
 import { useAppLayout } from '../hooks/useAppLayout';
-import { detectType, getSeriesBaseName, isAdultGroup, LAUNCH_YEAR, NAV_ITEMS } from '../utils/channelUtils';
+import { detectType, getSeriesBaseName, LAUNCH_YEAR, NAV_ITEMS } from '../utils/channelUtils';
 import { searchChannels, SearchType } from '../utils/search';
 import { useRecentSearches } from '../store/recentSearches';
 import RemoteHints from '../components/RemoteHints';
@@ -103,14 +103,6 @@ export default function HomeScreen() {
   const toggleFavorite        = useStore(s => s.toggleFavorite);
   const loadFromStorage       = useStore(s => s.loadFromStorage);
   const replaceSourceChannels = useStore(s => s.replaceSourceChannels);
-  const parentalPin           = useStore(s => s.settings.parentalPin);
-  const adultUnlocked         = useStore(s => s.adultUnlocked);
-
-  // Controle parental: com PIN e sessão bloqueada, conteúdo adulto some da Home e da busca
-  const visibleChannels = useMemo(() => {
-    if (!parentalPin || adultUnlocked) return channels;
-    return channels.filter(c => !isAdultGroup(c.group));
-  }, [channels, parentalPin, adultUnlocked]);
 
   const [navKey, setNavKey]         = useState('home');
   const [searchQuery, setSearchQuery] = useState('');
@@ -326,8 +318,8 @@ export default function HomeScreen() {
 
   const searchResults = useMemo(() => {
     if (navKey !== 'search') return [];
-    return searchChannels(visibleChannels, searchDebounced, searchType);
-  }, [visibleChannels, searchDebounced, searchType, navKey]);
+    return searchChannels(channels, searchDebounced, searchType);
+  }, [channels, searchDebounced, searchType, navKey]);
 
   const handleChannelPress = useCallback((channel: Channel) => {
     // Xtream/Jellyfin definem streamType explicitamente — tem precedência sobre heurística
@@ -537,7 +529,7 @@ export default function HomeScreen() {
           sourcesEmpty={sources.length === 0}
           renderCard={renderCard}
           contentH={contentH}
-          channels={visibleChannels}
+          channels={channels}
           onChannelPress={handleChannelPress}
           onWatch={handleHeroWatch}
           onDetails={handleChannelPress}

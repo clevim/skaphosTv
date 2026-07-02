@@ -490,6 +490,9 @@ export default function HomeContent({
                 <TVFocusable
                   onPress={() => (onWatch ? onWatch(heroChannel) : handlePress(heroChannel))}
                   style={styles.heroPlayBtn}
+                  // O highlight padrão de foco (roxo translúcido) apagava o fundo
+                  // branco e deixava o texto escuro ilegível — mantém fundo sólido.
+                  focusStyle={{ backgroundColor: colors.accent2 }}
                   hasTVPreferredFocus={IS_TV}
                 >
                   <Ionicons name="play" size={14} color={colors.textInverse} />
@@ -701,7 +704,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row', gap: 8, marginTop: IS_TV ? 20 : 14,
   },
   heroPlayBtn: {
-    flex: IS_TV ? 0 : 1,
+    // undefined = tamanho pelo conteúdo. `flex: 0` no react-native-web vira
+    // flex-basis: 0% e o botão colapsa, cortando o texto ("Assistr").
+    flex: IS_TV ? undefined : 1,
     height: IS_TV ? 46 : 42,
     paddingHorizontal: IS_TV ? 28 : 0,
     borderRadius: 12,

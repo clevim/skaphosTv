@@ -2,7 +2,7 @@
 // Mobile: vertical scroll layout
 // TV: two-panel (left sidebar with categories + right panel with settings)
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, ActivityIndicator, TextInput, Alert, Modal, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Switch, ActivityIndicator, TextInput, Alert, Platform } from 'react-native';
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -524,152 +524,6 @@ function InterfaceGroup({ settings, updateSettings }: {
   );
 }
 
-/** Modal de PIN: definir (digitar 2×), desbloquear e remover (exigem o PIN atual). */
-function PinModal({ mode, currentPin, onClose, onConfirm }: {
-  mode: null | 'set' | 'unlock' | 'remove';
-  currentPin: string | null;
-  onClose: () => void;
-  onConfirm: (pin: string) => void;
-}) {
-  const [pin, setPin] = useState('');
-  const [pin2, setPin2] = useState('');
-  const [err, setErr] = useState('');
-  useEffect(() => { setPin(''); setPin2(''); setErr(''); }, [mode]);
-  if (!mode) return null;
-
-  const title = mode === 'set' ? (currentPin ? 'Alterar PIN' : 'Definir PIN')
-    : mode === 'unlock' ? 'Digite o PIN' : 'Remover PIN';
-
-  const confirm = () => {
-    if (mode === 'set') {
-      if (!/^\d{4,8}$/.test(pin)) { setErr('Use de 4 a 8 números.'); return; }
-      if (pin !== pin2) { setErr('Os PINs não conferem.'); return; }
-      onConfirm(pin);
-    } else {
-      if (pin !== currentPin) { setErr('PIN incorreto.'); return; }
-      onConfirm(pin);
-    }
-  };
-
-  return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <View style={pinStyles.overlay}>
-        <View style={pinStyles.box}>
-          <View style={pinStyles.iconWrap}>
-            <Ionicons name="lock-closed" size={20} color={colors.accent} />
-          </View>
-          <Text style={pinStyles.title}>{title}</Text>
-          <TextInput
-            style={pinStyles.input}
-            value={pin}
-            onChangeText={t => { setPin(t.replace(/\D/g, '')); setErr(''); }}
-            keyboardType="number-pad"
-            secureTextEntry
-            maxLength={8}
-            placeholder="PIN"
-            placeholderTextColor={colors.text3}
-            autoFocus
-          />
-          {mode === 'set' && (
-            <TextInput
-              style={pinStyles.input}
-              value={pin2}
-              onChangeText={t => { setPin2(t.replace(/\D/g, '')); setErr(''); }}
-              keyboardType="number-pad"
-              secureTextEntry
-              maxLength={8}
-              placeholder="Repita o PIN"
-              placeholderTextColor={colors.text3}
-            />
-          )}
-          {!!err && <Text style={pinStyles.err}>{err}</Text>}
-          <View style={pinStyles.actions}>
-            <TVFocusable onPress={onClose} style={[pinStyles.btn, pinStyles.btnGhost]}>
-              <Text style={pinStyles.btnGhostText}>Cancelar</Text>
-            </TVFocusable>
-            <TVFocusable onPress={confirm} style={[pinStyles.btn, pinStyles.btnPrimary]}>
-              <Text style={pinStyles.btnPrimaryText}>Confirmar</Text>
-            </TVFocusable>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-const pinStyles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: colors.overlay, alignItems: 'center', justifyContent: 'center' },
-  box: {
-    width: 320, maxWidth: '88%',
-    backgroundColor: colors.bg1, borderRadius: radius.xl,
-    borderWidth: 1, borderColor: colors.border,
-    padding: spacing.xl, alignItems: 'center',
-  },
-  iconWrap: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: colors.accentSoft,
-    alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm,
-  },
-  title: { fontSize: fontSize.md, fontWeight: '700', color: colors.text1, marginBottom: spacing.md },
-  input: {
-    width: '100%', textAlign: 'center', letterSpacing: 6,
-    backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
-    borderRadius: radius.md, color: colors.text1, fontSize: 18,
-    paddingVertical: 10, marginBottom: spacing.sm,
-  },
-  err: { color: colors.red, fontSize: fontSize.xs, marginBottom: spacing.sm },
-  actions: { flexDirection: 'row', gap: 10, marginTop: spacing.xs },
-  btn: { paddingHorizontal: 22, paddingVertical: 10, borderRadius: radius.md },
-  btnGhost: { backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border },
-  btnGhostText: { color: colors.text2, fontWeight: '600', fontSize: fontSize.sm },
-  btnPrimary: { backgroundColor: colors.accent3 },
-  btnPrimaryText: { color: colors.white, fontWeight: '600', fontSize: fontSize.sm },
-});
-
-/** Controle parental: PIN oculta grupos adultos das listas/busca; desbloqueio por sessão. */
-function ParentalGroup() {
-  const parentalPin      = useStore(s => s.settings.parentalPin);
-  const adultUnlocked    = useStore(s => s.adultUnlocked);
-  const setAdultUnlocked = useStore(s => s.setAdultUnlocked);
-  const updateSettings   = useStore(s => s.updateSettings);
-  const [modal, setModal] = useState<null | 'set' | 'unlock' | 'remove'>(null);
-
-  return (
-    <SettingsGroup title="Controle parental">
-      <SettingsRow
-        icon="lock-closed-outline"
-        label={parentalPin ? 'Alterar PIN' : 'Definir PIN'}
-        sub={parentalPin ? 'Conteúdo adulto oculto das listas e da busca' : 'Oculta grupos adultos das listas e da busca'}
-        onPress={() => setModal('set')}
-      />
-      {!!parentalPin && (
-        <SettingsRow
-          icon="eye-outline"
-          label="Mostrar conteúdo adulto"
-          sub={adultUnlocked ? 'Visível até fechar o app' : 'Exige o PIN'}
-          toggle
-          on={adultUnlocked}
-          onToggle={v => { v ? setModal('unlock') : setAdultUnlocked(false); }}
-        />
-      )}
-      {!!parentalPin && (
-        <SettingsRow icon="lock-open-outline" label="Remover PIN" onPress={() => setModal('remove')} />
-      )}
-      <PinModal
-        mode={modal}
-        currentPin={parentalPin}
-        onClose={() => setModal(null)}
-        onConfirm={(pin) => {
-          if (modal === 'set')    { updateSettings({ parentalPin: pin }); setAdultUnlocked(false); }
-          if (modal === 'unlock') setAdultUnlocked(true);
-          if (modal === 'remove') { updateSettings({ parentalPin: null }); setAdultUnlocked(false); }
-          setModal(null);
-        }}
-      />
-    </SettingsGroup>
-  );
-}
-
 type CategoryKey = 'reproducao' | 'conta' | 'sistema';
 
 const TV_CATEGORIES: { key: CategoryKey; label: string; icon: string }[] = [
@@ -757,7 +611,6 @@ function TVPanel({
   // sistema
   return (
     <>
-      <ParentalGroup />
       <SettingsGroup title="Sistema">
         <SettingsRow icon="language-outline"           label="Idioma"   value={settings.language || 'pt-BR'} />
         <UpdateCheckRow />
@@ -878,7 +731,6 @@ export default function SettingsScreen() {
 
         <InterfaceGroup settings={settings} updateSettings={updateSettings} />
 
-        <ParentalGroup />
 
         <SettingsGroup title="Jellyfin · Preferências">
           <SettingsRowSelect

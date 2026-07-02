@@ -370,7 +370,9 @@ export default function PlayerScreen() {
           rate={rate}
           repeat={false}
           bufferConfig={{
-            minBufferMs: 5000,
+            // 5s de mínimo esvaziava em qualquer oscilação de IPTV → travadas em
+            // sequência. 15s dá folga real (o ExoPlayer usa 50s por padrão).
+            minBufferMs: 15000,
             // Configurável em Ajustes → Reprodução (15s conexão fraca / 30s / 60s estável)
             maxBufferMs: bufferSizeMs >= 15000 ? bufferSizeMs : 30000,
             bufferForPlaybackMs: 2500,

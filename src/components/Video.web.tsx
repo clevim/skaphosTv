@@ -137,11 +137,34 @@ const Video = forwardRef(function Video(props: any, ref: any) {
         // xhrSetup reescreve cada request (manifesto + segmentos) para o proxy.
         const hls = new Hls({
           enableWorker: true,
+          lowLatencyMode: false,
+          // Buffer generoso: IPTV via proxy tem jitter alto — priorizamos
+          // estabilidade sobre latência (alguns segundos a mais de atraso).
+          maxBufferLength: 30,
+          backBufferLength: 30,
+          // Ao vivo: segue ~3 segmentos atrás da ponta; só ressincroniza (seek)
+          // se ficar >10 segmentos para trás — evita pulos constantes.
+          liveSyncDurationCount: 3,
+          liveMaxLatencyDurationCount: 10,
+          fragLoadingMaxRetry: 6,
+          levelLoadingMaxRetry: 6,
+          manifestLoadingMaxRetry: 4,
           xhrSetup: (xhr, url) => { xhr.open('GET', viaProxy(url)); },
         });
         hlsRef.current = hls;
+        // Recuperação in-place: erro fatal de rede/mídia é retomado sem destruir
+        // o player (destruir → tela preta + retry de 2s+ no usePlayer). Só
+        // propaga ao app se as recuperações falharem em sequência.
+        let recoveries = 0;
+        hls.on(Hls.Events.FRAG_BUFFERED, () => { recoveries = 0; });
         hls.on(Hls.Events.ERROR, (_e, data) => {
-          if (data?.fatal) onError?.({ error: { errorString: `HLS: ${data.type}` } });
+          if (!data?.fatal) return;
+          recoveries += 1;
+          if (recoveries <= 4) {
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { hls.startLoad(); return; }
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { hls.recoverMediaError(); return; }
+          }
+          onError?.({ error: { errorString: `HLS: ${data.type}` } });
         });
         hls.loadSource(uri);
         hls.attachMedia(video);
@@ -155,7 +178,22 @@ const Video = forwardRef(function Video(props: any, ref: any) {
       if (mpegts.isSupported()) {
         const player = mpegts.createPlayer(
           { type: 'mpegts', isLive: true, url: viaProxy(uri) },
-          { enableStashBuffer: false, liveBufferLatencyChasing: true },
+          {
+            // Stash buffer LIGADO: sem ele qualquer jitter da rede vira travada.
+            // O chasing fica, mas com janela folgada — só ressincroniza se o
+            // atraso passar de 10s (o default de 1.5s causava pulos constantes),
+            // e mantém 3s de folga após o salto para não travar de novo em seguida.
+            enableStashBuffer: true,
+            stashInitialSize: 1024 * 384,
+            liveBufferLatencyChasing: true,
+            liveBufferLatencyMaxLatency: 10,
+            liveBufferLatencyMinRemain: 3,
+            // Sessões longas de ao vivo enchem o SourceBuffer (QuotaExceeded →
+            // congela depois de ~1h). Limpeza automática do que já passou resolve.
+            autoCleanupSourceBuffer: true,
+            autoCleanupMaxBackwardDuration: 60,
+            autoCleanupMinBackwardDuration: 30,
+          },
         );
         mpegtsRef.current = player;
         player.on(mpegts.Events.ERROR, (type: string) =>

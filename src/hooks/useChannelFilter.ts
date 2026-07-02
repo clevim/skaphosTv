@@ -1,7 +1,7 @@
 import { useMemo, useCallback } from 'react';
 import { Channel } from '../types';
 import { ChannelIndex } from '../store/channelIndex';
-import { detectType, getSeriesBaseName, isLaunchYear, isAdultGroup, YEAR_GROUPS } from '../utils/channelUtils';
+import { detectType, getSeriesBaseName, isLaunchYear, YEAR_GROUPS } from '../utils/channelUtils';
 import { IPTVSource, useStore } from '../store/useStore';
 
 interface UseChannelFilterProps {
@@ -29,11 +29,6 @@ export function useChannelFilter({
 }: UseChannelFilterProps) {
   const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
 
-  // Controle parental: com PIN definido e sessão bloqueada, grupos adultos somem
-  const parentalPin   = useStore(s => s.settings.parentalPin);
-  const adultUnlocked = useStore(s => s.adultUnlocked);
-  const hideAdult = !!parentalPin && !adultUnlocked;
-
   // O(1) — índice já tem o map pronto
   const episodeCountMap = channelIndex?.episodeCountMap ?? EMPTY_MAP;
 
@@ -59,8 +54,8 @@ export function useChannelFilter({
         g.startsWith(`${jellyfinServerName} ·`)
       );
     } else return [];
-    return hideAdult ? groups.filter(g => !isAdultGroup(g)) : groups;
-  }, [channelIndex, navKey, jellyfinServerName, hideAdult]);
+    return groups;
+  }, [channelIndex, navKey, jellyfinServerName]);
 
   const filteredChannels = useMemo(() => {
     if (navKey === 'home' || navKey === 'search') return [];
@@ -125,10 +120,8 @@ export function useChannelFilter({
       });
     }
 
-    if (hideAdult) list = list.filter(c => !isAdultGroup(c.group));
-
     return list;
-  }, [channelIndex, navKey, selectedGroup, favoritesSet, categorySearch, channels, jellyfinServerName, filteredGroups, hideAdult]);
+  }, [channelIndex, navKey, selectedGroup, favoritesSet, categorySearch, channels, jellyfinServerName, filteredGroups]);
 
   // O(1) — usa contagens pré-computadas
   const navCount = useCallback((key: string): number => {

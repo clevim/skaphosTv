@@ -43,8 +43,6 @@ interface AppState {
     bufferSize: number;
     /** Relógio na top bar da TV. */
     showClock: boolean;
-    /** PIN do controle parental — null = desativado. Com PIN, grupos adultos somem. */
-    parentalPin: string | null;
     language: string;
     /** Ativa legendas automaticamente quando o conteúdo tiver (Jellyfin). */
     subtitleEnabled: boolean;
@@ -55,9 +53,6 @@ interface AppState {
     jellyfinPreferredAudio: string;
     jellyfinPreferredSubtitle: string;
   };
-  /** Conteúdo adulto desbloqueado NESTA sessão (não persiste). */
-  adultUnlocked: boolean;
-  setAdultUnlocked: (v: boolean) => void;
 
   addSource: (source: IPTVSource) => void;
   updateSource: (id: string, patch: Partial<IPTVSource>) => void;
@@ -237,7 +232,6 @@ export const useStore = create<AppState>((set, get) => ({
     autoPlay: true,
     bufferSize: 30000,
     showClock: true,
-    parentalPin: null,
     language: 'pt-BR',
     subtitleEnabled: false,
     subtitleSize: 'medium',
@@ -246,8 +240,6 @@ export const useStore = create<AppState>((set, get) => ({
     jellyfinPreferredAudio: 'pt-BR',
     jellyfinPreferredSubtitle: 'pt-BR',
   },
-  adultUnlocked: false,
-  setAdultUnlocked: (v) => set({ adultUnlocked: v }),
 
   addSource: (source) => {
     set(state => ({ sources: [...state.sources, source] }));

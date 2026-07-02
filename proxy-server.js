@@ -112,14 +112,24 @@ app.use('/proxy', async (req, res) => {
     if (body && body.length === 0) body = undefined;
   }
 
+  // Timeout SÓ até os headers chegarem. Um AbortSignal.timeout no fetch inteiro
+  // derrubava todo stream ao vivo aos 60s (a resposta de um canal live dura horas)
+  // — o abort no meio do pipe ainda emitia 'error' não tratado e matava o processo.
+  const controller = new AbortController();
+  const connectTimeout = setTimeout(() => controller.abort(), 30_000);
+  // Cliente fechou (zapping, aba fechada) → derruba a conexão upstream junto,
+  // senão o servidor IPTV acumula conexões fantasma até estourar o limite (429).
+  res.on('close', () => controller.abort());
+
   try {
     const upstream = await fetch(parsed.href, {
       method,
       headers,
       body,
       redirect: 'follow', // segue 30x no servidor (o navegador não nos deixa fazê-lo)
-      signal: AbortSignal.timeout(60_000),
+      signal: controller.signal,
     });
+    clearTimeout(connectTimeout);
 
     res.status(upstream.status);
     upstream.headers.forEach((value, key) => {
@@ -127,12 +137,20 @@ app.use('/proxy', async (req, res) => {
     });
 
     if (upstream.body) {
-      Readable.fromWeb(upstream.body).pipe(res);
+      const stream = Readable.fromWeb(upstream.body);
+      // Sem handler, o 'error' do abort (cliente desistiu) derruba o Node inteiro
+      stream.on('error', () => res.end());
+      stream.pipe(res);
     } else {
       res.end();
     }
   } catch (e) {
-    res.status(502).json({ error: 'upstream fetch failed', detail: String(e?.message || e) });
+    clearTimeout(connectTimeout);
+    if (!res.headersSent) {
+      res.status(502).json({ error: 'upstream fetch failed', detail: String(e?.message || e) });
+    } else {
+      res.end();
+    }
   }
 });
 

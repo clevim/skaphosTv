@@ -44,15 +44,6 @@ export function resolveContentType(channel: Channel): 'live' | 'movies' | 'serie
 }
 
 /**
- * Grupo de conteúdo adulto? Usado pelo controle parental: com PIN definido,
- * esses grupos somem das listas/busca até desbloquear na sessão.
- */
-const ADULT_RE = /adult|adulto|\bxxx\b|\+?18\b|porn|er[óo]tic|sex\b|onlyfans|privacy/i;
-export function isAdultGroup(group: string | undefined): boolean {
-  return !!group && ADULT_RE.test(group);
-}
-
-/**
  * Detecta a qualidade a partir de uma string livre (nome e/ou URL do stream).
  * Fonte única — antes havia 3 cópias divergentes (m3uParser, xtreamLoader, phased).
  */
