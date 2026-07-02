@@ -59,6 +59,7 @@ const Video = forwardRef(function Video(props: any, ref: any) {
   const videoEl = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const mpegtsRef = useRef<any>(null);
+  const liveTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const uri: string = source?.uri ?? '';
 
@@ -122,6 +123,8 @@ const Video = forwardRef(function Video(props: any, ref: any) {
     if (!video || !uri) return;
 
     const cleanup = () => {
+      if (liveTickRef.current) { clearInterval(liveTickRef.current); liveTickRef.current = null; }
+      if (videoEl.current) videoEl.current.playbackRate = 1.0;
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
       if (mpegtsRef.current) {
         try { mpegtsRef.current.destroy(); } catch (_) {}
@@ -142,10 +145,12 @@ const Video = forwardRef(function Video(props: any, ref: any) {
           // estabilidade sobre latência (alguns segundos a mais de atraso).
           maxBufferLength: 30,
           backBufferLength: 30,
-          // Ao vivo: segue ~3 segmentos atrás da ponta; só ressincroniza (seek)
-          // se ficar >10 segmentos para trás — evita pulos constantes.
-          liveSyncDurationCount: 3,
-          liveMaxLatencyDurationCount: 10,
+          // Ao vivo SEM pulos: atraso é recuperado ACELERANDO a reprodução em
+          // 5% (imperceptível) em vez de seek. O seek só entra como último
+          // recurso, com 20 segmentos de atraso (janela quase estourando).
+          liveSyncDurationCount: 4,
+          liveMaxLatencyDurationCount: 20,
+          maxLiveSyncPlaybackRate: 1.05,
           fragLoadingMaxRetry: 6,
           levelLoadingMaxRetry: 6,
           manifestLoadingMaxRetry: 4,
@@ -180,14 +185,12 @@ const Video = forwardRef(function Video(props: any, ref: any) {
           { type: 'mpegts', isLive: true, url: viaProxy(uri) },
           {
             // Stash buffer LIGADO: sem ele qualquer jitter da rede vira travada.
-            // O chasing fica, mas com janela folgada — só ressincroniza se o
-            // atraso passar de 10s (o default de 1.5s causava pulos constantes),
-            // e mantém 3s de folga após o salto para não travar de novo em seguida.
+            // Chasing por SEEK desligado — era a causa dos "pulos" no ao vivo.
+            // O atraso acumulado é recuperado pelo catch-up suave abaixo
+            // (playbackRate levemente acima de 1), que é imperceptível.
             enableStashBuffer: true,
             stashInitialSize: 1024 * 384,
-            liveBufferLatencyChasing: true,
-            liveBufferLatencyMaxLatency: 10,
-            liveBufferLatencyMinRemain: 3,
+            liveBufferLatencyChasing: false,
             // Sessões longas de ao vivo enchem o SourceBuffer (QuotaExceeded →
             // congela depois de ~1h). Limpeza automática do que já passou resolve.
             autoCleanupSourceBuffer: true,
@@ -200,6 +203,40 @@ const Video = forwardRef(function Video(props: any, ref: any) {
           onError?.({ error: { errorString: `MPEGTS: ${type}` } }));
         player.attachMediaElement(video);
         player.load();
+
+        // ── Catch-up suave + watchdog de stall (1x por segundo) ─────────────
+        // • Latência (fim do buffer − posição) acima de 6s → acelera 5–10%;
+        //   abaixo de 4s → velocidade normal. Nunca dá seek = nunca pula.
+        // • Sem avanço de posição por 8s tocando → reconecta silenciosamente
+        //   (unload/load), sem derrubar o player nem mostrar erro.
+        let lastTime = -1;
+        let stalledSecs = 0;
+        liveTickRef.current = setInterval(() => {
+          const v = videoEl.current;
+          const p = mpegtsRef.current;
+          if (!v || !p || v.paused) { stalledSecs = 0; return; }
+          try {
+            const end = v.buffered.length ? v.buffered.end(v.buffered.length - 1) : 0;
+            const latency = end - v.currentTime;
+            if (latency > 10) v.playbackRate = 1.1;
+            else if (latency > 6) v.playbackRate = 1.05;
+            else if (latency < 4 && v.playbackRate !== 1.0) v.playbackRate = 1.0;
+          } catch (_) {}
+          if (v.currentTime === lastTime) {
+            stalledSecs += 1;
+            if (stalledSecs >= 8) {
+              stalledSecs = 0;
+              try {
+                p.unload();
+                p.load();
+                v.play().catch(() => {});
+              } catch (_) {}
+            }
+          } else {
+            stalledSecs = 0;
+            lastTime = v.currentTime;
+          }
+        }, 1000);
       } else {
         onError?.({ error: { errorString: 'MPEG-TS não suportado neste navegador' } });
       }

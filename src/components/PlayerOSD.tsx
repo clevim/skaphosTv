@@ -9,7 +9,7 @@ import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import PulsingDot from './PulsingDot';
 import { colors, fontSize, radius, spacing } from '@/utils/theme';
-import { IS_TV } from '../utils/tvDetect';
+import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import { useStore } from '../store/useStore';
 import { useNowNext } from '../store/epgStore';
 
@@ -84,7 +84,9 @@ export default function PlayerOSD({
   osdAnim, channel, isPlaying,
   isLive, position, duration,
   currentIndex, totalChannels,
+  isMuted, volume,
   onBack, onTogglePlay, onPrevChannel, onNextChannel,
+  onToggleMute, onVolumeChange,
   onToggleSidebar, onSeekTo, onSeekBy,
   hasSubtitles, subtitleActive, onToggleSubtitles,
   hasAudio, onToggleAudio,
@@ -94,6 +96,26 @@ export default function PlayerOSD({
 }: Props) {
   const progressPct = duration > 0 ? Math.min(1, position / duration) : 0;
   const seekBarWidth = useRef(0);
+
+  // ── Volume (só web: nativo usa o volume físico do aparelho) ────────────────
+  const volBarWidth = useRef(0);
+  const volPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (e) => {
+        const pct = Math.max(0, Math.min(1, e.nativeEvent.locationX / (volBarWidth.current || 1)));
+        onVolumeChange(pct);
+      },
+      onPanResponderMove: (e) => {
+        const pct = Math.max(0, Math.min(1, e.nativeEvent.locationX / (volBarWidth.current || 1)));
+        onVolumeChange(pct);
+      },
+    })
+  ).current;
+  const volPct = isMuted ? 0 : Math.round(volume * 100);
+  const volIcon = isMuted || volume <= 0 ? 'volume-mute'
+    : volume < 0.5 ? 'volume-low' : 'volume-high';
 
   const panResponder = useRef(
     PanResponder.create({
@@ -127,6 +149,23 @@ export default function PlayerOSD({
         </View>
 
         <View style={styles.topActions}>
+          {IS_WEB && (
+            <View style={styles.volumeGroup}>
+              <TVFocusable onPress={onToggleMute} style={styles.iconBtn}>
+                <Ionicons name={volIcon} size={18} color={colors.white} />
+              </TVFocusable>
+              <View
+                style={styles.volumeBar}
+                onLayout={(e) => { volBarWidth.current = e.nativeEvent.layout.width; }}
+                {...volPan.panHandlers}
+              >
+                <View style={styles.volumeBg}>
+                  <View style={[styles.volumeFill, { width: `${volPct}%` }]} />
+                </View>
+                <View style={[styles.volumeThumb, { left: `${volPct}%` }]} />
+              </View>
+            </View>
+          )}
           {showMinimize && onMinimize && (
             <TVFocusable onPress={onMinimize} style={styles.iconBtn}>
               <Ionicons name="contract-outline" size={18} color={colors.white} />
@@ -291,6 +330,34 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accentSoft,
     borderWidth: 1,
     borderColor: colors.accent,
+  },
+
+  // Volume (web)
+  volumeGroup: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  volumeBar: {
+    width: 96,
+    height: 38, // área de clique generosa; a trilha visual é fina
+    justifyContent: 'center',
+  },
+  volumeBg: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    overflow: 'hidden',
+  },
+  volumeFill: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.white,
+  },
+  volumeThumb: {
+    position: 'absolute',
+    top: 13,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginLeft: -6,
+    backgroundColor: colors.white,
   },
 
   // Center

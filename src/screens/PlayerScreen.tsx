@@ -454,7 +454,8 @@ export default function PlayerScreen() {
             onPrevChannel={prevChannel}
             onNextChannel={nextChannel}
             onToggleMute={() => setIsMuted(m => !m)}
-            onVolumeChange={setVolume}
+            // Ajustar o volume desmuta — arrastar o slider mudo e não ouvir nada confunde
+            onVolumeChange={(v) => { setVolume(v); setIsMuted(false); }}
             onToggleSidebar={() => setShowSidebar(s => !s)}
             onSeekTo={seekTo}
             onSeekBy={seekBy}
