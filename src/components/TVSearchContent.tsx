@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
   },
   filterChipActive: { backgroundColor: colors.text1, borderColor: colors.text1 },
   filterChipText: { fontSize: fontSize.sm, fontWeight: '500', color: colors.text1 },
-  filterChipTextActive: { color: '#0a0a0b', fontWeight: '600' },
+  filterChipTextActive: { color: colors.textInverse, fontWeight: '600' },
   recentHeaderRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },

@@ -1,14 +1,12 @@
 import React, { memo } from 'react';
-import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
 import { colors, radius, fontSize } from '../utils/theme';
 import { useThemeStore } from '../store/useThemeStore';
 import { Channel } from '../types';
-import { IS_TV } from '../utils/tvDetect';
-
-const IS_WEB = Platform.OS === 'web';
+import { IS_TV, IS_WEB } from '../utils/tvDetect';
 
 interface ChannelCardProps {
   channel: Channel;
@@ -108,7 +106,7 @@ function ChannelCard({
         {/* Favorito — indicador estático (mobile/TV; no web o botão abaixo já mostra o estado) */}
         {isFavorite && !IS_WEB && (
           <View style={styles.favBadge}>
-            <Ionicons name="star" size={9} color="#facc15" />
+            <Ionicons name="star" size={9} color={colors.favorite} />
           </View>
         )}
 
@@ -123,7 +121,7 @@ function ChannelCard({
             <Ionicons
               name={isFavorite ? 'star' : 'star-outline'}
               size={14}
-              color={isFavorite ? '#facc15' : '#fff'}
+              color={isFavorite ? colors.favorite : colors.white}
             />
           </Pressable>
         )}
@@ -222,7 +220,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   badgeText: {
-    color: '#fff',
+    color: colors.white,
     fontSize: 7,
     fontWeight: '800',
     letterSpacing: 0.4,

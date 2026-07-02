@@ -1,8 +1,8 @@
 // RemoteHints.tsx — TV remote button hints (bottom-right corner)
 import React from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { colors } from '../utils/theme';
-import { IS_TV } from '../utils/tvDetect';
+import { IS_NATIVE_TV } from '../utils/tvDetect';
 
 interface Hint {
   key: string;
@@ -20,7 +20,8 @@ const DEFAULT_HINTS: Hint[] = [
 ];
 
 export default function RemoteHints({ hints = DEFAULT_HINTS }: Props) {
-  if (!Platform.isTV) return null;
+  // Só em TV física — no web o usuário usa mouse/teclado, dicas de controle não se aplicam
+  if (!IS_NATIVE_TV) return null;
   return (
     <View style={styles.container} pointerEvents="none">
       {hints.map((h, i) => (

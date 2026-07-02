@@ -52,7 +52,7 @@ function formatCreatedAt(unixStr: string): string {
 
 function statusColor(status: string): string {
   switch (status?.toLowerCase()) {
-    case 'active':  return '#22c55e';
+    case 'active':  return colors.green;
     case 'expired': return colors.red;
     case 'banned':  return colors.red;
     default:        return colors.text3;
@@ -210,7 +210,7 @@ function LogoRefreshRow() {
       label="Atualizar logos dos canais"
       sub={sub}
       value={state === 'running' ? '…' : undefined}
-      valueColor={state === 'done' ? '#22c55e' : undefined}
+      valueColor={state === 'done' ? colors.green : undefined}
       onPress={state === 'running' ? undefined : run}
     />
   );
@@ -381,7 +381,7 @@ function JellyfinSourceCard({ source }: {
       )}
       {info && (
         <>
-          <SettingsRow icon="checkmark-circle-outline" label="Status"  value="Conectado"   valueColor="#22c55e" />
+          <SettingsRow icon="checkmark-circle-outline" label="Status"  value="Conectado"   valueColor={colors.green} />
           {info.ServerName && <SettingsRow icon="tv-outline"         label="Nome"    value={info.ServerName} />}
           {info.Version    && <SettingsRow icon="code-slash-outline" label="Versão"  value={`v${info.Version}`} />}
         </>
@@ -498,7 +498,7 @@ function TVPanel({
           label="TMDB API Key"
           sub="Para enriquecer filmes e séries com metadata do TMDB"
           value={settings.tmdbApiKey ? '••••••••' : 'Não configurado'}
-          valueColor={settings.tmdbApiKey ? '#22c55e' : colors.text3}
+          valueColor={settings.tmdbApiKey ? colors.green : colors.text3}
         />
       </SettingsGroup>
     </>
@@ -509,7 +509,9 @@ function TVPanel({
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
-  const { settings, updateSettings, sources } = useStore();
+  const settings       = useStore(s => s.settings);
+  const updateSettings = useStore(s => s.updateSettings);
+  const sources        = useStore(s => s.sources);
   const [activeCategory, setActiveCategory] = useState<CategoryKey>('reproducao');
   const [authInfoMap, setAuthInfoMap] = useState<Record<string, XtreamUserInfo | 'loading' | 'error'>>({});
 

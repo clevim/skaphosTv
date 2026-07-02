@@ -6,9 +6,8 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as KeepAwake from 'expo-keep-awake';
-import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Updates from 'expo-updates';
-import { Platform, Linking, AppState } from 'react-native';
+import { Linking, AppState } from 'react-native';
 import { useStore } from './src/store/useStore';
 import { useWatchProgress } from './src/store/watchProgress';
 import { useRecentSearches } from './src/store/recentSearches';
@@ -27,7 +26,9 @@ import AnimatedSplash from './src/components/AnimatedSplash';
 import VideoSplash from './src/components/VideoSplash';
 import MiniPlayer from './src/components/MiniPlayer';
 import introSource from './src/generated/introSource';
-import { IS_TV } from './src/utils/tvDetect';
+import { IS_TV, IS_WEB, IS_NATIVE_TV } from './src/utils/tvDetect';
+import { lockLandscape, unlockOrientation } from './src/utils/orientation';
+import { colors } from './src/utils/theme';
 import { activate as activateTvFocus } from './modules/tv-focus';
 
 export type { Channel, RootStackParamList } from './src/types';
@@ -108,14 +109,9 @@ export default function App() {
       setTimeout(() => activateTvFocus(), 500);
     }
 
-    if (Platform.OS !== 'web') {
-      const isTV = Platform.isTV;
-      if (isTV) {
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-      } else {
-        ScreenOrientation.unlockAsync();
-      }
-    }
+    // TV física vive em landscape; smartphone fica livre (o player trava sozinho)
+    if (IS_NATIVE_TV) lockLandscape();
+    else unlockOrientation();
 
     // Deep link — app já aberto
     const sub = Linking.addEventListener('url', ({ url }) => {
@@ -147,7 +143,7 @@ export default function App() {
     // visibilitychange (aba oculta) roda com a página ainda viva → grava em tempo;
     // pagehide cobre o fechamento. Ambos persistem o cache completo em memória.
     const flushChannels = () => { useStore.getState().saveChannelsToStorage().catch(() => {}); };
-    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+    if (IS_WEB && typeof document !== 'undefined') {
       const onVisibility = () => { if (document.visibilityState === 'hidden') flushChannels(); };
       document.addEventListener('visibilitychange', onVisibility);
       window.addEventListener('pagehide', flushChannels);
@@ -184,12 +180,12 @@ export default function App() {
           theme={{
             dark: true,
             colors: {
-              primary: '#7c3aed',
-              background: '#0a0a0f',
-              card: '#12111a',
-              text: '#e8e4f0',
-              border: 'rgba(124,58,237,0.25)',
-              notification: '#7c3aed',
+              primary: colors.accent3,
+              background: colors.bg0,
+              card: colors.bg1,
+              text: colors.text1,
+              border: colors.borderSoft,
+              notification: colors.accent3,
             },
           }}
         >
@@ -197,7 +193,7 @@ export default function App() {
             screenOptions={{
               headerShown: false,
               animationEnabled: true,
-              cardStyle: { backgroundColor: '#0a0a0f' },
+              cardStyle: { backgroundColor: colors.bg0 },
             }}
           >
             <Stack.Screen name="Home" component={HomeScreen} />
@@ -221,7 +217,7 @@ export default function App() {
         />
 
         {splashVisible && (
-          introSource && Platform.OS !== 'web' ? (
+          introSource && !IS_WEB ? (
             <VideoSplash
               source={introSource}
               ready={fontsLoaded}

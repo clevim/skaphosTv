@@ -48,7 +48,8 @@ const SearchRow = React.memo(function SearchRow({
 
 export function SearchScreen() {
   const navigation = useNavigation();
-  const { channels, setCurrentChannel } = useStore();
+  const channels          = useStore(s => s.channels);
+  const setCurrentChannel = useStore(s => s.setCurrentChannel);
   const [query, setQuery] = useState('');
 
   const results = useMemo(() => {
@@ -166,7 +167,7 @@ export function SearchScreen() {
                         : bestMatch.name}
                     </Text>
                     <View style={styles.bestMatchPlayBtn}>
-                      <Ionicons name="play" size={11} color="#fff" />
+                      <Ionicons name="play" size={11} color={colors.white} />
                       <Text style={styles.bestMatchPlayText}>Assistir</Text>
                     </View>
                   </View>
@@ -321,7 +322,7 @@ const styles = StyleSheet.create({
   bestMatchPlayText: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#fff',
+    color: colors.white,
   },
 
   // Result rows

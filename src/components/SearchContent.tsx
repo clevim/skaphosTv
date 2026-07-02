@@ -111,7 +111,7 @@ function BestMatch({ channel, onPress }: { channel: Channel; onPress: () => void
           <Text style={bmStyles.name} numberOfLines={2}>{displayName}</Text>
           <Text style={bmStyles.meta}>{TYPE_LABEL[type] ?? 'ITEM'} · {groupClean || channel.quality || 'HD'}</Text>
           <View style={bmStyles.playBtn}>
-            <Ionicons name="play" size={11} color="#fff" />
+            <Ionicons name="play" size={11} color={colors.white} />
             <Text style={bmStyles.playText}>Assistir</Text>
           </View>
         </View>
@@ -151,7 +151,7 @@ const bmStyles = StyleSheet.create({
     backgroundColor: colors.accent, borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 6,
   },
-  playText: { fontSize: 11, fontWeight: '600', color: '#fff' },
+  playText: { fontSize: 11, fontWeight: '600', color: colors.white },
 });
 
 export default function SearchContent({
@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
   },
   filterChipActive: { backgroundColor: colors.text1, borderColor: colors.text1 },
   filterChipText: { fontSize: 12, fontWeight: '500', color: colors.text1 },
-  filterChipTextActive: { color: '#0a0a0b', fontWeight: '600' },
+  filterChipTextActive: { color: colors.textInverse, fontWeight: '600' },
   recentHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: IS_TV ? spacing.xxxl : 22,

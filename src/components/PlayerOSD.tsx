@@ -93,7 +93,7 @@ export default function PlayerOSD({
           mas continua montado/focável para o foco poder voltar ao sair da barra. */}
       <View style={[styles.osdTop, scrubMode && styles.scrubHidden]}>
         <TVFocusable onPress={onBack} style={styles.backBtn}>
-          <Ionicons name={IS_TV ? 'chevron-back' : 'chevron-down'} size={20} color="#fff" />
+          <Ionicons name={IS_TV ? 'chevron-back' : 'chevron-down'} size={20} color={colors.white} />
         </TVFocusable>
 
         <View style={styles.titleWrap}>
@@ -104,25 +104,25 @@ export default function PlayerOSD({
         <View style={styles.topActions}>
           {showMinimize && onMinimize && (
             <TVFocusable onPress={onMinimize} style={styles.iconBtn}>
-              <Ionicons name="contract-outline" size={18} color="#fff" />
+              <Ionicons name="contract-outline" size={18} color={colors.white} />
             </TVFocusable>
           )}
           {hasAudio && onToggleAudio && (
             <TVFocusable onPress={onToggleAudio} style={styles.iconBtn}>
-              <Ionicons name="musical-notes-outline" size={18} color="#fff" />
+              <Ionicons name="musical-notes-outline" size={18} color={colors.white} />
             </TVFocusable>
           )}
           {hasSubtitles && onToggleSubtitles && (
             <TVFocusable onPress={onToggleSubtitles} style={[styles.iconBtn, subtitleActive && styles.iconBtnActive]}>
-              <Ionicons name="chatbox-ellipses-outline" size={18} color={subtitleActive ? colors.accent : '#fff'} />
+              <Ionicons name="chatbox-ellipses-outline" size={18} color={subtitleActive ? colors.accent : colors.white} />
             </TVFocusable>
           )}
           <TVFocusable onPress={onToggleSidebar} style={styles.iconBtn}>
-            <Ionicons name="scan-outline" size={18} color="#fff" />
+            <Ionicons name="scan-outline" size={18} color={colors.white} />
           </TVFocusable>
           {showNextEpisode && onNextEpisode && (
             <TVFocusable onPress={onNextEpisode} style={styles.iconBtn}>
-              <Ionicons name="play-skip-forward" size={18} color="#fff" />
+              <Ionicons name="play-skip-forward" size={18} color={colors.white} />
             </TVFocusable>
           )}
         </View>
@@ -138,7 +138,7 @@ export default function PlayerOSD({
         </TVFocusable>
 
         <TVFocusable onPress={onTogglePlay} style={styles.playBtn} hasTVPreferredFocus>
-          <Ionicons name={isPlaying ? 'pause' : 'play'} size={IS_TV ? 28 : 24} color="#0a0a0b" />
+          <Ionicons name={isPlaying ? 'pause' : 'play'} size={IS_TV ? 28 : 24} color={colors.textInverse} />
         </TVFocusable>
 
         <TVFocusable onPress={() => onSeekBy(10)} style={styles.seekBtn} disabled={scrubMode}>
@@ -199,13 +199,13 @@ export default function PlayerOSD({
         {!isLive && duration === 0 && (
           <View style={styles.bottomRow}>
             <TVFocusable onPress={onPrevChannel} style={styles.navBtn} disabled={currentIndex === 0}>
-              <Ionicons name="play-skip-back" size={18} color={currentIndex === 0 ? 'rgba(255,255,255,0.3)' : '#fff'} />
+              <Ionicons name="play-skip-back" size={18} color={currentIndex === 0 ? 'rgba(255,255,255,0.3)' : colors.white} />
             </TVFocusable>
             <Text style={styles.channelCounter}>
               CH {currentIndex + 1}/{totalChannels}
             </Text>
             <TVFocusable onPress={onNextChannel} style={styles.navBtn} disabled={currentIndex === totalChannels - 1}>
-              <Ionicons name="play-skip-forward" size={18} color={currentIndex === totalChannels - 1 ? 'rgba(255,255,255,0.3)' : '#fff'} />
+              <Ionicons name="play-skip-forward" size={18} color={currentIndex === totalChannels - 1 ? 'rgba(255,255,255,0.3)' : colors.white} />
             </TVFocusable>
           </View>
         )}
@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
   titleName: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#fff',
+    color: colors.white,
     marginTop: 1,
   },
   topActions: { flexDirection: 'row', gap: 8 },
@@ -340,7 +340,7 @@ const styles = StyleSheet.create({
     width: 11,
     height: 11,
     borderRadius: 6,
-    backgroundColor: '#fff',
+    backgroundColor: colors.white,
     marginLeft: -5.5,
   },
   progressThumbActive: {

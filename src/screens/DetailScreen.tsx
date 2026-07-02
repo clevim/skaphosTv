@@ -22,6 +22,7 @@ import { RootStackParamList } from '../types';
 import { detectType, getSeriesBaseName } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
 import { fetchTmdbMovie, fetchTmdbSeries, TmdbMeta } from '../utils/tmdbApi';
+import { fetchVodInfo, parseMovieCredentials, XtreamVodDetails } from '../utils/xtreamApi';
 import { parseJellyfinVideoUrl } from '../utils/jellyfinLoader';
 
 type DetailRoute = RouteProp<RootStackParamList, 'Detail'>;
@@ -35,7 +36,10 @@ export default function DetailScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<DetailRoute>();
   const { channel, relatedChannels = [] } = route.params;
-  const { setCurrentChannel, toggleFavorite, favorites, settings } = useStore();
+  const setCurrentChannel = useStore(s => s.setCurrentChannel);
+  const toggleFavorite    = useStore(s => s.toggleFavorite);
+  const favorites         = useStore(s => s.favorites);
+  const settings          = useStore(s => s.settings);
   const [activeTab, setActiveTab] = useState<Tab>('Sobre');
   const [tmdb, setTmdb] = useState<TmdbMeta | null>(null);
   const [trackSheetUrl, setTrackSheetUrl] = useState<string | null>(null);
@@ -45,6 +49,20 @@ export default function DetailScreen() {
   const groupClean = channel.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || '';
   const isFav = favorites.includes(channel.id);
   const typeLabel = type === 'movies' ? 'Filme' : type === 'series' ? 'Série' : 'Canal';
+
+  // Detalhes ricos do próprio painel Xtream (get_vod_info) — sinopse, elenco,
+  // nota, backdrop — sem depender de chave TMDB. A lista de VOD raramente traz
+  // esses campos; o endpoint por título traz quase sempre.
+  const [vod, setVod] = useState<XtreamVodDetails | null>(null);
+  useEffect(() => {
+    if (type !== 'movies' || (channel.plot && channel.backdrop)) return;
+    const creds = parseMovieCredentials(channel.url);
+    if (!creds) return;
+    let alive = true;
+    fetchVodInfo(creds.host, creds.user, creds.pass, creds.vodId)
+      .then(info => { if (alive && info) setVod(info); });
+    return () => { alive = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // TMDB enrichment para canais sem metadados (M3U / Xtream sem info)
   useEffect(() => {
@@ -57,13 +75,15 @@ export default function DetailScreen() {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const heroImage  = tmdb?.backdrop ?? tmdb?.poster ?? channel.backdrop ?? channel.logo;
-  const displayGenre  = channel.genre  || tmdb?.genre  || groupClean;
-  const displayRating = channel.rating ? `⭐ ${channel.rating}` : tmdb?.rating ? `⭐ ${tmdb.rating}` : null;
-  const displayYear   = channel.releaseDate?.slice(0, 4) ?? tmdb?.year ?? null;
-  const displayPlot   = channel.plot   || tmdb?.plot;
-  const displayCast   = channel.cast   || tmdb?.cast;
-  const displayDir    = channel.director || tmdb?.director;
+  // Precedência: dados do canal (lista) → get_vod_info (painel) → TMDB
+  const heroImage  = channel.backdrop ?? vod?.backdrop ?? tmdb?.backdrop ?? tmdb?.poster ?? channel.logo;
+  const displayGenre  = channel.genre  || vod?.genre  || tmdb?.genre  || groupClean;
+  const ratingValue   = channel.rating || vod?.rating || tmdb?.rating;
+  const displayRating = ratingValue ? `⭐ ${ratingValue}` : null;
+  const displayYear   = (channel.releaseDate ?? vod?.releaseDate)?.slice(0, 4) ?? tmdb?.year ?? null;
+  const displayPlot   = channel.plot   || vod?.plot   || tmdb?.plot;
+  const displayCast   = channel.cast   || vod?.cast   || tmdb?.cast;
+  const displayDir    = channel.director || vod?.director || tmdb?.director;
 
   const isJellyfin = !!parseJellyfinVideoUrl(channel.url);
 
@@ -287,7 +307,7 @@ export default function DetailScreen() {
 
           {/* Play button */}
           <TVFocusable onPress={handlePlay} style={tvStyles.playBtn} hasTVPreferredFocus>
-            <Ionicons name="play" size={18} color="#0a0a0b" />
+            <Ionicons name="play" size={18} color={colors.textInverse} />
             <Text style={tvStyles.playText}>Assistir agora</Text>
           </TVFocusable>
 
@@ -368,7 +388,7 @@ export default function DetailScreen() {
         {/* Actions */}
         <View style={styles.actions}>
           <TVFocusable onPress={handlePlay} style={styles.playBtn}>
-            <Ionicons name="play" size={16} color="#0a0a0b" />
+            <Ionicons name="play" size={16} color={colors.textInverse} />
             <Text style={styles.playText}>Assistir agora</Text>
           </TVFocusable>
           <View style={styles.secondaryActions}>
@@ -518,7 +538,7 @@ const tvStyles = StyleSheet.create({
   playText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#0a0a0b',
+    color: colors.textInverse,
   },
   secondaryRow: {
     flexDirection: 'row',
@@ -548,7 +568,7 @@ const tvStyles = StyleSheet.create({
     color: colors.text2,
   },
   tabTextActive: {
-    color: '#0a0a0b',
+    color: colors.textInverse,
     fontWeight: '600',
   },
 });
@@ -616,7 +636,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.text1,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
-  playText: { fontSize: 15, fontWeight: '600', color: '#0a0a0b' },
+  playText: { fontSize: 15, fontWeight: '600', color: colors.textInverse },
   secondaryActions: { flexDirection: 'row', gap: 8 },
 
   tabBar: {

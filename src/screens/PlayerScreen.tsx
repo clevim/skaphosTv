@@ -16,7 +16,7 @@ import PlayerError from '@/components/PlayerError';
 import SubtitleSheet from '@/components/SubtitleSheet';
 import AudioTrackSheet from '@/components/AudioTrackSheet';
 import { fixStreamUrl } from '../utils/m3uParser';
-import { IS_TV } from '../utils/tvDetect';
+import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import { setPipEnabled, setPipPlaying } from '../utils/pip';
 import { useMiniPlayer } from '../store/miniPlayer';
 
@@ -327,7 +327,7 @@ export default function PlayerScreen() {
   // Web: o View não tem onKeyDown, então o teclado vira o "D-pad" reaproveitando
   // a mesma lógica de seek/aceleração/indicador via um listener de window.
   useEffect(() => {
-    if (Platform.OS !== 'web') return;
+    if (!IS_WEB) return;
     const webKeyMap: Record<string, number> = {
       ArrowRight: KEY.DPAD_RIGHT,
       ArrowLeft:  KEY.DPAD_LEFT,
@@ -392,7 +392,7 @@ export default function PlayerScreen() {
         {/* Zona de "segurar para 2x" — canto direito (toque). Tap normal ainda
             mostra/esconde o OSD; segurar acelera para 2x e soltar volta ao normal.
             Fica abaixo do OSD (renderizado depois), então os botões do OSD têm prioridade. */}
-        {!IS_TV && Platform.OS !== 'web' && !isLive && !inPip && (
+        {!IS_TV && !IS_WEB && !isLive && !inPip && (
           <Pressable
             style={styles.speedZone}
             onPress={handleScreenTap}
@@ -404,7 +404,7 @@ export default function PlayerScreen() {
 
         {speedActive && (
           <View style={styles.speedIndicator} pointerEvents="none">
-            <Ionicons name="play-forward" size={16} color="#0a0a0b" />
+            <Ionicons name="play-forward" size={16} color={colors.textInverse} />
             <Text style={styles.speedIndicatorText}>2x</Text>
           </View>
         )}
@@ -508,7 +508,7 @@ export default function PlayerScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#000' },
+  root: { flex: 1, backgroundColor: colors.black },
   videoContainer: { flex: 1 },
   // Zona de toque do canto direito para o gesto de segurar = 2x
   speedZone: {
@@ -528,7 +528,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.92)',
   },
-  speedIndicatorText: { fontSize: 14, fontWeight: '800', color: '#0a0a0b', letterSpacing: 0.5 },
+  speedIndicatorText: { fontSize: 14, fontWeight: '800', color: colors.textInverse, letterSpacing: 0.5 },
   bufferingOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center', justifyContent: 'center',

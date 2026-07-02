@@ -18,6 +18,8 @@ export interface IPTVSource {
   serverName?: string;
   addedAt: number;
   channelCount?: number;
+  /** URL do guia XMLTV (M3U: capturada do url-tvg/x-tvg-url do cabeçalho). */
+  epgUrl?: string;
 }
 
 interface AppState {

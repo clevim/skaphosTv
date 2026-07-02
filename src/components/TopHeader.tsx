@@ -54,7 +54,7 @@ export default function TopHeader({ onSettingsPress, onAddPress }: Props) {
       <View style={styles.actions}>
         {/* Add / manage lists */}
         <TVFocusable onPress={onAddPress || (() => {})} style={styles.addBtn}>
-          <Ionicons name="add" size={17} color="#fff" />
+          <Ionicons name="add" size={17} color={colors.white} />
         </TVFocusable>
 
         {/* Settings */}

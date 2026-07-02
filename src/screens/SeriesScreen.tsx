@@ -93,7 +93,12 @@ export default function SeriesScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<SeriesRoute>();
   const { seriesName, channels: routeChannels } = route.params;
-  const { setCurrentChannel, toggleFavorite, favorites, recentChannels, settings, sources } = useStore();
+  const setCurrentChannel = useStore(s => s.setCurrentChannel);
+  const toggleFavorite    = useStore(s => s.toggleFavorite);
+  const favorites         = useStore(s => s.favorites);
+  const recentChannels    = useStore(s => s.recentChannels);
+  const settings          = useStore(s => s.settings);
+  const sources           = useStore(s => s.sources);
   // Progresso de reprodução local (por dispositivo) — badges de assistido / em curso
   const watchEntries = useWatchProgress(s => s.entries);
 
@@ -639,7 +644,7 @@ export default function SeriesScreen() {
                       <EpThumb logo={item.logo} size={{ w: cardW, h: cardH }} />
                       {epWatched && (
                         <View style={tvStyles.epWatchedBadge}>
-                          <Ionicons name="checkmark" size={Math.round(cardW * 0.06)} color="#0a0a0b" />
+                          <Ionicons name="checkmark" size={Math.round(cardW * 0.06)} color={colors.textInverse} />
                         </View>
                       )}
                       {epFrac > 0 && (
@@ -659,7 +664,7 @@ export default function SeriesScreen() {
                               },
                             ]}
                           >
-                            <Ionicons name="play" size={Math.round(cardW * 0.08)} color="#0a0a0b" />
+                            <Ionicons name="play" size={Math.round(cardW * 0.08)} color={colors.textInverse} />
                           </View>
                         </View>
                       )}
@@ -761,7 +766,7 @@ export default function SeriesScreen() {
             style={styles.continueBtn}
           >
             <View style={styles.continueBtnLeft}>
-              <Ionicons name="play" size={16} color="#0a0a0b" />
+              <Ionicons name="play" size={16} color={colors.textInverse} />
               <Text style={styles.continueBtnText}>
                 {currentEpIdx > 0 ? `Continuar T${seasonNum} · ${currentEpLbl}` : `Assistir T${seasonNum} · ${currentEpLbl}`}
               </Text>
@@ -874,7 +879,7 @@ export default function SeriesScreen() {
                   )}
                   {watched && (
                     <View style={styles.epWatchedBadge}>
-                      <Ionicons name="checkmark" size={12} color="#0a0a0b" />
+                      <Ionicons name="checkmark" size={12} color={colors.textInverse} />
                     </View>
                   )}
                   {!inProgress && !watched && (
@@ -1031,7 +1036,7 @@ const tvStyles = StyleSheet.create({
     fontWeight: '500', color: colors.text2,
   },
   seasonPillTextActive: {
-    color: '#0a0a0b', fontWeight: '600',
+    color: colors.textInverse, fontWeight: '600',
   },
   epCount: {
     // fontSize vem do JSX
@@ -1158,7 +1163,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   continueBtnLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  continueBtnText: { fontSize: 15, fontFamily: fontFamily.semiBold, color: '#0a0a0b' },
+  continueBtnText: { fontSize: 15, fontFamily: fontFamily.semiBold, color: colors.textInverse },
   progressTrack: {
     marginTop: 10, height: 3, backgroundColor: colors.borderSoft,
     borderRadius: 2, overflow: 'hidden',

@@ -44,7 +44,8 @@ interface Props {
 type Tab = 'audio' | 'subtitle';
 
 export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onCancel }: Props) {
-  const { sources, settings } = useStore();
+  const sources  = useStore(s => s.sources);
+  const settings = useStore(s => s.settings);
   const [audioTracks, setAudioTracks]       = useState<JellyfinAudioTrack[]>([]);
   const [subtitleTracks, setSubtitleTracks] = useState<JellyfinSubtitleTrack[]>([]);
   const [selectedAudio, setSelectedAudio]   = useState<number | null>(null);
@@ -301,7 +302,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
             nextFocusDown={topTag ?? undefined}
             nextFocusRight={cancelTag ?? undefined}
           >
-            <Ionicons name="play" size={14} color="#0a0a0b" />
+            <Ionicons name="play" size={14} color={colors.textInverse} />
             <Text style={styles.playText}>Assistir</Text>
           </TVFocusable>
         </View>
@@ -398,5 +399,5 @@ const styles = StyleSheet.create({
     backgroundColor: colors.text1,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
   },
-  playText: { fontSize: 13, fontWeight: '600', color: '#0a0a0b' },
+  playText: { fontSize: 13, fontWeight: '600', color: colors.textInverse },
 });

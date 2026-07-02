@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
 } from 'react-native';
@@ -12,13 +12,7 @@ import PulsingDot from './PulsingDot';
 import { colors, spacing, fontSize, radius, fontFamily } from '../utils/theme';
 import { detectType, getSeriesBaseName, isLaunchYear, LAUNCH_YEAR } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
-
-// Stable progress % from channel id (avoids random re-renders)
-function stableProgress(id: string): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xfffff;
-  return 20 + (h % 60);
-}
+import { useWatchProgress, progressFractionFor, resumePositionFor, WatchEntry } from '../store/watchProgress';
 
 interface Props {
   recentChannels: Channel[];
@@ -38,7 +32,23 @@ interface Props {
 const MAX = 20;
 
 // ── Continue Watching Card ────────────────────────────────────
-function ContinueCard({ channel, onPress }: { channel: Channel; onPress: () => void }) {
+/** Minutos restantes formatados, ou null quando não há progresso útil. */
+function remainingLabel(entry: WatchEntry | undefined): string | null {
+  if (!entry || entry.watched || entry.durationSec <= 0) return null;
+  const remainMin = Math.max(1, Math.round((entry.durationSec - entry.positionSec) / 60));
+  return `Restam ${remainMin} min`;
+}
+
+function ContinueCard({
+  channel, progress, entry, onPress,
+}: {
+  channel: Channel;
+  /** Fração real 0–1 do watchProgress; 0 esconde a barra (ex.: canal ao vivo). */
+  progress: number;
+  entry?: WatchEntry;
+  onPress: () => void;
+}) {
+  const remaining = remainingLabel(entry);
   return (
     <TVFocusable onPress={onPress} style={cStyles.card}>
       <View style={cStyles.poster}>
@@ -52,17 +62,19 @@ function ContinueCard({ channel, onPress }: { channel: Channel; onPress: () => v
         {/* Play overlay */}
         <View style={cStyles.playOverlay}>
           <View style={cStyles.playCircle}>
-            <Ionicons name="play" size={14} color="#fff" />
+            <Ionicons name="play" size={14} color={colors.white} />
           </View>
         </View>
-        {/* Progress bar */}
-        <View style={cStyles.progressTrack}>
-          <View style={[cStyles.progressFill, { width: `${stableProgress(channel.id)}%` }]} />
-        </View>
+        {/* Barra de progresso REAL (watchProgress) — sem progresso, sem barra */}
+        {progress > 0 && (
+          <View style={cStyles.progressTrack}>
+            <View style={[cStyles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
+          </View>
+        )}
       </View>
       <Text style={cStyles.title} numberOfLines={1}>{channel.name}</Text>
-      <Text style={cStyles.sub} numberOfLines={1}>
-        {channel.group ? channel.group.replace(/[♦◆️]\s*/g, '').trim() : ''}
+      <Text style={[cStyles.sub, remaining != null && cStyles.subProgress]} numberOfLines={1}>
+        {remaining ?? (channel.group ? channel.group.replace(/[♦◆️]\s*/g, '').trim() : '')}
       </Text>
     </TVFocusable>
   );
@@ -99,6 +111,7 @@ const cStyles = StyleSheet.create({
   progressFill: { height: '100%', backgroundColor: colors.accent },
   title: { fontSize: 12, fontWeight: '500', color: colors.text1, marginTop: 8 },
   sub: { fontSize: 10, color: colors.text3, marginTop: 2 },
+  subProgress: { color: colors.accent },
 });
 
 // ── Live Card ─────────────────────────────────────────────────
@@ -163,7 +176,7 @@ const lStyles = StyleSheet.create({
     width: 6, height: 6, borderRadius: 3,
     backgroundColor: colors.accent,
   },
-  badgeText: { fontSize: 9, fontWeight: '600', color: '#fff' },
+  badgeText: { fontSize: 9, fontWeight: '600', color: colors.white },
   title: { fontSize: 12, fontWeight: '600', color: colors.text1, marginTop: 8 },
   sub: { fontSize: 11, color: colors.text2, marginTop: 2 },
 });
@@ -279,7 +292,7 @@ const vStyles = StyleSheet.create({
     paddingHorizontal: 5, paddingVertical: 2,
     borderRadius: 3,
   },
-  newBadgeText: { fontSize: 8, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
+  newBadgeText: { fontSize: 8, fontWeight: '800', color: colors.white, letterSpacing: 0.5 },
   qualBadge: {
     position: 'absolute', top: 6, right: 6,
     backgroundColor: 'rgba(0,0,0,0.65)',
@@ -297,7 +310,29 @@ export default function HomeContent({
   channels = [], onChannelPress, onWatch, onDetails, onNavPress,
 }: Props) {
   const navigation = useNavigation();
+  const watchEntries = useWatchProgress(s => s.entries);
   const isEmpty = recentChannels.length === 0 && favoriteChannels.length === 0;
+
+  // "Continue assistindo" com progresso REAL: itens em curso primeiro (mais
+  // recentes antes), depois os demais recentes na ordem original. Séries usam
+  // o progresso espelhado no id da série (gravado pelo player junto do episódio).
+  const continueItems = useMemo(() => {
+    const inProgress: Array<{ channel: Channel; progress: number; entry: WatchEntry }> = [];
+    const rest: Channel[] = [];
+    for (const ch of recentChannels) {
+      const entry = watchEntries[ch.id];
+      if (entry && !entry.watched && resumePositionFor(entry) > 0) {
+        inProgress.push({ channel: ch, progress: progressFractionFor(entry), entry });
+      } else {
+        rest.push(ch);
+      }
+    }
+    inProgress.sort((a, b) => b.entry.updatedAt - a.entry.updatedAt);
+    return [
+      ...inProgress,
+      ...rest.map(channel => ({ channel, progress: 0, entry: undefined as WatchEntry | undefined })),
+    ].slice(0, MAX);
+  }, [recentChannels, watchEntries]);
 
   const handlePress = (ch: Channel) => {
     if (onChannelPress) {
@@ -308,12 +343,36 @@ export default function HomeContent({
   };
 
   // Pick hero: prefer recent, then favorite, then first live, then any channel
-  const heroChannel =
+  const heroChannel = useMemo(() =>
     recentChannels[0] ||
     favoriteChannels[0] ||
     channels.find(c => detectType(c.group || '', c.name) === 'live') ||
     channels[0] ||
-    null;
+    null,
+  [recentChannels, favoriteChannels, channels]);
+
+  // Seções derivadas do catálogo completo — memoizadas E em UM passe com parada
+  // antecipada. Antes rodavam a cada render (relógio de 30 s, qualquer estado)
+  // varrendo a lista inteira 4× com regex — pesado em TV box com 10k+ canais.
+  const { liveChannels, movieChannels, seriesChannels, yearChannels } = useMemo(() => {
+    const live: Channel[] = [], movies: Channel[] = [], series: Channel[] = [], year: Channel[] = [];
+    const seenSeries = new Set<string>();
+    for (const c of channels) {
+      const type = detectType(c.group || '', c.name);
+      if (type === 'live') {
+        if (live.length < 12) live.push(c);
+      } else {
+        if (movies.length < 12 && type === 'movies') movies.push(c);
+        if (series.length < 12 && type === 'series') {
+          const base = getSeriesBaseName(c.name);
+          if (!seenSeries.has(base)) { seenSeries.add(base); series.push(c); }
+        }
+        if (year.length < 12 && isLaunchYear(c.name)) year.push(c);
+      }
+      if (live.length >= 12 && movies.length >= 12 && series.length >= 12 && year.length >= 12) break;
+    }
+    return { liveChannels: live, movieChannels: movies, seriesChannels: series, yearChannels: year };
+  }, [channels]);
 
   // streamType tem precedência sobre heurística — Jellyfin define isso explicitamente
   const heroType = heroChannel
@@ -345,30 +404,12 @@ export default function HomeContent({
           style={styles.addBtn}
           hasTVPreferredFocus
         >
-          <Ionicons name="add-circle-outline" size={18} color="#fff" />
+          <Ionicons name="add-circle-outline" size={18} color={colors.white} />
           <Text style={styles.addBtnText}>Adicionar Lista IPTV</Text>
         </TVFocusable>
       </View>
     );
   }
-
-  // Separate content by type
-  const liveChannels = channels.filter(c => detectType(c.group || '', c.name) === 'live').slice(0, 12);
-  const movieChannels = channels.filter(c => detectType(c.group || '', c.name) === 'movies').slice(0, 12);
-  const seriesChannels = (() => {
-    const seen = new Set<string>();
-    return channels.filter(c => {
-      if (detectType(c.group || '', c.name) !== 'series') return false;
-      const base = getSeriesBaseName(c.name);
-      if (seen.has(base)) return false;
-      seen.add(base);
-      return true;
-    }).slice(0, 12);
-  })();
-  const yearChannels = channels.filter(c => {
-    const type = detectType(c.group || '', c.name);
-    return type !== 'live' && isLaunchYear(c.name);
-  }).slice(0, 12);
 
   // Fallback live channels if filtering returns nothing (provider hasn't ♦ markers)
   const displayLive = liveChannels.length > 0
@@ -434,7 +475,7 @@ export default function HomeContent({
                   style={styles.heroPlayBtn}
                   hasTVPreferredFocus={IS_TV}
                 >
-                  <Ionicons name="play" size={14} color="#0a0a0b" />
+                  <Ionicons name="play" size={14} color={colors.textInverse} />
                   <Text style={styles.heroPlayText}>Assistir</Text>
                 </TVFocusable>
                 <TVFocusable onPress={() => {}} style={styles.heroPlusBtn}>
@@ -455,11 +496,19 @@ export default function HomeContent({
       )}
 
       {/* Continue assistindo */}
-      {recentChannels.length > 0 && (
+      {continueItems.length > 0 && (
         <Section title="Continue assistindo" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('favorites')}>
           <Row>
-            {recentChannels.slice(0, MAX).map(ch => (
-              <ContinueCard key={ch.id} channel={ch} onPress={() => handlePress(ch)} />
+            {continueItems.map(({ channel: ch, progress, entry }) => (
+              <ContinueCard
+                key={ch.id}
+                channel={ch}
+                progress={progress}
+                entry={entry}
+                // Em curso → retoma direto (player resume; série abre no episódio certo).
+                // Sem progresso → fluxo normal (filme abre Detalhes etc.)
+                onPress={() => (progress > 0 && onWatch ? onWatch(ch) : handlePress(ch))}
+              />
             ))}
           </Row>
         </Section>
@@ -607,7 +656,7 @@ const styles = StyleSheet.create({
     width: 6, height: 6, borderRadius: 3,
     backgroundColor: colors.accent,
   },
-  heroLiveText: { fontSize: 10, fontWeight: '700', color: '#fff', letterSpacing: 1 },
+  heroLiveText: { fontSize: 10, fontWeight: '700', color: colors.white, letterSpacing: 1 },
   heroBottom: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     padding: 18,
@@ -642,7 +691,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.text1,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
-  heroPlayText: { fontSize: IS_TV ? 15 : 14, fontWeight: '600', color: '#0a0a0b' },
+  heroPlayText: { fontSize: IS_TV ? 15 : 14, fontWeight: '600', color: colors.textInverse },
   heroPlusBtn: {
     height: IS_TV ? 46 : 42,
     paddingHorizontal: IS_TV ? 20 : 13,
@@ -684,6 +733,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   addBtnText: {
-    color: '#fff', fontSize: IS_TV ? fontSize.md : fontSize.sm, fontWeight: '600',
+    color: colors.white, fontSize: IS_TV ? fontSize.md : fontSize.sm, fontWeight: '600',
   },
 });

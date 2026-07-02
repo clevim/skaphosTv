@@ -2,7 +2,7 @@
 // Montado no root (App.tsx), acima do navegador, para continuar tocando enquanto
 // o usuário navega. Recebe o canal/posição do PlayerScreen via store useMiniPlayer.
 import React, { useRef, useState, useCallback } from 'react';
-import { View, StyleSheet, Pressable, Text, Platform } from 'react-native';
+import { View, StyleSheet, Pressable, Text } from 'react-native';
 import Video, { ResizeMode } from 'react-native-video';
 import { Ionicons } from '@expo/vector-icons';
 import { useMiniPlayer } from '../store/miniPlayer';
@@ -10,9 +10,8 @@ import { useWatchProgress } from '../store/watchProgress';
 import { fixStreamUrl } from '../utils/m3uParser';
 import { Channel } from '../types';
 import { colors } from '../utils/theme';
-import { IS_TV } from '../utils/tvDetect';
+import { IS_TV, IS_WEB } from '../utils/tvDetect';
 
-const IS_WEB = Platform.OS === 'web';
 const WIN_W = IS_TV ? 340 : IS_WEB ? 300 : 176;
 const WIN_H = Math.round(WIN_W * 9 / 16);
 
@@ -47,15 +46,20 @@ export default function MiniPlayer({ onExpand }: Props) {
     // Salva o progresso a cada ~10s → expandir/retomar continua de onde parou
     if (dur > 0 && now - lastSaveRef.current > 10_000) {
       lastSaveRef.current = now;
-      if (channel?.id) record(channel.id, t, dur);
+      if (channel?.id) {
+        record(channel.id, t, dur);
+        // Espelha na série-pai — a Home mostra progresso pelo id da SÉRIE
+        if (channel.seriesRef?.id) record(channel.seriesRef.id, t, dur);
+      }
     }
-  }, [channel?.id, record]);
+  }, [channel, record]);
 
   const saveNow = useCallback(() => {
     if (channel?.id && durationRef.current > 0) {
       record(channel.id, positionRef.current, durationRef.current);
+      if (channel.seriesRef?.id) record(channel.seriesRef.id, positionRef.current, durationRef.current);
     }
-  }, [channel?.id, record]);
+  }, [channel, record]);
 
   const handleExpand = useCallback(() => {
     if (!channel) return;
@@ -99,23 +103,23 @@ export default function MiniPlayer({ onExpand }: Props) {
         <View style={[styles.controls, IS_TV && styles.controlsTV]} pointerEvents="box-none">
           <View style={styles.topRow}>
             <Pressable onPress={handleExpand} style={[styles.iconBtn, IS_TV && styles.iconBtnTV]} hitSlop={6}>
-              <Ionicons name="expand" size={IS_TV ? 20 : 14} color="#fff" />
+              <Ionicons name="expand" size={IS_TV ? 20 : 14} color={colors.white} />
             </Pressable>
             <View style={{ flex: 1 }} />
             {!IS_TV && (
               <Pressable onPress={handleClose} style={styles.iconBtn} hitSlop={6}>
-                <Ionicons name="close" size={16} color="#fff" />
+                <Ionicons name="close" size={16} color={colors.white} />
               </Pressable>
             )}
           </View>
           <View style={styles.bottomRow}>
             <Pressable onPress={() => setPaused(p => !p)} style={[styles.iconBtn, IS_TV && styles.iconBtnTV]} hitSlop={6}>
-              <Ionicons name={paused ? 'play' : 'pause'} size={IS_TV ? 20 : 16} color="#fff" />
+              <Ionicons name={paused ? 'play' : 'pause'} size={IS_TV ? 20 : 16} color={colors.white} />
             </Pressable>
             <Text style={[styles.title, IS_TV && styles.titleTV]} numberOfLines={1}>{channel.name}</Text>
             {IS_TV && (
               <Pressable onPress={handleClose} style={[styles.iconBtn, styles.iconBtnTV]} hitSlop={6}>
-                <Ionicons name="close" size={20} color="#fff" />
+                <Ionicons name="close" size={20} color={colors.white} />
               </Pressable>
             )}
           </View>
@@ -143,11 +147,11 @@ const styles = StyleSheet.create({
     marginRight: 12,
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: '#000',
+    backgroundColor: colors.black,
     borderWidth: 1,
     borderColor: colors.border,
     elevation: 12,
-    shadowColor: '#000',
+    shadowColor: colors.black,
     shadowOpacity: 0.5,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
@@ -182,6 +186,6 @@ const styles = StyleSheet.create({
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: 'rgba(0,0,0,0.65)',
   },
-  title: { flex: 1, color: '#fff', fontSize: 10, fontWeight: '600' },
+  title: { flex: 1, color: colors.white, fontSize: 10, fontWeight: '600' },
   titleTV: { fontSize: 14, fontWeight: '700' },
 });

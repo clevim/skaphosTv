@@ -1,15 +1,17 @@
 // TVEPGScreen.tsx — TV Electronic Program Guide
-// Shows channel rows × time columns. EPG data is placeholder (no XMLTV source yet).
-import React, { useRef, useState, useMemo } from 'react';
+// Canais × horários com dados REAIS de XMLTV (epgStore: Xtream xmltv.php /
+// url-tvg do M3U). Blocos posicionados pelo horário verdadeiro dos programas.
+import React, { useRef, useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, Platform,
+  View, Text, StyleSheet, ScrollView, ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
+import { useEpgStore } from '../store/epgStore';
+import { EpgProgram } from '../utils/epg';
 import TVFocusable from '../components/TVFocusable';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
 import { RootStackParamList, Channel } from '../types';
@@ -18,47 +20,76 @@ import { detectType } from '../utils/channelUtils';
 type Nav = StackNavigationProp<RootStackParamList>;
 
 const SLOT_WIDTH = 180;   // px per 30-min slot
+const SLOT_MS = 30 * 60 * 1000;
+const PX_PER_MS = SLOT_WIDTH / SLOT_MS;
 const CHANNEL_COL = 200; // px for left channel column
 const ROW_HEIGHT = 60;
-const SLOTS_VISIBLE = 6;  // 3 hours visible at once
+const SLOT_COUNT = 14;
 
-/** Generate time labels starting from the previous even hour */
-function buildTimeSlots(count = 12): string[] {
+/** Início da janela: meia hora "cheia" anterior à atual, menos 1 slot de contexto. */
+function windowStartMs(): number {
   const now = new Date();
-  const start = new Date(now);
-  start.setMinutes(now.getMinutes() < 30 ? 0 : 30, 0, 0);
-  // Go back 1 slot to show "what's on now" on-screen
-  start.setMinutes(start.getMinutes() - 30);
-  return Array.from({ length: count }, (_, i) => {
-    const d = new Date(start.getTime() + i * 30 * 60 * 1000);
-    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  });
+  now.setMinutes(now.getMinutes() < 30 ? 0 : 30, 0, 0);
+  return now.getTime() - SLOT_MS;
 }
 
-/** Deterministic program title from channel name + slot index */
-function fakeProgramTitle(ch: Channel, slotIdx: number): string {
-  const hash = (ch.id.charCodeAt(0) + slotIdx * 7) % 5;
-  const suffixes = ['ao vivo', 'especial', 'notícias', 'esportes', 'entretenimento'];
-  const clean = ch.name.split(' ').slice(0, 2).join(' ');
-  return slotIdx === 1 ? `${clean} ao vivo` : `${clean} — ${suffixes[hash]}`;
+/** Blocos visuais de uma linha: programas reais + preenchimento de lacunas. */
+interface RowBlock {
+  key: string;
+  width: number;
+  program?: EpgProgram;   // ausente = lacuna sem informação
 }
 
-/** Width in slots for a fake program block (1 or 2 slots = 30 or 60 min) */
-function programSpan(ch: Channel, slotIdx: number): number {
-  return ((ch.id.charCodeAt(0) + slotIdx * 3) % 2) + 1;
+function buildRowBlocks(programs: EpgProgram[] | undefined, winStart: number, winEnd: number): RowBlock[] {
+  const blocks: RowBlock[] = [];
+  let cursor = winStart;
+  for (const p of programs ?? []) {
+    const start = Math.max(p.start, winStart);
+    const end = Math.min(p.end, winEnd);
+    if (end <= cursor) continue;
+    if (start > cursor) {
+      blocks.push({ key: `gap-${cursor}`, width: (start - cursor) * PX_PER_MS });
+    }
+    blocks.push({ key: `${p.start}`, width: (end - Math.max(start, cursor)) * PX_PER_MS, program: p });
+    cursor = end;
+    if (cursor >= winEnd) break;
+  }
+  if (cursor < winEnd) blocks.push({ key: `gap-${cursor}`, width: (winEnd - cursor) * PX_PER_MS });
+  return blocks;
 }
+
+const fmtTime = (ms: number) =>
+  new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
 export default function TVEPGScreen() {
   const navigation = useNavigation<Nav>();
-  const { channels, setCurrentChannel } = useStore();
-  const timeSlots = useMemo(() => buildTimeSlots(14), []);
-  const [nowOffset, setNowOffset] = useState(1); // slot index for "now" indicator
+  const channels          = useStore(s => s.channels);
+  const setCurrentChannel = useStore(s => s.setCurrentChannel);
+  const epgByChannel = useEpgStore(s => s.byChannelId);
+  const epgLoading   = useEpgStore(s => s.loading);
+  const epgError     = useEpgStore(s => s.error);
+  const loadEpg      = useEpgStore(s => s.load);
 
-  // Only live channels for EPG
-  const liveChannels = useMemo(
-    () => channels.filter(c => detectType(c.group || '', c.name) === 'live').slice(0, 40),
-    [channels]
+  // Programa focado no D-pad — sinopse no rodapé
+  const [focused, setFocused] = useState<{ channel: string; program: EpgProgram } | null>(null);
+
+  const winStart = useMemo(() => windowStartMs(), []);
+  const winEnd = winStart + SLOT_COUNT * SLOT_MS;
+  const timeSlots = useMemo(
+    () => Array.from({ length: SLOT_COUNT }, (_, i) => fmtTime(winStart + i * SLOT_MS)),
+    [winStart],
   );
+  const nowOffset = Math.min(SLOT_COUNT - 1, Math.max(0, Math.floor((Date.now() - winStart) / SLOT_MS)));
+
+  useEffect(() => { loadEpg(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Only live channels for EPG — com programação primeiro (canais com guia sobem)
+  const liveChannels = useMemo(() => {
+    const live = channels.filter(c => detectType(c.group || '', c.name) === 'live');
+    const withEpg = live.filter(c => epgByChannel[c.id]?.length);
+    const without = live.filter(c => !epgByChannel[c.id]?.length);
+    return [...withEpg, ...without].slice(0, 60);
+  }, [channels, epgByChannel]);
 
   const scrollRef = useRef<ScrollView>(null);
 
@@ -81,6 +112,24 @@ export default function TVEPGScreen() {
           {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
         </Text>
         <View style={{ flex: 1 }} />
+        {/* Estado do guia + atualizar */}
+        {epgLoading && (
+          <View style={styles.epgStatus}>
+            <ActivityIndicator size="small" color={colors.accent} />
+            <Text style={styles.epgStatusText}>Baixando guia…</Text>
+          </View>
+        )}
+        {!epgLoading && epgError && (
+          <Text style={[styles.epgStatusText, { color: colors.yellow }]} numberOfLines={1}>
+            {epgError}
+          </Text>
+        )}
+        {!epgLoading && (
+          <TVFocusable onPress={() => loadEpg(true)} style={styles.nowBtn}>
+            <Ionicons name="refresh-outline" size={13} color={colors.text2} />
+            <Text style={styles.nowBtnText}>Atualizar</Text>
+          </TVFocusable>
+        )}
         {/* Jump to now */}
         <TVFocusable
           onPress={() => scrollRef.current?.scrollTo({ x: 0, animated: true })}
@@ -138,40 +187,59 @@ export default function TVEPGScreen() {
                   <Text style={styles.channelName} numberOfLines={2}>{ch.name}</Text>
                 </TVFocusable>
 
-                {/* Program blocks — horizontally scrollable */}
+                {/* Program blocks — horizontally scrollable, posicionados por horário real */}
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.programRow}>
-                  {(() => {
-                    const blocks: JSX.Element[] = [];
-                    let slotIdx = 0;
-                    while (slotIdx < timeSlots.length) {
-                      const span = programSpan(ch, slotIdx);
-                      const isNow = slotIdx <= nowOffset && nowOffset < slotIdx + span;
-                      blocks.push(
-                        <TVFocusable
-                          key={slotIdx}
-                          onPress={() => handlePlay(ch)}
-                          style={[
-                            styles.programBlock,
-                            { width: SLOT_WIDTH * span - 2 },
-                            isNow && styles.programBlockNow,
-                          ]}
-                        >
-                          <Text style={[styles.programTitle, isNow && styles.programTitleNow]} numberOfLines={1}>
-                            {fakeProgramTitle(ch, slotIdx)}
-                          </Text>
-                          <Text style={styles.programTime}>
-                            {timeSlots[slotIdx]}{span > 1 && timeSlots[slotIdx + 1] ? ` — ${timeSlots[slotIdx + 1]}` : ''}
-                          </Text>
-                        </TVFocusable>
+                  {buildRowBlocks(epgByChannel[ch.id], winStart, winEnd).map(block => {
+                    if (!block.program) {
+                      return (
+                        <View key={block.key} style={[styles.programBlock, styles.programBlockEmpty, { width: block.width - 2 }]}>
+                          {block.width > 90 && (
+                            <Text style={styles.programEmptyText} numberOfLines={1}>Sem informação</Text>
+                          )}
+                        </View>
                       );
-                      slotIdx += span;
                     }
-                    return blocks;
-                  })()}
+                    const p = block.program;
+                    const isNow = p.start <= Date.now() && Date.now() < p.end;
+                    return (
+                      <TVFocusable
+                        key={block.key}
+                        onPress={() => handlePlay(ch)}
+                        onFocus={() => setFocused({ channel: ch.name, program: p })}
+                        style={[
+                          styles.programBlock,
+                          { width: block.width - 2 },
+                          isNow && styles.programBlockNow,
+                        ]}
+                      >
+                        <Text style={[styles.programTitle, isNow && styles.programTitleNow]} numberOfLines={1}>
+                          {p.title}
+                        </Text>
+                        <Text style={styles.programTime}>
+                          {fmtTime(p.start)} — {fmtTime(p.end)}
+                        </Text>
+                      </TVFocusable>
+                    );
+                  })}
                 </ScrollView>
               </View>
             ))}
           </ScrollView>
+
+          {/* Rodapé: detalhes do programa focado no D-pad */}
+          {focused && (
+            <View style={styles.detailBar}>
+              <Text style={styles.detailTitle} numberOfLines={1}>
+                {focused.program.title}
+                <Text style={styles.detailMeta}>
+                  {'   '}{focused.channel} · {fmtTime(focused.program.start)}–{fmtTime(focused.program.end)}
+                </Text>
+              </Text>
+              {!!focused.program.desc && (
+                <Text style={styles.detailDesc} numberOfLines={2}>{focused.program.desc}</Text>
+              )}
+            </View>
+          )}
         </View>
       )}
     </View>
@@ -338,6 +406,30 @@ const styles = StyleSheet.create({
   programTime: {
     fontSize: 10, color: colors.text3, marginTop: 2,
   },
+  programBlockEmpty: {
+    backgroundColor: colors.bgSoft,
+    opacity: 0.6,
+  },
+  programEmptyText: {
+    fontSize: 11, color: colors.text3, fontStyle: 'italic',
+  },
+
+  // Status do guia no header
+  epgStatus: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  epgStatusText: { fontSize: 12, color: colors.text3, maxWidth: 260 },
+
+  // Rodapé com detalhes do programa focado
+  detailBar: {
+    paddingHorizontal: spacing.xxxl,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.bg1,
+    minHeight: 58,
+  },
+  detailTitle: { fontSize: 13, fontWeight: '700', color: colors.text1 },
+  detailMeta: { fontSize: 11, fontWeight: '400', color: colors.text3 },
+  detailDesc: { fontSize: 11, color: colors.text2, marginTop: 3, lineHeight: 15 },
 
   // Empty state
   empty: {

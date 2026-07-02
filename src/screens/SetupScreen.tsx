@@ -18,7 +18,9 @@ import { loadJellyfinContent } from '../utils/jellyfinLoader';
 import { loadSourceChannels } from '../utils/sourceLoader';
 import { APP_VERSION } from '../utils/version';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
-import { IS_TV } from '../utils/tvDetect';
+import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import PairingSetupModal from '../components/PairingSetupModal';
+import type { PairingPayload } from '../utils/pairingServer';
 
 type TabType = 'm3u' | 'xtream' | 'jellyfin';
 
@@ -96,7 +98,12 @@ const PHASE_ICONS: Record<XtreamPhase, string> = {
 
 export default function SetupScreen() {
   const navigation = useNavigation();
-  const { addSource, updateSource, sources, removeSource, appendChannels, replaceSourceChannels } = useStore();
+  const addSource             = useStore(s => s.addSource);
+  const updateSource          = useStore(s => s.updateSource);
+  const sources               = useStore(s => s.sources);
+  const removeSource          = useStore(s => s.removeSource);
+  const appendChannels        = useStore(s => s.appendChannels);
+  const replaceSourceChannels = useStore(s => s.replaceSourceChannels);
 
   // Layout responsivo (TV): padding e largura do form proporcionais à tela,
   // evitando elementos grandes demais / apertados em resoluções diferentes.
@@ -128,6 +135,9 @@ export default function SetupScreen() {
   const [jHost, setJHost] = useState('http://');
   const [jName, setJName] = useState('');
 
+  // Pareamento pelo celular (QR + servidor local efêmero) — só builds nativos
+  const [showPairing, setShowPairing] = useState(false);
+
   // Quick Connect
   const [showQC, setShowQC] = useState(false);
   const [qcCode, setQcCode] = useState('');
@@ -158,6 +168,26 @@ export default function SetupScreen() {
   const updatePhase = (phase: XtreamPhase, patch: Partial<PhaseStatus>) =>
     setPhases(prev => ({ ...prev, [phase]: { ...prev[phase], ...patch } }));
 
+  // Fonte recebida do celular via QR: preenche o form (feedback visual) e dispara
+  // o MESMO fluxo de validação/carga da digitação manual, com os valores direto
+  // (o estado do form ainda não atualizou neste tick).
+  const handlePairedSource = (p: PairingPayload) => {
+    setShowPairing(false);
+    if (p.type === 'xtream') {
+      setActiveTab('xtream');
+      setXHost(p.host ?? 'http://');
+      setXUser(p.username ?? '');
+      setXPass(p.password ?? '');
+      setXName(p.name ?? '');
+      loadXtream({ host: p.host ?? '', user: p.username ?? '', pass: p.password ?? '', name: p.name });
+    } else {
+      setActiveTab('m3u');
+      setM3uUrl(p.url ?? '');
+      setM3uName(p.name ?? '');
+      loadAndSaveM3U({ url: p.url ?? '', name: p.name });
+    }
+  };
+
   const startEdit = useCallback((source: IPTVSource) => {
     if (source.type === 'xtream') {
       setActiveTab('xtream');
@@ -179,27 +209,33 @@ export default function SetupScreen() {
     setShowPhases(false);
   }, []);
 
-  const loadAndSaveM3U = async () => {
-    if (!m3uUrl.trim()) { Alert.alert('Erro', 'Digite a URL da lista M3U'); return; }
+  // `override` = valores vindos do pareamento pelo celular (o estado do form
+  // ainda não refletiu os setters); pareamento sempre cria fonte nova.
+  const loadAndSaveM3U = async (override?: { url: string; name?: string }) => {
+    const url = (override?.url ?? m3uUrl).trim();
+    const name = (override?.name ?? m3uName).trim();
+    const editingId = override ? null : editingSourceId;
+    if (!url) { Alert.alert('Erro', 'Digite a URL da lista M3U'); return; }
     setIsLoadingLocal(true);
     setConnectionResult(null);
     const start = Date.now();
     try {
-      const response = await fetchWithRedirect(m3uUrl.trim(), 30000, () => {});
+      const response = await fetchWithRedirect(url, 30000, () => {});
       const result = parseM3U(response.data);
       if (result.channels.length === 0) throw new Error('Nenhum canal encontrado na lista');
       const latency = Date.now() - start;
       setConnectionResult({ success: true, channels: result.channels.length, vod: 0, latency });
-      const sourceId = editingSourceId ?? Date.now().toString();
+      const sourceId = editingId ?? Date.now().toString();
       const source: IPTVSource = {
         id: sourceId,
-        name: m3uName.trim() || 'Minha Lista M3U',
+        name: name || 'Minha Lista M3U',
         type: 'm3u',
-        url: m3uUrl.trim(),
+        url,
         addedAt: Date.now(),
         channelCount: result.channels.length,
+        epgUrl: result.tvgUrl,
       };
-      if (editingSourceId) updateSource(sourceId, source); else addSource(source);
+      if (editingId) updateSource(sourceId, source); else addSource(source);
       setEditingSourceId(null);
       replaceSourceChannels(sourceId, result.channels, result.groups);
       // Enriquece canais M3U com Xtream API em background (se URLs forem Xtream)
@@ -220,15 +256,19 @@ export default function SetupScreen() {
     }
   };
 
-  const loadXtream = async () => {
-    if (!xHost.trim() || !xUser.trim() || !xPass.trim()) {
+  const loadXtream = async (override?: { host: string; user: string; pass: string; name?: string }) => {
+    const rawHost = override?.host ?? xHost;
+    const rawUser = override?.user ?? xUser;
+    const rawPass = override?.pass ?? xPass;
+    const editingId = override ? null : editingSourceId;
+    if (!rawHost.trim() || !rawUser.trim() || !rawPass.trim()) {
       Alert.alert('Erro', 'Preencha todos os campos');
       return;
     }
 
-    const host = normalizeHostUtil(xHost);
-    const user = xUser.trim();
-    const pass = xPass.trim();
+    const host = normalizeHostUtil(rawHost);
+    const user = rawUser.trim();
+    const pass = rawPass.trim();
 
     setIsLoadingLocal(true);
     setConnectionResult(null);
@@ -263,8 +303,8 @@ export default function SetupScreen() {
       return;
     }
 
-    const sourceId = editingSourceId ?? Date.now().toString();
-    const sourceName = xName.trim() || `Xtream: ${host}`;
+    const sourceId = editingId ?? Date.now().toString();
+    const sourceName = (override?.name ?? xName).trim() || `Xtream: ${host}`;
     let totalLoaded = 0;
     let sourceAdded = false;
     const phaseErrors: string[] = [];
@@ -299,7 +339,7 @@ export default function SetupScreen() {
             addedAt: Date.now(),
             channelCount: 0, // atualizado ao final
           };
-          if (editingSourceId) updateSource(sourceId, xtreamSource); else addSource(xtreamSource);
+          if (editingId) updateSource(sourceId, xtreamSource); else addSource(xtreamSource);
           replaceSourceChannels(sourceId, result.channels, result.groups);
         } else {
           // Fases seguintes: merge incremental, mantendo o vínculo com a fonte
@@ -429,7 +469,7 @@ export default function SetupScreen() {
   };
 
   const deleteSource = (id: string, name: string) => {
-    if (Platform.OS === 'web') {
+    if (IS_WEB) {
       if (window.confirm(`Remover "${name}"?`)) {
         removeSource(id);
       }
@@ -536,7 +576,7 @@ export default function SetupScreen() {
       {connectionResult?.success && (
         <View style={styles.successBox}>
           <View style={styles.successIcon}>
-            <Ionicons name="checkmark" size={14} color="#22c55e" />
+            <Ionicons name="checkmark" size={14} color={colors.green} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.successTitle}>Conexao verificada</Text>
@@ -597,7 +637,7 @@ export default function SetupScreen() {
       {connectionResult?.success && (
         <View style={styles.successBox}>
           <View style={styles.successIcon}>
-            <Ionicons name="checkmark" size={14} color="#22c55e" />
+            <Ionicons name="checkmark" size={14} color={colors.green} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.successTitle}>Servidor conectado</Text>
@@ -656,7 +696,7 @@ export default function SetupScreen() {
       {connectionResult?.success && (
         <View style={styles.successBox}>
           <View style={styles.successIcon}>
-            <Ionicons name="checkmark" size={14} color="#22c55e" />
+            <Ionicons name="checkmark" size={14} color={colors.green} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.successTitle}>Conexao verificada</Text>
@@ -738,6 +778,17 @@ export default function SetupScreen() {
             <Ionicons name="play-circle-outline" size={20} color={activeTab === 'jellyfin' ? colors.accent : colors.text3} />
             <Text style={[tvStyles.tabText, activeTab === 'jellyfin' && tvStyles.tabTextActive]}>Jellyfin</Text>
           </TVFocusable>
+          {/* Pareamento via QR: só builds nativos (o web não abre servidor local) */}
+          {!IS_WEB && (
+            <TVFocusable
+              onPress={() => setShowPairing(true)}
+              style={[tvStyles.tab, tvStyles.pairTab]}
+              borderRadius={10}
+            >
+              <Ionicons name="qr-code-outline" size={20} color={colors.accent} />
+              <Text style={[tvStyles.tabText, { color: colors.accent }]}>Pelo celular</Text>
+            </TVFocusable>
+          )}
         </View>
 
         {/* Two-panel body */}
@@ -829,6 +880,12 @@ export default function SetupScreen() {
           onCancel={cancelQuickConnect}
         />
 
+        <PairingSetupModal
+          visible={showPairing}
+          onClose={() => setShowPairing(false)}
+          onSource={handlePairedSource}
+        />
+
         {/* Delete confirmation modal */}
         <Modal visible={!!deleteTarget} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
           <View style={styles.modalOverlay}>
@@ -846,7 +903,7 @@ export default function SetupScreen() {
                   <Text style={styles.modalBtnCancelText}>Cancelar</Text>
                 </TVFocusable>
                 <TVFocusable onPress={confirmDelete} style={[styles.modalBtn, styles.modalBtnDelete]}>
-                  <Ionicons name="trash-outline" size={14} color="#fff" />
+                  <Ionicons name="trash-outline" size={14} color={colors.white} />
                   <Text style={styles.modalBtnDeleteText}>Remover</Text>
                 </TVFocusable>
               </View>
@@ -975,7 +1032,7 @@ export default function SetupScreen() {
                 <Text style={styles.modalBtnCancelText}>Cancelar</Text>
               </TVFocusable>
               <TVFocusable onPress={confirmDelete} style={[styles.modalBtn, styles.modalBtnDelete]}>
-                <Ionicons name="trash-outline" size={14} color="#fff" />
+                <Ionicons name="trash-outline" size={14} color={colors.white} />
                 <Text style={styles.modalBtnDeleteText}>Remover</Text>
               </TVFocusable>
             </View>
@@ -1270,7 +1327,7 @@ const styles = StyleSheet.create({
   modalBtnCancel: { backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border },
   modalBtnCancelText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text2 },
   modalBtnDelete: { backgroundColor: colors.red },
-  modalBtnDeleteText: { fontSize: fontSize.sm, fontWeight: '600', color: '#fff' },
+  modalBtnDeleteText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.white },
 
   qcBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 50, borderRadius: radius.lg, borderWidth: 1.5, borderColor: colors.accent, backgroundColor: 'transparent', marginTop: 4 },
   qcBtnText: { color: colors.accent, fontSize: fontSize.md, fontWeight: '600' },
@@ -1326,6 +1383,8 @@ const tvStyles = StyleSheet.create({
   tabActive: { backgroundColor: colors.bg2, borderColor: colors.accent },
   tabText: { fontSize: 14, fontWeight: '500', color: colors.text3 },
   tabTextActive: { color: colors.text1, fontWeight: '600' },
+  // "Pelo celular" — ação, não aba: destaque accent permanente
+  pairTab: { flex: 0, backgroundColor: colors.accentSoft, borderColor: colors.borderHover },
 
   // Body
   body: { flex: 1, flexDirection: 'row' },

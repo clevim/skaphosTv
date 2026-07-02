@@ -10,6 +10,7 @@ import React, { useRef, useEffect, useImperativeHandle, forwardRef } from 'react
 import { View, StyleSheet } from 'react-native';
 import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
+import { colors } from '../utils/theme';
 
 export const ResizeMode = {
   CONTAIN: 'contain',
@@ -202,7 +203,7 @@ const Video = forwardRef(function Video(props: any, ref: any) {
         muted={!!muted}
         loop={!!repeat}
         playsInline
-        style={{ width: '100%', height: '100%', objectFit, backgroundColor: '#000', display: 'block' }}
+        style={{ width: '100%', height: '100%', objectFit, backgroundColor: colors.black, display: 'block' }}
         onLoadedMetadata={(e) => {
           const v = e.target as HTMLVideoElement;
           onLoad?.({ duration: isFinite(v.duration) ? v.duration : 0 });
@@ -231,5 +232,5 @@ const Video = forwardRef(function Video(props: any, ref: any) {
 export default Video;
 
 const styles = StyleSheet.create({
-  container: { backgroundColor: '#000', overflow: 'hidden' },
+  container: { backgroundColor: colors.black, overflow: 'hidden' },
 });

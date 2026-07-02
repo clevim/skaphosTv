@@ -56,7 +56,11 @@ const FavCard = React.memo(function FavCard({
 
 export function FavoritesScreen() {
   const navigation = useNavigation();
-  const { channels, favorites, recentChannels, setCurrentChannel, toggleFavorite } = useStore();
+  const channels          = useStore(s => s.channels);
+  const favorites         = useStore(s => s.favorites);
+  const recentChannels    = useStore(s => s.recentChannels);
+  const setCurrentChannel = useStore(s => s.setCurrentChannel);
+  const toggleFavorite    = useStore(s => s.toggleFavorite);
   const [activeTab, setActiveTab] = useState<Tab>('Minha Lista');
 
   const favChannels = useMemo(

@@ -5,6 +5,8 @@ export interface ParseResult {
   channels: Channel[];
   groups: string[];
   errors: string[];
+  /** URL de guia XMLTV declarada no cabeçalho (#EXTM3U url-tvg="..." / x-tvg-url). */
+  tvgUrl?: string;
 }
 
 // Limite de canais para não OOM dispositivos com pouca RAM (Firestick, etc.)
@@ -24,6 +26,12 @@ export function parseM3U(content: string): ParseResult {
   if (!lines[0]?.trimStart().startsWith('#EXTM3U')) {
     errors.push('Arquivo não começa com #EXTM3U. Pode não ser uma lista M3U válida.');
   }
+
+  // Guia XMLTV declarado no cabeçalho — usado pelo EPG (padrão iptv-org e afins)
+  const tvgUrl =
+    extractAttr(lines[0] ?? '', 'url-tvg') ||
+    extractAttr(lines[0] ?? '', 'x-tvg-url') ||
+    undefined;
 
   while (i < lines.length) {
     if (channels.length >= MAX_CHANNELS) {
@@ -62,6 +70,7 @@ export function parseM3U(content: string): ParseResult {
     channels,
     groups: Array.from(groupSet).sort(),
     errors,
+    tvgUrl,
   };
 }
 

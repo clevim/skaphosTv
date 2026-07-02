@@ -122,3 +122,65 @@ export function parseSeriesCredentials(url: string): { host: string; user: strin
   if (!m) return null;
   return { host: m[1], user: m[2], pass: m[3] };
 }
+
+// ─── VOD info (detalhes de filme) ────────────────────────────────────────────
+
+export interface XtreamVodDetails {
+  plot?: string;
+  cast?: string;
+  director?: string;
+  genre?: string;
+  rating?: string;
+  releaseDate?: string;
+  backdrop?: string;
+  duration?: string;
+  trailerYoutubeId?: string;
+}
+
+/**
+ * Extrai host/usuário/senha/id da URL de um filme Xtream.
+ * Padrão: http://host/movie/user/pass/vod_id.ext
+ */
+export function parseMovieCredentials(
+  url: string,
+): { host: string; user: string; pass: string; vodId: string } | null {
+  const m = url.match(/^(.+?)\/movie\/([^/]+)\/([^/]+)\/(\d+)\.\w+/);
+  if (!m) return null;
+  return { host: m[1], user: m[2], pass: m[3], vodId: m[4] };
+}
+
+/**
+ * Busca os detalhes ricos de um filme via get_vod_info — sinopse, elenco,
+ * diretor, gênero, nota, backdrop e trailer, direto do painel, sem chave TMDB.
+ */
+export async function fetchVodInfo(
+  host: string,
+  username: string,
+  password: string,
+  vodId: string | number,
+): Promise<XtreamVodDetails | null> {
+  const base = normalizeHost(host);
+  const url = `${base}/player_api.php?username=${username}&password=${password}&action=get_vod_info&vod_id=${vodId}`;
+  try {
+    const res = await axios.get(url, { timeout: 20_000, headers: { 'User-Agent': 'okhttp/4.9.0' } });
+    const info = res.data?.info;
+    if (!info || typeof info !== 'object') return null;
+    const backdropRaw = info.backdrop_path;
+    const backdrop = Array.isArray(backdropRaw) ? backdropRaw[0] : backdropRaw || undefined;
+    // Painéis variam entre plot/description/plot_outline — pega o primeiro não-vazio
+    const plot = info.plot || info.description || info.plot_outline || undefined;
+    return {
+      plot: plot || undefined,
+      cast: info.cast || info.actors || undefined,
+      director: info.director || undefined,
+      genre: info.genre || undefined,
+      rating: info.rating != null && String(info.rating) !== '0' ? String(info.rating) : undefined,
+      releaseDate: info.releasedate || info.release_date || undefined,
+      backdrop,
+      duration: info.duration || undefined,
+      trailerYoutubeId: info.youtube_trailer || undefined,
+    };
+  } catch (_) {
+    return null; // metadados são opcionais — sem info, a tela segue com o que tem
+  }
+}

@@ -2,10 +2,11 @@
 // Web: real backdropFilter blur via style prop
 // Native: simulated with semi-transparent bg + border
 import React from 'react';
-import { View, Text, StyleSheet, Platform, ViewStyle } from 'react-native';
+import { Text, StyleSheet, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
 import { colors, radius } from '../utils/theme';
+import { IS_WEB } from '../utils/tvDetect';
 
 interface Props {
   icon: string;
@@ -13,8 +14,6 @@ interface Props {
   onPress?: () => void;
   style?: ViewStyle;
 }
-
-const IS_WEB = Platform.OS === 'web';
 
 export default function GlassButton({ icon, label, onPress, style }: Props) {
   const glassStyle: ViewStyle = IS_WEB

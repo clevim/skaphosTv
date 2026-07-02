@@ -9,9 +9,8 @@
 
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+import { IS_WEB } from './tvDetect';
 
-const IS_WEB = Platform.OS === 'web';
 const PREFIX = 'skaphostv_secret_';
 
 export interface SourceSecrets {

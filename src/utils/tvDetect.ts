@@ -21,9 +21,16 @@ const _isAndroidTV = _uiModeType === 4 || _uiModeRaw === 'tv'; // UI_MODE_TYPE_T
 // No navegador usamos o layout de TV (TVTopBar + navegação por foco): o webapp
 // serve pra prever a experiência do FireStick, e o teclado já age como D-pad.
 // O módulo nativo de foco (tv-focus) é no-op no web, então isto é seguro.
-const IS_WEB = Platform.OS === 'web';
+export const IS_WEB = Platform.OS === 'web';
 
-export const IS_TV = Platform.isTV || _isAndroidTV || IS_WEB;
+/** TV física (Android TV / FireTV) — exclui o web, que só emula o layout de TV. */
+export const IS_NATIVE_TV = Platform.isTV || _isAndroidTV;
+
+/** Layout de TV (top bar + D-pad): TVs físicas e web. */
+export const IS_TV = IS_NATIVE_TV || IS_WEB;
+
+/** Layout de smartphone (bottom tab bar, toque): tudo que não usa layout de TV. */
+export const IS_MOBILE = !IS_TV;
 
 /** Para mostrar no overlay de debug */
 export const TV_DEBUG = {

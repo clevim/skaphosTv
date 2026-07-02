@@ -1,9 +1,9 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
-import { Animated, Platform } from 'react-native';
-import * as ScreenOrientation from 'expo-screen-orientation';
+import { Animated } from 'react-native';
 import { useStore } from '../store/useStore';
 import { Channel } from '../types';
-import { IS_TV } from '../utils/tvDetect';
+import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import { lockLandscape, unlockOrientation } from '../utils/orientation';
 import {
   parseJellyfinVideoUrl, markJellyfinWatched, reportJellyfinProgress,
   getJellyfinSubtitleTracks, JellyfinSubtitleTrack,
@@ -11,7 +11,6 @@ import {
 } from '../utils/jellyfinLoader';
 import { SubtitleTrack, AudioTrack } from '../types';
 import { useWatchProgress, resumePositionFor } from '../store/watchProgress';
-const IS_WEB = Platform.OS === 'web';
 const OSD_TIMEOUT = IS_TV ? 6000 : 4000;
 
 export const MAX_RETRIES = 5;
@@ -68,6 +67,9 @@ export function usePlayer(
     const dur = durationRef.current;
     if (!ch?.id || !dur || dur <= 0) return; // ao vivo / sem duração → ignora
     recordProgress(ch.id, positionRef.current, dur);
+    // Espelha na série-pai: os recentes da Home guardam a SÉRIE (não o episódio),
+    // então o "Continue assistindo" busca progresso pelo id da série.
+    if (ch.seriesRef?.id) recordProgress(ch.seriesRef.id, positionRef.current, dur);
   }, [recordProgress]);
 
   const [playingChannel, setPlayingChannel] = useState<Channel>(initialChannel);
@@ -133,12 +135,10 @@ export function usePlayer(
   useEffect(() => { onRequestCloseRef.current = onRequestClose; }, [onRequestClose]);
 
   useEffect(() => {
-    if (Platform.OS !== 'web') {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-    }
+    lockLandscape();
     showOSDTemporarily();
     return () => {
-      if (Platform.OS !== 'web') ScreenOrientation.unlockAsync();
+      unlockOrientation();
       // Salva a posição ao sair do player (voltar, trocar de tela) — garante resume
       saveLocalProgress();
       clearAllTimers();

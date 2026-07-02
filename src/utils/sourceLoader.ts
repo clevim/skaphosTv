@@ -4,7 +4,7 @@
  */
 import axios from 'axios';
 import { Channel } from '../types';
-import { IPTVSource } from '../store/useStore';
+import { useStore, IPTVSource } from '../store/useStore';
 import { loadXtreamChannels } from './xtreamLoader';
 import { loadJellyfinContent } from './jellyfinLoader';
 import { parseM3U } from './m3uParser';
@@ -26,5 +26,10 @@ export async function loadSourceChannels(
     timeout: 60000,
     headers: { 'User-Agent': 'okhttp/4.9.0' },
   });
-  return parseM3U(response.data);
+  const result = parseM3U(response.data);
+  // Fontes antigas (adicionadas antes do EPG) ganham o url-tvg no próximo reload
+  if (result.tvgUrl && result.tvgUrl !== source.epgUrl) {
+    useStore.getState().updateSource(source.id, { epgUrl: result.tvgUrl });
+  }
+  return result;
 }

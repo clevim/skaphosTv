@@ -184,6 +184,16 @@ skaphostv/
 
 ---
 
+## Design por Plataforma
+
+A detecção fica centralizada em `src/utils/tvDetect.ts` (`IS_TV`, `IS_NATIVE_TV`, `IS_WEB`, `IS_MOBILE`) e os tokens visuais em `src/utils/theme.ts` — todos os componentes derivam do mesmo tema.
+
+| Plataforma | Layout | Navegação | Particularidades |
+|------------|--------|-----------|------------------|
+| **TV** (Android TV / Firestick) | Top bar + two-panel (sidebar + grid), landscape travado | D-pad com anel de foco (`TVFocusable`), dicas de controle (`RemoteHints`) | Módulo nativo `tv-focus`, EPG, cards maiores |
+| **Smartphone** | Bottom tab bar + header, orientação livre (player trava em landscape) | Toque, long-press para favoritar | Mini-player flutuante, PiP nativo, zona "segurar para 2x" |
+| **Web** | Mesmo layout da TV (prevê a experiência do Firestick) | Teclado age como D-pad, mouse com botão de favorito nos cards | Proxy CORS (`webHttp`), players hls.js/mpegts.js, `Video.web` |
+
 ## Compatibilidade
 
 | Plataforma | Suporte |

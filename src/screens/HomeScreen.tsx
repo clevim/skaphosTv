@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, ScrollView,
-  ActivityIndicator, Platform, useWindowDimensions, Animated,
+  ActivityIndicator, useWindowDimensions, Animated,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -26,11 +26,11 @@ import RemoteHints from '../components/RemoteHints';
 import TVCatalogLayout from '../components/TVCatalogLayout';
 import TVSearchContent from '../components/TVSearchContent';
 
-import { IS_TV } from '../utils/tvDetect';
-import * as ScreenOrientation from 'expo-screen-orientation';
+import { IS_TV, IS_MOBILE } from '../utils/tvDetect';
+import { lockLandscape } from '../utils/orientation';
 
-// Barra de abas inferior: presente no mobile E no web (só a TV usa a top bar).
-const HAS_BOTTOM_NAV = !IS_TV;
+// Barra de abas inferior: layout de smartphone (TV e web usam a top bar).
+const HAS_BOTTOM_NAV = IS_MOBILE;
 
 // ── FlatItem ─────────────────────────────────────────────────────────────────
 // Componente intermediário com React.memo + useCallback por item.
@@ -84,13 +84,25 @@ const FlatItem = memo(function FlatItem({
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
-  const {
-    channels, groups, selectedGroup, isLoading, loadError,
-    sources, favorites, recentChannels, currentChannel,
-    setSelectedGroup, setLoading, setLoadError,
-    setCurrentChannel, toggleFavorite, loadFromStorage, channelIndex,
-    replaceSourceChannels,
-  } = useStore();
+  // Seletores por campo: a tela só re-renderiza quando o campo usado muda
+  // (o destructure de useStore() re-renderizava a cada mudança de QUALQUER campo)
+  const channels       = useStore(s => s.channels);
+  const groups         = useStore(s => s.groups);
+  const selectedGroup  = useStore(s => s.selectedGroup);
+  const isLoading      = useStore(s => s.isLoading);
+  const loadError      = useStore(s => s.loadError);
+  const sources        = useStore(s => s.sources);
+  const favorites      = useStore(s => s.favorites);
+  const recentChannels = useStore(s => s.recentChannels);
+  const currentChannel = useStore(s => s.currentChannel);
+  const channelIndex   = useStore(s => s.channelIndex);
+  const setSelectedGroup      = useStore(s => s.setSelectedGroup);
+  const setLoading            = useStore(s => s.setLoading);
+  const setLoadError          = useStore(s => s.setLoadError);
+  const setCurrentChannel     = useStore(s => s.setCurrentChannel);
+  const toggleFavorite        = useStore(s => s.toggleFavorite);
+  const loadFromStorage       = useStore(s => s.loadFromStorage);
+  const replaceSourceChannels = useStore(s => s.replaceSourceChannels);
 
   const [navKey, setNavKey]         = useState('home');
   const [searchQuery, setSearchQuery] = useState('');
@@ -102,6 +114,13 @@ export default function HomeScreen() {
   const [categorySearch, setCategorySearch] = useState('');
   const [clock, setClock]           = useState('');
   const { mainContentH } = useAppLayout();
+
+  // Grid: volta ao topo ao trocar seção/categoria (a lista NÃO é mais remontada
+  // via key — remontar destruía o foco do D-pad e recriava todos os cards)
+  const listRef = useRef<FlatList<Channel>>(null);
+  useEffect(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [navKey, selectedGroup]);
 
   // Refs para centralizar o chip ativo na barra horizontal de categorias
   const chipScrollRef    = useRef<ScrollView>(null);
@@ -349,9 +368,7 @@ export default function HomeScreen() {
 
     setCurrentChannel(channel);
     // Inicia o lock de orientação antes de navegar para evitar a rotação visível ao entrar no player
-    if (Platform.OS !== 'web') {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
-    }
+    lockLandscape();
     navigation.navigate('Player', { channel });
   }, [navigation, setCurrentChannel, channels]);
 
@@ -364,9 +381,7 @@ export default function HomeScreen() {
       : detectType(channel.group || '', channel.name);
     if (type === 'series') { handleChannelPress(channel); return; }
     setCurrentChannel(channel);
-    if (Platform.OS !== 'web') {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
-    }
+    lockLandscape();
     navigation.navigate('Player', { channel });
   }, [navigation, setCurrentChannel, handleChannelPress]);
 
@@ -484,7 +499,8 @@ export default function HomeScreen() {
         <View style={styles.center}>
           <Ionicons name="warning" size={48} color={colors.red} />
           <Text style={styles.errorText}>{loadError}</Text>
-          <TVFocusable onPress={() => navigation.navigate('Setup')} style={styles.retryBtn}>
+          {/* Foco preferido: sem ele o D-pad fica órfão quando o grid some */}
+          <TVFocusable onPress={() => navigation.navigate('Setup')} style={styles.retryBtn} hasTVPreferredFocus={IS_TV}>
             <Text style={styles.retryBtnText}>Configurar Fonte</Text>
           </TVFocusable>
         </View>
@@ -544,7 +560,7 @@ export default function HomeScreen() {
           <Text style={styles.emptyTitle}>Nenhum item encontrado</Text>
           <Text style={styles.emptySubtitle}>Tente outro filtro ou categoria</Text>
           {navKey.startsWith('jf-') && (
-            <TVFocusable onPress={handleRefresh} style={styles.retryBtn}>
+            <TVFocusable onPress={handleRefresh} style={styles.retryBtn} hasTVPreferredFocus={IS_TV}>
               <Text style={styles.retryBtnText}>Recarregar</Text>
             </TVFocusable>
           )}
@@ -565,11 +581,12 @@ export default function HomeScreen() {
         >
           <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
             <FlatList
+              ref={listRef}
               style={{ flex: 1 }}
               data={filteredChannels}
               keyExtractor={keyExtractor}
               numColumns={numColumns}
-              key={`${navKey}-${selectedGroup}-${numColumns}`}
+              key={numColumns}
               renderItem={renderFlatItem}
               contentContainerStyle={styles.grid}
               showsVerticalScrollIndicator={false}
@@ -649,11 +666,12 @@ export default function HomeScreen() {
     return (
       <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
         <FlatList
+          ref={listRef}
           style={{ flex: 1 }}
           data={filteredChannels}
           keyExtractor={keyExtractor}
           numColumns={numColumns}
-          key={`${navKey}-${selectedGroup}-${numColumns}`}
+          key={numColumns}
           renderItem={renderFlatItem}
           ListHeaderComponent={listHeader}
           contentContainerStyle={styles.grid}
@@ -769,7 +787,7 @@ const styles = StyleSheet.create({
     color: colors.text1,
   },
   chipTextActive: {
-    color: '#0a0a0b',
+    color: colors.textInverse,
     fontWeight: '600',
   },
 

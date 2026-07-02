@@ -15,9 +15,11 @@ import {
   findNodeHandle,
 } from 'react-native';
 import { IS_TV } from '../utils/tvDetect';
+import { colors } from '../utils/theme';
 import { addFocusListener } from '../../modules/tv-focus';
 
 const FOCUS_SCALE = IS_TV ? 1.05 : 1;
+// Mais opaco que colors.accentSoft (0.16): o highlight de foco precisa ler à distância na TV
 const FOCUS_BG    = 'rgba(167,139,250,0.22)';
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -137,7 +139,7 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
         isFocused && { backgroundColor: FOCUS_BG },
         isFocused && focusStyle,
         isFocused && (zooming
-          ? { zIndex: 20, elevation: 8, shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }
+          ? { zIndex: 20, elevation: 8, shadowColor: colors.black, shadowOpacity: 0.45, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }
           : { zIndex: 20 }),
         { transform: [{ scale: scaleAnim }] },
       ]}

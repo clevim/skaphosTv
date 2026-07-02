@@ -9,6 +9,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet } from 'react-native';
 import Video, { ResizeMode } from 'react-native-video';
+import { colors } from '../utils/theme';
 
 interface Props {
   source: any;            // require('../../assets/intro.mp4')
@@ -53,5 +54,5 @@ export default function VideoSplash({ source, ready, muted = false, onFinish }: 
 }
 
 const styles = StyleSheet.create({
-  root: { backgroundColor: '#0a0a0f', zIndex: 1000, elevation: 1000 },
+  root: { backgroundColor: colors.splashBg, zIndex: 1000, elevation: 1000 },
 });

@@ -19,6 +19,8 @@ export const colors = {
   text1: '#f4f4f5',
   text2: '#a1a1aa',
   text3: '#5b5b63',
+  // Texto/ícone escuro sobre superfícies claras (botões brancos, chips ativos)
+  textInverse: '#0a0a0b',
 
   // Status
   red: '#ef4444',
@@ -30,6 +32,12 @@ export const colors = {
 
   // Live
   live: '#ef4444',
+
+  // Estrela de favorito (mais clara que o yellow de status)
+  favorite: '#facc15',
+
+  // Fundo das splash screens (Animated/Video) — mais profundo que bg0
+  splashBg: '#06030d',
 
   overlay: 'rgba(0,0,0,0.7)',
   overlayDark: 'rgba(0,0,0,0.9)',
@@ -70,13 +78,3 @@ export const fontFamily = {
   semiBold: 'Geist-SemiBold',
   bold:     'Geist-Bold',
 } as const;
-
-export const TV_FOCUS_STYLE = {
-  transform: [{ scale: 1.06 }],
-  borderColor: colors.accent,
-  borderWidth: 2,
-  shadowColor: colors.accent,
-  shadowOpacity: 0.5,
-  shadowRadius: 13,
-  elevation: 10,
-};

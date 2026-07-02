@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Image, StyleSheet, View, Easing } from 'react-native';
+import { Animated, Image, StyleSheet, View, Easing, useWindowDimensions } from 'react-native';
+import { colors } from '../utils/theme';
 
 const MIN_VISIBLE_MS = 1600;
 
@@ -241,10 +242,13 @@ function runCanvasAnim(canvas: HTMLCanvasElement, container: HTMLElement): () =>
 // ── React component ──────────────────────────────────────────────────────────
 
 export default function AnimatedSplash({ ready, onFinish }: { ready: boolean; onFinish: () => void }) {
+  const { width: winW, height: winH } = useWindowDimensions();
   const containerRef = useRef<View>(null);
   const canvasRef    = useRef<HTMLCanvasElement | null>(null);
   const rootOpacity  = useRef(new Animated.Value(1)).current;
+  const logoOpacity  = useRef(new Animated.Value(0)).current;
   const logoScale    = useRef(new Animated.Value(0.62)).current;
+  const breath       = useRef(new Animated.Value(1)).current;
   const glowOp       = useRef(new Animated.Value(0.6)).current;
   const glowSize     = useRef(new Animated.Value(0.97)).current;
   const dotsOp       = useRef(new Animated.Value(0)).current;
@@ -254,10 +258,16 @@ export default function AnimatedSplash({ ready, onFinish }: { ready: boolean; on
   const mountTs = useRef(Date.now());
   const doneRef = useRef(false);
 
+  // Design: clamp(190px, 46vmin, 600px)
+  const logoW = Math.min(Math.max(190, Math.min(winW, winH) * 0.46), 600);
+
   // Canvas animation setup
   useEffect(() => {
     const container = containerRef.current as unknown as HTMLElement;
     if (!container) return;
+    // Fundo em gradiente radial do design (por trás do canvas)
+    container.style.background =
+      `radial-gradient(120% 120% at 50% 42%, #0c0618 0%, ${colors.splashBg} 60%, #030106 100%)`;
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;';
     canvasRef.current = canvas;
@@ -269,15 +279,28 @@ export default function AnimatedSplash({ ready, onFinish }: { ready: boolean; on
   // Logo + glow + dots animations
   useEffect(() => {
     // Logo entrance (delay matches tentacle grow-in ~0.9 s)
-    Animated.timing(logoScale, {
-      toValue: 1, duration: 1250, delay: 900,
-      easing: Easing.out(Easing.cubic), useNativeDriver: true,
-    }).start();
+    Animated.parallel([
+      Animated.timing(logoScale, {
+        toValue: 1, duration: 1250, delay: 900,
+        easing: Easing.out(Easing.cubic), useNativeDriver: true,
+      }),
+      Animated.timing(logoOpacity, {
+        toValue: 1, duration: 750, delay: 900,
+        easing: Easing.out(Easing.ease), useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Respiração do logo (design: sk-breath 4.2 s, scale 1 → 1.035, após a entrada)
+    const breathLoop = Animated.loop(Animated.sequence([
+      Animated.timing(breath, { toValue: 1.035, duration: 2100, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(breath, { toValue: 1,     duration: 2100, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+    ]));
+    const breathTimer = setTimeout(() => breathLoop.start(), 2200);
 
     const glowLoop = Animated.loop(Animated.sequence([
       Animated.parallel([
         Animated.timing(glowOp,   { toValue: 1,    duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(glowSize, { toValue: 1.06, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(glowSize, { toValue: 1.05, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
       ]),
       Animated.parallel([
         Animated.timing(glowOp,   { toValue: 0.6,  duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
@@ -296,7 +319,10 @@ export default function AnimatedSplash({ ready, onFinish }: { ready: boolean; on
     const t1 = setTimeout(() => dotLoop(d1).start(), 2000);
     const t2 = setTimeout(() => dotLoop(d2).start(), 2180);
     const t3 = setTimeout(() => dotLoop(d3).start(), 2360);
-    return () => { glowLoop.stop(); clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+    return () => {
+      glowLoop.stop(); breathLoop.stop();
+      clearTimeout(breathTimer); clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
+    };
   }, []); // eslint-disable-line
 
   const finish = () => {
@@ -319,8 +345,6 @@ export default function AnimatedSplash({ ready, onFinish }: { ready: boolean; on
     return () => clearTimeout(hard);
   }, []); // eslint-disable-line
 
-  const glowOuterOp = glowOp.interpolate({ inputRange: [0.6, 1], outputRange: [0.18, 0.30] });
-  const glowInnerOp = glowOp.interpolate({ inputRange: [0.6, 1], outputRange: [0.33, 0.55] });
 
   return (
     <View
@@ -331,10 +355,26 @@ export default function AnimatedSplash({ ready, onFinish }: { ready: boolean; on
     >
       {/* canvas is injected here via useEffect, behind React children */}
       <Animated.View style={[StyleSheet.absoluteFill, styles.center, { opacity: rootOpacity }]}>
-        <Animated.View style={[styles.glowOuter, { opacity: glowOuterOp, transform: [{ scale: glowSize }] }]} />
-        <Animated.View style={[styles.glowInner, { opacity: glowInnerOp, transform: [{ scale: glowSize }] }]} />
-        <Animated.View style={{ transform: [{ scale: logoScale }], zIndex: 2 }}>
-          <Image source={require('../../assets/icon.png')} style={styles.logo} resizeMode="contain" />
+        <Animated.View style={{ opacity: logoOpacity, transform: [{ scale: logoScale }], zIndex: 2 }}>
+          {/* Respiração num wrapper separado — a escala compõe com a da entrada.
+              O glow (gradiente radial do design, sem círculo sólido) respira junto. */}
+          <Animated.View style={{ transform: [{ scale: breath }] }}>
+            <Animated.Image
+              source={require('../../assets/splash-glow.png')}
+              style={{
+                position: 'absolute',
+                width: logoW * 1.35, height: logoW * 1.35,
+                left: -logoW * 0.175, top: -logoW * 0.195,
+                opacity: glowOp,
+                transform: [{ scale: glowSize }],
+              }}
+            />
+            <Image
+              source={require('../../assets/adaptive-icon.png')}
+              style={{ width: logoW, height: logoW }}
+              resizeMode="contain"
+            />
+          </Animated.View>
         </Animated.View>
         <Animated.View style={[styles.dots, { opacity: dotsOp, zIndex: 2 }]}>
           <Animated.View style={[styles.dot, { transform: [{ translateY: d1 }] }]} />
@@ -347,19 +387,9 @@ export default function AnimatedSplash({ ready, onFinish }: { ready: boolean; on
 }
 
 const styles = StyleSheet.create({
-  root: { backgroundColor: '#06030d', zIndex: 1000 },
+  root: { backgroundColor: colors.splashBg, zIndex: 1000 },
   center: { alignItems: 'center', justifyContent: 'center' },
-  logo: { width: 140, height: 140, borderRadius: 28 },
-  glowOuter: {
-    position: 'absolute',
-    width: 500, height: 500, borderRadius: 250,
-    backgroundColor: '#3c1280',
-  },
-  glowInner: {
-    position: 'absolute',
-    width: 280, height: 280, borderRadius: 140,
-    backgroundColor: '#601eb4',
-  },
+  glow: { position: 'absolute' },
   dots: { flexDirection: 'row', gap: 14, marginTop: 40 },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#a25cf0' },
 });
