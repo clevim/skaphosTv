@@ -21,6 +21,13 @@ fi
 mkdir -p "$OUT_DIR"
 
 echo "Building SkaphosTV v$VERSION → $OUT_FILE"
+if [ -n "$EXPO_PUBLIC_DEV_UPDATE_URL" ]; then
+  echo "⚠️  EXPO_PUBLIC_DEV_UPDATE_URL setado — este build sai COM as ferramentas de dev/debug"
+  echo "   (log em tela, campo de servidor de update em Ajustes). Pra um build de produção,"
+  echo "   rode 'unset EXPO_PUBLIC_DEV_UPDATE_URL' antes, ou use 'npm run release'."
+else
+  echo "✓ Build de produção — sem ferramentas de dev/debug."
+fi
 
 # Limpa caches do Metro
 rm -rf node_modules/.cache "$TMPDIR/metro-"* "$TMPDIR/haste-map-"*

@@ -25,6 +25,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Um release público NUNCA pode sair com as ferramentas de dev/debug habilitadas
+# (log em tela, "Servidor de update (dev)" em Ajustes) — e ambas são controladas
+# só por esta env var estar ou não setada no shell no momento do build (ver
+# src/utils/debugLog.ts). Se sobrou setada de uma sessão de teste anterior, o
+# build ia sair "de dev" sem nenhum aviso. Zera aqui, sempre, sem exceção.
+unset EXPO_PUBLIC_DEV_UPDATE_URL
+
 REPO="clevim/skaphosTv"
 VERSION=""
 REBUILD=0
