@@ -1,8 +1,8 @@
 import { useMemo, useCallback } from 'react';
 import { Channel } from '../types';
 import { ChannelIndex } from '../store/channelIndex';
-import { detectType, getSeriesBaseName, isLaunchYear, YEAR_GROUPS } from '../utils/channelUtils';
-import { IPTVSource, useStore } from '../store/useStore';
+import { getSeriesBaseName, isLaunchYear, YEAR_GROUPS, FAVORITES_GROUPS } from '../utils/channelUtils';
+import { IPTVSource, useStore, resolveChannelType } from '../store/useStore';
 
 interface UseChannelFilterProps {
   navKey: string;
@@ -48,6 +48,7 @@ export function useChannelFilter({
     else if (navKey === 'movies')  groups = channelIndex.movieGroups;
     else if (navKey === 'series')  groups = channelIndex.seriesGroups;
     else if (navKey === 'year')    groups = [...YEAR_GROUPS];
+    else if (navKey === 'favorites') groups = [...FAVORITES_GROUPS];
     else if (jellyfinServerName) {
       // Grupos que pertencem a esta fonte Jellyfin
       groups = [...channelIndex.byGroup.keys()].filter(g =>
@@ -65,6 +66,9 @@ export function useChannelFilter({
 
     if (navKey === 'favorites') {
       list = channels.filter(c => favoritesSet.has(c.id));
+      if (selectedGroup === 'Ao vivo')      list = list.filter(c => resolveChannelType(c) === 'live');
+      else if (selectedGroup === 'Filmes')  list = list.filter(c => resolveChannelType(c) === 'movies');
+      else if (selectedGroup === 'Séries')  list = list.filter(c => resolveChannelType(c) === 'series');
 
     } else if (navKey === 'year') {
       if (selectedGroup === 'Filmes')      list = channelIndex.yearMovies;
@@ -113,7 +117,7 @@ export function useChannelFilter({
     if (categorySearch.trim()) {
       const q = categorySearch.toLowerCase();
       list = list.filter(c => {
-        const searchName = detectType(c.group || '', c.name) === 'series'
+        const searchName = resolveChannelType(c) === 'series'
           ? getSeriesBaseName(c.name)
           : c.name;
         return searchName.toLowerCase().includes(q);
@@ -137,11 +141,17 @@ export function useChannelFilter({
       if (group === 'Filmes')  return channelIndex.yearMovies.length;
       if (group === 'Séries')  return channelIndex.yearSeries.length;
     }
+    if (navKey === 'favorites') {
+      const favChannels = channels.filter(c => favoritesSet.has(c.id));
+      if (group === 'Ao vivo') return favChannels.filter(c => resolveChannelType(c) === 'live').length;
+      if (group === 'Filmes')  return favChannels.filter(c => resolveChannelType(c) === 'movies').length;
+      if (group === 'Séries')  return favChannels.filter(c => resolveChannelType(c) === 'series').length;
+    }
     if (navKey === 'series') {
       return channelIndex.seriesByGroup.get(group)?.length ?? 0;
     }
     return channelIndex.byGroup.get(group)?.length ?? 0;
-  }, [channelIndex, navKey]);
+  }, [channelIndex, navKey, channels, favoritesSet]);
 
   return {
     filteredGroups,

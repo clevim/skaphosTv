@@ -4,6 +4,7 @@ import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
+import { cleanGroupName } from '../utils/channelUtils';
 
 interface Props {
   title: string;
@@ -61,7 +62,7 @@ export default function TVCatalogLayout({
           </TVFocusable>
 
           {groups.map(g => {
-            const clean = g.replace(/[♦◆️\uFE0F]\s*/g, '').trim();
+            const clean = cleanGroupName(g);
             const isActive = selectedGroup === g;
             return (
               <TVFocusable
@@ -105,6 +106,12 @@ const styles = StyleSheet.create({
     width: 240,
     borderRightWidth: 1,
     borderRightColor: colors.border,
+    // minHeight:0 é OBRIGATÓRIO aqui para o ScrollView filho conseguir rolar no web:
+    // por padrão CSS, um item flex não encolhe abaixo do tamanho do seu CONTEÚDO
+    // (min-height:auto), então a lista de subcategorias cresce e empurra a tela
+    // ao invés de rolar internamente. O Yoga (motor nativo) não tem essa regra —
+    // por isso funcionava normal na TV/Android e só quebrava no web.
+    minHeight: 0,
   },
   sidebarHeader: {
     flexDirection: 'row',
@@ -183,5 +190,9 @@ const styles = StyleSheet.create({
   // Content
   content: {
     flex: 1,
+    // Mesma razão do sidebar acima: sem minHeight:0 o grid de cards (FlatList)
+    // não rola no web — o container tenta crescer para caber o conteúdo
+    // virtualizado inteiro (centenas de milhares de px em listas grandes).
+    minHeight: 0,
   },
 });

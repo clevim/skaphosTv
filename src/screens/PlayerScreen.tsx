@@ -15,6 +15,7 @@ import PlayerSidebar from '@/components/PlayerSidebar';
 import PlayerError from '@/components/PlayerError';
 import SubtitleSheet from '@/components/SubtitleSheet';
 import AudioTrackSheet from '@/components/AudioTrackSheet';
+import SleepTimerSheet from '@/components/SleepTimerSheet';
 import { fixStreamUrl } from '../utils/m3uParser';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import { setPipEnabled, setPipPlaying } from '../utils/pip';
@@ -73,6 +74,7 @@ export default function PlayerScreen() {
     playingChannel, isPlaying, isBuffering,
     isMuted, volume, error,
     rate, setRate,
+    sleepTimerMinutes, sleepTimerEndAt, setSleepTimer,
     retryCount, retryingIn,
     position, duration,
     showOSD, showSidebar,
@@ -89,6 +91,7 @@ export default function PlayerScreen() {
 
   const [showSubtitleSheet, setShowSubtitleSheet] = useState(false);
   const [showAudioSheet, setShowAudioSheet] = useState(false);
+  const [showSleepSheet, setShowSleepSheet] = useState(false);
   // Modo scrubbing (TV): estado EXPLÍCITO, não derivado de foco. Entra com ↓, sai com ▲.
   // As teclas chegam pelo canal nativo (SkaphosKeyDown), então não dependemos do foco
   // ficar na barra — o foco pode até escapar que o seek e o visual seguem este estado.
@@ -135,8 +138,14 @@ export default function PlayerScreen() {
     const actionSub = DeviceEventEmitter.addListener('SkaphosPipAction', (action: string) => {
       if (action === 'playpause') togglePlay();
     });
-    return () => { sub.remove(); actionSub.remove(); };
-  }, [togglePlay]);
+    // Usuário fechou a janela do PiP pelo "X" do sistema — para o áudio/vídeo na
+    // hora, sem esperar o resto do teardown da Activity (que pode demorar/nunca
+    // rodar a tempo e deixar tocando sozinho em segundo plano).
+    const closeSub = DeviceEventEmitter.addListener('SkaphosPipClosed', () => {
+      if (isPlaying) togglePlay();
+    });
+    return () => { sub.remove(); actionSub.remove(); closeSub.remove(); };
+  }, [togglePlay, isPlaying]);
 
   // Mantém o ícone play/pause da janela do PiP em sincronia com o estado real
   useEffect(() => {
@@ -226,13 +235,14 @@ export default function PlayerScreen() {
     const handler = BackHandler.addEventListener('hardwareBackPress', () => {
       if (showSubtitleSheet) { setShowSubtitleSheet(false); return true; }
       if (showAudioSheet) { setShowAudioSheet(false); return true; }
+      if (showSleepSheet) { setShowSleepSheet(false); return true; }
       if (showSidebar) { setShowSidebar(false); return true; }
       if (scrubMode) { setScrubMode(false); return true; }
       navigation.goBack();
       return true;
     });
     return () => handler.remove();
-  }, [navigation, showSidebar, showSubtitleSheet, showAudioSheet, scrubMode]);
+  }, [navigation, showSidebar, showSubtitleSheet, showAudioSheet, showSleepSheet, scrubMode]);
 
   // Refs para evitar closure stale nos callbacks de key event
   const showOSDRef       = useRef(showOSD);
@@ -246,7 +256,7 @@ export default function PlayerScreen() {
   useEffect(() => { showOSDRef.current     = showOSD;     }, [showOSD]);
   useEffect(() => { showSidebarRef.current = showSidebar; }, [showSidebar]);
   useEffect(() => { isLiveRef.current      = isLive;      }, [isLive]);
-  useEffect(() => { showSheetRef.current   = showSubtitleSheet || showAudioSheet; }, [showSubtitleSheet, showAudioSheet]);
+  useEffect(() => { showSheetRef.current   = showSubtitleSheet || showAudioSheet || showSleepSheet; }, [showSubtitleSheet, showAudioSheet, showSleepSheet]);
   useEffect(() => { scrubModeRef.current   = scrubMode; }, [scrubMode]);
   // Ao ocultar o OSD, sai do modo scrubbing (a barra some junto).
   useEffect(() => { if (!showOSD && scrubMode) setScrubMode(false); }, [showOSD, scrubMode]);
@@ -456,6 +466,7 @@ export default function PlayerScreen() {
             onToggleMute={() => setIsMuted(m => !m)}
             // Ajustar o volume desmuta — arrastar o slider mudo e não ouvir nada confunde
             onVolumeChange={(v) => { setVolume(v); setIsMuted(false); }}
+            showSidebarButton={playlist.length > 0}
             onToggleSidebar={() => setShowSidebar(s => !s)}
             onSeekTo={seekTo}
             onSeekBy={seekBy}
@@ -464,6 +475,10 @@ export default function PlayerScreen() {
             onToggleSubtitles={() => setShowSubtitleSheet(true)}
             hasAudio={audioTracks.length > 1}
             onToggleAudio={() => setShowAudioSheet(true)}
+            sleepTimerActive={sleepTimerMinutes !== null}
+            sleepTimerEndAt={sleepTimerEndAt}
+            sleepTimerTotalMinutes={sleepTimerMinutes}
+            onToggleSleepTimer={() => setShowSleepSheet(true)}
             showNextEpisode={hasNextEpisode}
             onNextEpisode={nextChannel}
             showMinimize={!inPip}
@@ -486,6 +501,12 @@ export default function PlayerScreen() {
           selectedIndex={currentAudioIndex}
           onSelect={switchAudioTrack}
           onClose={() => setShowAudioSheet(false)}
+        />
+        <SleepTimerSheet
+          visible={showSleepSheet}
+          selectedMinutes={sleepTimerMinutes}
+          onSelect={setSleepTimer}
+          onClose={() => setShowSleepSheet(false)}
         />
       </TouchableOpacity>
 

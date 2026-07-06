@@ -7,6 +7,7 @@ import { colors, radius, fontSize } from '../utils/theme';
 import { useThemeStore } from '../store/useThemeStore';
 import { Channel } from '../types';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import { cleanGroupName } from '../utils/channelUtils';
 
 interface ChannelCardProps {
   channel: Channel;
@@ -21,6 +22,8 @@ interface ChannelCardProps {
   episodeCount?: number;
   contentType?: 'live' | 'movies' | 'series';
   progress?: number; // 0-1 for "continue watching" cards
+  /** Já assistido (≥90%) — mostra um check no lugar da barra de progresso. */
+  watched?: boolean;
   cardWidth?: number;
   cardHeight?: number;
 }
@@ -41,7 +44,7 @@ const QUALITY_COLORS: Record<string, string> = {
 
 function ChannelCard({
   channel, displayName, isPlaying, isFavorite, onPress, onLongPress, onToggleFavorite,
-  hasTVPreferredFocus, episodeCount, contentType = 'live', progress,
+  hasTVPreferredFocus, episodeCount, contentType = 'live', progress, watched,
   cardWidth, cardHeight,
 }: ChannelCardProps) {
   const { preset } = useThemeStore();
@@ -135,10 +138,17 @@ function ChannelCard({
           </View>
         )}
 
-        {/* Progress bar */}
+        {/* Progress bar — "assistindo" */}
         {progress != null && progress > 0 && (
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${Math.min(progress, 1) * 100}%`, backgroundColor: preset.accent }]} />
+          </View>
+        )}
+
+        {/* "Assistido" — canto oposto ao favorito, some enquanto isPlaying */}
+        {watched && !isPlaying && (
+          <View style={styles.watchedBadge}>
+            <Ionicons name="checkmark" size={10} color={colors.white} />
           </View>
         )}
       </View>
@@ -150,7 +160,7 @@ function ChannelCard({
           <Text style={[styles.epCount, { color: preset.accent }]}>{episodeCount} episódios</Text>
         ) : channel.group ? (
           <Text style={styles.group} numberOfLines={1}>
-            {channel.group.replace(/[♦◆️]\s*/g, '').trim()}
+            {cleanGroupName(channel.group)}
           </Text>
         ) : null}
       </View>
@@ -237,6 +247,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 5,
     left: 5,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  watchedBadge: {
+    position: 'absolute',
+    bottom: 5,
+    right: 5,
     width: 16,
     height: 16,
     borderRadius: 8,

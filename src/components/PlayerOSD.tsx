@@ -1,10 +1,11 @@
 // PlayerOSD.tsx — matches MobilePlayer / TVLive design exactly
-import React, { useRef } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Animated,
-  Platform, PanResponder,
+  Platform, PanResponder, Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Circle } from 'react-native-svg';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import PulsingDot from './PulsingDot';
@@ -12,6 +13,32 @@ import { colors, fontSize, radius, spacing } from '@/utils/theme';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import { useStore } from '../store/useStore';
 import { useNowNext } from '../store/epgStore';
+
+/** Anel que regride ao redor do botão de sleep timer, acompanhando o tempo restante. */
+function SleepRing({ endAt, totalMinutes }: { endAt: number; totalMinutes: number }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const totalMs = totalMinutes * 60_000;
+  const remaining = Math.max(0, endAt - now);
+  const pct = totalMs > 0 ? remaining / totalMs : 0;
+  const size = 38, stroke = 2.5, r = (size - stroke) / 2, circ = 2 * Math.PI * r;
+  return (
+    <Svg width={size} height={size} style={StyleSheet.absoluteFillObject} pointerEvents="none">
+      <Circle
+        cx={size / 2} cy={size / 2} r={r}
+        stroke={colors.accent} strokeWidth={stroke} fill="none"
+        strokeDasharray={`${circ} ${circ}`}
+        strokeDashoffset={circ * (1 - pct)}
+        strokeLinecap="round"
+        rotation={-90}
+        origin={`${size / 2}, ${size / 2}`}
+      />
+    </Svg>
+  );
+}
 
 /** "Agora / A seguir" do EPG — só para canal ao vivo com o guia habilitado. */
 function NowNextLine({ channel, isLive }: { channel: Channel; isLive: boolean }) {
@@ -53,6 +80,9 @@ interface Props {
   onNextChannel: () => void;
   onToggleMute: () => void;
   onVolumeChange: (v: number) => void;
+  /** Sidebar só existe pra lista de episódios de série (o PiP interno já cobre
+   *  "outras mídias da mesma categoria" — sem motivo pra duplicar o botão). */
+  showSidebarButton?: boolean;
   onToggleSidebar: () => void;
   onSeekTo: (pct: number) => void;
   onSeekBy: (seconds: number) => void;
@@ -61,6 +91,11 @@ interface Props {
   onToggleSubtitles?: () => void;
   hasAudio?: boolean;
   onToggleAudio?: () => void;
+  sleepTimerActive?: boolean;
+  onToggleSleepTimer?: () => void;
+  /** Timestamp de disparo e duração total selecionada — alimentam o anel de contagem regressiva. */
+  sleepTimerEndAt?: number | null;
+  sleepTimerTotalMinutes?: number | null;
   /** Séries: mostra o botão de "próximo episódio" (canto sup. direito) quando há próximo. */
   showNextEpisode?: boolean;
   onNextEpisode?: () => void;
@@ -87,9 +122,10 @@ export default function PlayerOSD({
   isMuted, volume,
   onBack, onTogglePlay, onPrevChannel, onNextChannel,
   onToggleMute, onVolumeChange,
-  onToggleSidebar, onSeekTo, onSeekBy,
+  showSidebarButton, onToggleSidebar, onSeekTo, onSeekBy,
   hasSubtitles, subtitleActive, onToggleSubtitles,
   hasAudio, onToggleAudio,
+  sleepTimerActive, onToggleSleepTimer, sleepTimerEndAt, sleepTimerTotalMinutes,
   showNextEpisode, onNextEpisode,
   showMinimize, onMinimize,
   scrubMode = false,
@@ -116,6 +152,8 @@ export default function PlayerOSD({
   const volPct = isMuted ? 0 : Math.round(volume * 100);
   const volIcon = isMuted || volume <= 0 ? 'volume-mute'
     : volume < 0.5 ? 'volume-low' : 'volume-high';
+  // Slider só aparece no hover do grupo (ícone) — clique no ícone muta/desmuta
+  const [volHover, setVolHover] = useState(false);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -142,7 +180,10 @@ export default function PlayerOSD({
           <Ionicons name={IS_TV ? 'chevron-back' : 'chevron-down'} size={20} color={colors.white} />
         </TVFocusable>
 
-        <View style={styles.titleWrap}>
+        {/* Absoluto e centralizado no espaço TOTAL da barra — não no espaço
+            "sobrando" entre back e os ícones (que muda de largura conforme
+            quantos ícones aparecem, descentralizando o título). */}
+        <View style={styles.titleWrap} pointerEvents="none">
           <Text style={styles.titleLabel}>REPRODUZINDO</Text>
           <Text style={styles.titleName} numberOfLines={1}>{channel.name}</Text>
           <NowNextLine channel={channel} isLive={isLive} />
@@ -150,21 +191,29 @@ export default function PlayerOSD({
 
         <View style={styles.topActions}>
           {IS_WEB && (
-            <View style={styles.volumeGroup}>
+            <Pressable
+              style={styles.volumeGroup}
+              onHoverIn={() => setVolHover(true)}
+              onHoverOut={() => setVolHover(false)}
+            >
+              {/* Slider à ESQUERDA do ícone: ao aparecer, o grupo cresce para
+                  dentro da tela sem deslocar os outros botões do canto direito */}
+              {volHover && (
+                <View
+                  style={styles.volumeBar}
+                  onLayout={(e) => { volBarWidth.current = e.nativeEvent.layout.width; }}
+                  {...volPan.panHandlers}
+                >
+                  <View style={styles.volumeBg}>
+                    <View style={[styles.volumeFill, { width: `${volPct}%` }]} />
+                  </View>
+                  <View style={[styles.volumeThumb, { left: `${volPct}%` }]} />
+                </View>
+              )}
               <TVFocusable onPress={onToggleMute} style={styles.iconBtn}>
                 <Ionicons name={volIcon} size={18} color={colors.white} />
               </TVFocusable>
-              <View
-                style={styles.volumeBar}
-                onLayout={(e) => { volBarWidth.current = e.nativeEvent.layout.width; }}
-                {...volPan.panHandlers}
-              >
-                <View style={styles.volumeBg}>
-                  <View style={[styles.volumeFill, { width: `${volPct}%` }]} />
-                </View>
-                <View style={[styles.volumeThumb, { left: `${volPct}%` }]} />
-              </View>
-            </View>
+            </Pressable>
           )}
           {showMinimize && onMinimize && (
             <TVFocusable onPress={onMinimize} style={styles.iconBtn}>
@@ -181,9 +230,21 @@ export default function PlayerOSD({
               <Ionicons name="chatbox-ellipses-outline" size={18} color={subtitleActive ? colors.accent : colors.white} />
             </TVFocusable>
           )}
-          <TVFocusable onPress={onToggleSidebar} style={styles.iconBtn}>
-            <Ionicons name="scan-outline" size={18} color={colors.white} />
-          </TVFocusable>
+          {onToggleSleepTimer && (
+            <TVFocusable onPress={onToggleSleepTimer} style={styles.iconBtn}>
+              <Ionicons name="moon-outline" size={18} color={sleepTimerActive ? colors.accent : colors.white} />
+              {/* Enquanto roda, o estado "ativo" é só o anel regredindo — sem também
+                  pintar o botão, que duplicava a indicação (círculo cheio + anel). */}
+              {sleepTimerActive && sleepTimerEndAt != null && sleepTimerTotalMinutes != null && (
+                <SleepRing endAt={sleepTimerEndAt} totalMinutes={sleepTimerTotalMinutes} />
+              )}
+            </TVFocusable>
+          )}
+          {showSidebarButton && (
+            <TVFocusable onPress={onToggleSidebar} style={styles.iconBtn}>
+              <Ionicons name="scan-outline" size={18} color={colors.white} />
+            </TVFocusable>
+          )}
           {showNextEpisode && onNextEpisode && (
             <TVFocusable onPress={onNextEpisode} style={styles.iconBtn}>
               <Ionicons name="play-skip-forward" size={18} color={colors.white} />
@@ -196,18 +257,24 @@ export default function PlayerOSD({
           mas seguem montados/focáveis — apertar ↑ na barra devolve o foco ao play. */}
       <View style={[styles.centerControls, scrubMode && styles.scrubHidden]} pointerEvents="box-none">
         {/* disabled durante scrubbing → sem vizinho focável, o D-pad esq/dir borbulha
-            para o onKeyDown (seek) em vez de mover o foco para cá. */}
-        <TVFocusable onPress={() => onSeekBy(-10)} style={styles.seekBtn} disabled={scrubMode}>
-          <Ionicons name="play-back" size={IS_TV ? 32 : 28} color="rgba(255,255,255,0.85)" />
-        </TVFocusable>
+            para o onKeyDown (seek) em vez de mover o foco para cá.
+            Ao vivo não tem como avançar/voltar — some com os botões de seek,
+            deixando só o play/pause pra limpar a tela. */}
+        {!isLive && (
+          <TVFocusable onPress={() => onSeekBy(-10)} style={styles.seekBtn} disabled={scrubMode}>
+            <Ionicons name="play-back" size={IS_TV ? 32 : 28} color="rgba(255,255,255,0.85)" />
+          </TVFocusable>
+        )}
 
         <TVFocusable onPress={onTogglePlay} style={styles.playBtn} hasTVPreferredFocus>
           <Ionicons name={isPlaying ? 'pause' : 'play'} size={IS_TV ? 28 : 24} color={colors.textInverse} />
         </TVFocusable>
 
-        <TVFocusable onPress={() => onSeekBy(10)} style={styles.seekBtn} disabled={scrubMode}>
-          <Ionicons name="play-forward" size={IS_TV ? 32 : 28} color="rgba(255,255,255,0.85)" />
-        </TVFocusable>
+        {!isLive && (
+          <TVFocusable onPress={() => onSeekBy(10)} style={styles.seekBtn} disabled={scrubMode}>
+            <Ionicons name="play-forward" size={IS_TV ? 32 : 28} color="rgba(255,255,255,0.85)" />
+          </TVFocusable>
+        )}
       </View>
 
       {/* Bottom: progress bar only */}
@@ -288,6 +355,7 @@ const styles = StyleSheet.create({
   osdTop: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 14,
     paddingHorizontal: IS_TV ? spacing.xxxl : 18,
     paddingTop: IS_TV ? 32 : 54,
@@ -301,9 +369,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Absoluto sobre a barra inteira (não um flex:1 entre back/ícones — larguras
+  // desiguais dos dois lados descentralizavam o título). Insets iguais dos dois
+  // lados garantem centro de verdade; numberOfLines=1 trunca com "…" se o nome
+  // for maior que o espaço livre.
   titleWrap: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: IS_TV ? 170 : 100,
+    right: IS_TV ? 170 : 100,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   titleLabel: {
     fontSize: 9,

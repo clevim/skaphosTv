@@ -3,6 +3,10 @@
  */
 
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { notify } from './notifications';
+import { useStore } from '../store/useStore';
+import type { IPTVSource } from '../store/useStore';
 
 export function normalizeHost(host: string): string {
   let h = host.trim().replace(/\/$/, '');
@@ -183,4 +187,45 @@ export async function fetchVodInfo(
   } catch (_) {
     return null; // metadados são opcionais — sem info, a tela segue com o que tem
   }
+}
+
+const EXPIRY_WARN_DAYS = 5;
+const EXPIRY_NOTIFIED_KEY = 'skaphostv_expiry_notified'; // { [sourceId]: 'YYYY-MM-DD' }
+
+/**
+ * Verifica se alguma fonte Xtream vence nos próximos EXPIRY_WARN_DAYS e notifica
+ * — no máximo 1x por dia por fonte (throttle em AsyncStorage), pra não repetir
+ * a cada boot enquanto a conta estiver na janela de aviso.
+ */
+export async function checkExpiringSources(sources: IPTVSource[]): Promise<void> {
+  if (!useStore.getState().settings.notifySourceExpiring) return;
+  const xtreamSources = sources.filter(s => s.type === 'xtream' && s.host && s.username && s.password);
+  if (xtreamSources.length === 0) return;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const raw = await AsyncStorage.getItem(EXPIRY_NOTIFIED_KEY);
+  const notified: Record<string, string> = raw ? JSON.parse(raw) : {};
+
+  for (const s of xtreamSources) {
+    if (notified[s.id] === today) continue;
+    try {
+      const base = normalizeHost(s.host!);
+      const res = await axios.get(
+        `${base}/player_api.php?username=${s.username}&password=${s.password}`,
+        { timeout: 10_000, headers: { 'User-Agent': 'okhttp/4.9.0' } },
+      );
+      const expUnix = parseInt(res.data?.user_info?.exp_date, 10);
+      if (!expUnix) continue;
+      const daysLeft = Math.ceil((expUnix * 1000 - Date.now()) / 86_400_000);
+      if (daysLeft > EXPIRY_WARN_DAYS) continue;
+      const msg = daysLeft <= 0
+        ? `${s.name} venceu.`
+        : `${s.name} vence em ${daysLeft} dia${daysLeft === 1 ? '' : 's'}.`;
+      await notify('Fonte prestes a vencer', msg);
+      notified[s.id] = today;
+    } catch {
+      /* fonte fora do ar ou erro de rede — tenta de novo no próximo boot */
+    }
+  }
+  await AsyncStorage.setItem(EXPIRY_NOTIFIED_KEY, JSON.stringify(notified));
 }

@@ -7,8 +7,9 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
-import { colors, spacing, fontSize, radius } from '../utils/theme';
-import { resolveContentType, getSeriesBaseName } from '../utils/channelUtils';
+import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
+import { getSeriesBaseName, cleanGroupName } from '../utils/channelUtils';
+import { resolveChannelType, useStore } from '../store/useStore';
 import { SearchType } from '../utils/search';
 import { IS_TV } from '../utils/tvDetect';
 
@@ -17,12 +18,48 @@ interface Props {
   onQueryChange: (q: string) => void;
   results: Channel[];
   onResultPress: (channel: Channel) => void;
-  contentH: number;
   searchType: SearchType;
   onSearchTypeChange: (t: SearchType) => void;
   recent: string[];
   onRecentPress: (q: string) => void;
   onClearRecent: () => void;
+  genreOptions: string[];
+  filterGenre: string | null;
+  onFilterGenreChange: (g: string | null) => void;
+  yearOptions: string[];
+  filterYear: string | null;
+  onFilterYearChange: (y: string | null) => void;
+  qualityOptions: string[];
+  filterQuality: string | null;
+  onFilterQualityChange: (q: string | null) => void;
+}
+
+/** Linha de chips de filtro reutilizada pra gênero/ano/qualidade — clicar de novo
+ *  no já ativo desmarca (volta pra "todos"). */
+function FilterChipsRow({ options, value, onChange }: {
+  options: string[]; value: string | null; onChange: (v: string | null) => void;
+}) {
+  if (options.length === 0) return null;
+  return (
+    <ScrollView
+      horizontal showsHorizontalScrollIndicator={false}
+      style={styles.filterScroll} contentContainerStyle={styles.filterRow}
+      keyboardShouldPersistTaps="handled"
+    >
+      {options.map(opt => {
+        const active = value === opt;
+        return (
+          <TVFocusable
+            key={opt}
+            onPress={() => onChange(active ? null : opt)}
+            style={[styles.filterChip, active && styles.filterChipActive]}
+          >
+            <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{opt}</Text>
+          </TVFocusable>
+        );
+      })}
+    </ScrollView>
+  );
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -37,9 +74,10 @@ const TYPE_FILTERS: { key: SearchType; label: string }[] = [
 ];
 
 function ResultRow({ channel, onPress }: { channel: Channel; onPress: () => void }) {
-  const type = resolveContentType(channel);
+  const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
+  const type = resolveChannelType(channel);
   const displayName = type === 'series' ? getSeriesBaseName(channel.name) : channel.name;
-  const groupClean = channel.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || '';
+  const groupClean = channel.group ? cleanGroupName(channel.group) : '';
 
   return (
     <TVFocusable onPress={onPress} style={rowStyles.row}>
@@ -54,8 +92,8 @@ function ResultRow({ channel, onPress }: { channel: Channel; onPress: () => void
       </View>
       <View style={rowStyles.info}>
         <Text style={rowStyles.typeLabel}>{TYPE_LABEL[type] ?? 'ITEM'}</Text>
-        <Text style={rowStyles.name} numberOfLines={1}>{displayName}</Text>
-        {groupClean ? <Text style={rowStyles.sub} numberOfLines={1}>{groupClean}</Text> : null}
+        <Text style={[rowStyles.name, { fontSize: 14 * scale }]} numberOfLines={1}>{displayName}</Text>
+        {groupClean ? <Text style={[rowStyles.sub, { fontSize: 11 * scale }]} numberOfLines={1}>{groupClean}</Text> : null}
       </View>
       <Ionicons name="chevron-forward" size={14} color={colors.text3} />
     </TVFocusable>
@@ -90,9 +128,10 @@ const rowStyles = StyleSheet.create({
 });
 
 function BestMatch({ channel, onPress }: { channel: Channel; onPress: () => void }) {
-  const type = resolveContentType(channel);
+  const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
+  const type = resolveChannelType(channel);
   const displayName = type === 'series' ? getSeriesBaseName(channel.name) : channel.name;
-  const groupClean = channel.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || '';
+  const groupClean = channel.group ? cleanGroupName(channel.group) : '';
 
   return (
     <View style={bmStyles.wrap}>
@@ -108,8 +147,8 @@ function BestMatch({ channel, onPress }: { channel: Channel; onPress: () => void
           )}
         </View>
         <View style={bmStyles.info}>
-          <Text style={bmStyles.name} numberOfLines={2}>{displayName}</Text>
-          <Text style={bmStyles.meta}>{TYPE_LABEL[type] ?? 'ITEM'} · {groupClean || channel.quality || 'HD'}</Text>
+          <Text style={[bmStyles.name, { fontSize: 15 * scale }]} numberOfLines={2}>{displayName}</Text>
+          <Text style={[bmStyles.meta, { fontSize: 11 * scale }]}>{TYPE_LABEL[type] ?? 'ITEM'} · {groupClean || channel.quality || 'HD'}</Text>
           <View style={bmStyles.playBtn}>
             <Ionicons name="play" size={11} color={colors.white} />
             <Text style={bmStyles.playText}>Assistir</Text>
@@ -155,8 +194,11 @@ const bmStyles = StyleSheet.create({
 });
 
 export default function SearchContent({
-  query, onQueryChange, results, onResultPress, contentH,
+  query, onQueryChange, results, onResultPress,
   searchType, onSearchTypeChange, recent, onRecentPress, onClearRecent,
+  genreOptions, filterGenre, onFilterGenreChange,
+  yearOptions, filterYear, onFilterYearChange,
+  qualityOptions, filterQuality, onFilterQualityChange,
 }: Props) {
   const otherResults = results.slice(1);
 
@@ -202,6 +244,15 @@ export default function SearchContent({
         })}
       </ScrollView>
 
+      {/* Filtros combinados — só fazem sentido com uma busca ativa */}
+      {query.trim() !== '' && (
+        <>
+          <FilterChipsRow options={genreOptions} value={filterGenre} onChange={onFilterGenreChange} />
+          <FilterChipsRow options={yearOptions} value={filterYear} onChange={onFilterYearChange} />
+          <FilterChipsRow options={qualityOptions} value={filterQuality} onChange={onFilterQualityChange} />
+        </>
+      )}
+
       {/* Result count */}
       {results.length > 0 && (
         <Text style={styles.countLabel}>
@@ -245,7 +296,7 @@ export default function SearchContent({
         </View>
       ) : (
         <ScrollView
-          style={{ height: contentH - 80 }}
+          style={{ flex: 1 }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
@@ -279,7 +330,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 12,
   },
   input: { flex: 1, color: colors.text1, fontSize: fontSize.md },
-  filterScroll: { flexGrow: 0, marginBottom: 12 },
+  filterScroll: { flexGrow: 0, flexShrink: 0, marginBottom: 12 },
   filterRow: {
     flexDirection: 'row', gap: 8,
     paddingHorizontal: IS_TV ? spacing.xxxl : 22,

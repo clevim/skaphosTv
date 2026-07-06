@@ -26,7 +26,7 @@ export async function loadSourceChannels(
     timeout: 60000,
     headers: { 'User-Agent': 'okhttp/4.9.0' },
   });
-  const result = parseM3U(response.data);
+  const result = await parseM3U(response.data);
   // Fontes antigas (adicionadas antes do EPG) ganham o url-tvg no próximo reload
   if (result.tvgUrl && result.tvgUrl !== source.epgUrl) {
     useStore.getState().updateSource(source.id, { epgUrl: result.tvgUrl });

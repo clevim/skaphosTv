@@ -12,7 +12,10 @@
  */
 import { create } from 'zustand';
 import { useEffect, useMemo } from 'react';
+import { useIsFocused } from '@react-navigation/native';
+import { InteractionManager } from 'react-native';
 import axios from 'axios';
+import { dlog } from '../utils/debugLog';
 import { useStore } from './useStore';
 import { normalizeHost } from '../utils/xtreamApi';
 import {
@@ -64,6 +67,7 @@ export const useEpgStore = create<EpgState>((set, get) => ({
       return;
     }
 
+    dlog(`[perf][epg] load() disparado, ${urls.length} url(s)`);
     set({ loading: true, error: null });
     const windowStart = Date.now() - WINDOW_BACK_MS;
     const windowEnd = Date.now() + WINDOW_FWD_MS;
@@ -72,21 +76,26 @@ export const useEpgStore = create<EpgState>((set, get) => ({
     const channels = useStore.getState().channels;
     const byTvgId = new Map<string, string[]>();   // tvgId → [Channel.id]
     const byName = new Map<string, string[]>();    // nome normalizado → [Channel.id]
+    let liveCount = 0, withTvgId = 0;
     for (const c of channels) {
       if (c.streamType === 'movie' || c.streamType === 'series') continue;
+      liveCount++;
       if (c.tvgId) {
+        withTvgId++;
         const key = c.tvgId.toLowerCase();
         (byTvgId.get(key) ?? byTvgId.set(key, []).get(key)!).push(c.id);
       }
       const nk = normalizeChannelName(c.name);
       if (nk) (byName.get(nk) ?? byName.set(nk, []).get(nk)!).push(c.id);
     }
+    dlog(`[perf][epg] ${liveCount} canais ao vivo no app, ${withTvgId} com tvgId`);
 
     const merged: Record<string, EpgProgram[]> = {};
     const errors: string[] = [];
 
     await Promise.allSettled(urls.map(async (url) => {
       try {
+        const tFetch = Date.now();
         const res = await axios.get(url, {
           timeout: 90_000,
           responseType: 'text',
@@ -95,12 +104,15 @@ export const useEpgStore = create<EpgState>((set, get) => ({
           transformResponse: [(d: any) => d],
         });
         const xml: string = res.data;
+        dlog(`[perf][epg] fetch resolvido em ${Date.now() - tFetch}ms, ${(xml?.length ?? 0)} chars`);
         if (!xml || typeof xml !== 'string' || !xml.includes('<tv')) {
           throw new Error('Resposta não é XMLTV');
         }
 
         // 1) Seção <channel>: resolve quais ids do guia interessam
-        const guideChannels = parseXmltvChannels(xml);
+        const tChannels = Date.now();
+        const guideChannels = await parseXmltvChannels(xml);
+        dlog(`[perf][epg] parseXmltvChannels: ${Date.now() - tChannels}ms, ${guideChannels.size} canais`);
         const xmltvToApp = new Map<string, string[]>(); // xmltvId → [Channel.id]
         for (const [gid, names] of guideChannels) {
           const direct = byTvgId.get(gid);
@@ -114,9 +126,12 @@ export const useEpgStore = create<EpgState>((set, get) => ({
         for (const [tvgId, ids] of byTvgId) {
           if (!xmltvToApp.has(tvgId)) xmltvToApp.set(tvgId, ids);
         }
+        dlog(`[perf][epg] ${xmltvToApp.size} ids do guia casados com canais do app (de ${guideChannels.size} no guia)`);
 
         // 2) Programas — só dos ids casados, dentro da janela
-        const progs = parseXmltvProgrammes(xml, new Set(xmltvToApp.keys()), windowStart, windowEnd);
+        const tProgs = Date.now();
+        const progs = await parseXmltvProgrammes(xml, new Set(xmltvToApp.keys()), windowStart, windowEnd);
+        dlog(`[perf][epg] parseXmltvProgrammes: ${Date.now() - tProgs}ms, ${progs.size} canais com programação`);
         for (const [gid, list] of progs) {
           for (const appId of xmltvToApp.get(gid) ?? []) {
             // Primeiro guia a preencher um canal vence (evita duplicar multi-fonte)
@@ -124,6 +139,7 @@ export const useEpgStore = create<EpgState>((set, get) => ({
           }
         }
       } catch (e: any) {
+        dlog(`[perf][epg] ERRO: ${e?.message}`);
         errors.push(e?.message ?? 'Falha ao baixar guia');
       }
     }));
@@ -146,8 +162,19 @@ export const useEpgStore = create<EpgState>((set, get) => ({
 export function useNowNext(channelId: string | undefined): { now?: EpgProgram; next?: EpgProgram } {
   const programs = useEpgStore(s => (channelId ? s.byChannelId[channelId] : undefined));
   const load = useEpgStore(s => s.load);
+  // Só dispara o download do XMLTV com a tela em foco — a Home fica montada
+  // (mas escondida) atrás da Setup, e os cards "Agora/A seguir" disparavam o
+  // guia (potencialmente enorme, timeout de 90s) BEM na hora de carregar uma
+  // fonte nova, competindo por banda/CPU e fazendo o carregamento de filmes
+  // parecer travado/lento sem motivo aparente.
+  const isFocused = useIsFocused();
   useEffect(() => {
-    if (channelId) load();
-  }, [channelId, load]);
+    if (!channelId || !isFocused) return;
+    // Espera a transição de navegação/animações assentarem antes de puxar o
+    // guia — senão ele compete com o próprio "voltar pra Home" bem no momento
+    // em que a tela ganha foco, e mesmo mais rápido, ainda dá pra sentir.
+    const task = InteractionManager.runAfterInteractions(() => load());
+    return () => task.cancel();
+  }, [channelId, isFocused, load]);
   return useMemo(() => nowNextFor(programs), [programs]);
 }

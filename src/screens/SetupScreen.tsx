@@ -1,13 +1,15 @@
 import React, { useState, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TextInput, Pressable,
-  ScrollView, ActivityIndicator, Alert, KeyboardAvoidingView,
+  ScrollView, ActivityIndicator, KeyboardAvoidingView,
   Platform, Modal, useWindowDimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { useStore, IPTVSource } from '../store/useStore';
+import type { ChannelIndex } from '../store/channelIndex';
+import { cleanGroupName } from '../utils/channelUtils';
 import TVFocusable, { TVFocusableHandle } from '../components/TVFocusable';
 import RemoteHints from '../components/RemoteHints';
 import { parseM3U } from '../utils/m3uParser';
@@ -20,6 +22,8 @@ import { APP_VERSION } from '../utils/version';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import PairingSetupModal from '../components/PairingSetupModal';
+import { showAlert } from '../components/AppAlert';
+import { dlog } from '../utils/debugLog';
 import type { PairingPayload } from '../utils/pairingServer';
 
 type TabType = 'm3u' | 'xtream' | 'jellyfin';
@@ -104,6 +108,8 @@ export default function SetupScreen() {
   const removeSource          = useStore(s => s.removeSource);
   const appendChannels        = useStore(s => s.appendChannels);
   const replaceSourceChannels = useStore(s => s.replaceSourceChannels);
+  const channelIndex          = useStore(s => s.channelIndex);
+  const refreshChannelIndex   = useStore(s => s.refreshChannelIndex);
 
   // Layout responsivo (TV): padding e largura do form proporcionais à tela,
   // evitando elementos grandes demais / apertados em resoluções diferentes.
@@ -164,6 +170,7 @@ export default function SetupScreen() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
   const [reloadingIds, setReloadingIds] = useState<string[]>([]);
+  const [categoryTarget, setCategoryTarget] = useState<IPTVSource | null>(null);
 
   const updatePhase = (phase: XtreamPhase, patch: Partial<PhaseStatus>) =>
     setPhases(prev => ({ ...prev, [phase]: { ...prev[phase], ...patch } }));
@@ -215,13 +222,13 @@ export default function SetupScreen() {
     const url = (override?.url ?? m3uUrl).trim();
     const name = (override?.name ?? m3uName).trim();
     const editingId = override ? null : editingSourceId;
-    if (!url) { Alert.alert('Erro', 'Digite a URL da lista M3U'); return; }
+    if (!url) { showAlert('Erro', 'Digite a URL da lista M3U'); return; }
     setIsLoadingLocal(true);
     setConnectionResult(null);
     const start = Date.now();
     try {
       const response = await fetchWithRedirect(url, 30000, () => {});
-      const result = parseM3U(response.data);
+      const result = await parseM3U(response.data);
       if (result.channels.length === 0) throw new Error('Nenhum canal encontrado na lista');
       const latency = Date.now() - start;
       setConnectionResult({ success: true, channels: result.channels.length, vod: 0, latency });
@@ -245,12 +252,12 @@ export default function SetupScreen() {
           useStore.getState().replaceSourceChannels(sourceId, updated, useStore.getState().groups);
         },
       });
-      Alert.alert('Sucesso!', `${result.channels.length} canais carregados`, [
+      showAlert('Sucesso!', `${result.channels.length} canais carregados`, [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (e: any) {
       setConnectionResult(null);
-      Alert.alert('Erro ao carregar lista', e.message || 'Verifique a URL e tente novamente');
+      showAlert('Erro ao carregar lista', e.message || 'Verifique a URL e tente novamente');
     } finally {
       setIsLoadingLocal(false);
     }
@@ -262,7 +269,7 @@ export default function SetupScreen() {
     const rawPass = override?.pass ?? xPass;
     const editingId = override ? null : editingSourceId;
     if (!rawHost.trim() || !rawUser.trim() || !rawPass.trim()) {
-      Alert.alert('Erro', 'Preencha todos os campos');
+      showAlert('Erro', 'Preencha todos os campos');
       return;
     }
 
@@ -289,7 +296,7 @@ export default function SetupScreen() {
       });
       if (testRes.status === 401 || testRes.data === false) {
         setIsLoadingLocal(false);
-        Alert.alert('Credenciais inválidas', `O servidor respondeu mas rejeitou o login.\n\nURL testada:\n${testUrl}`);
+        showAlert('Credenciais inválidas', `O servidor respondeu mas rejeitou o login.\n\nURL testada:\n${testUrl}`);
         return;
       }
     } catch (e: any) {
@@ -299,7 +306,7 @@ export default function SetupScreen() {
         : e?.code
         ? `Erro de rede: ${e.code}`
         : e?.message ?? 'Sem resposta do servidor';
-      Alert.alert('Servidor inacessível', `${reason}\n\nURL tentada:\n${testUrl}`);
+      showAlert('Servidor inacessível', `${reason}\n\nURL tentada:\n${testUrl}`);
       return;
     }
 
@@ -319,12 +326,13 @@ export default function SetupScreen() {
       onProgress: (phase, count) => {
         updatePhase(phase, { count });
       },
-      onPhaseComplete: (result) => {
+      onPhaseComplete: async (result) => {
         updatePhase(result.phase, { state: 'done', count: result.channels.length });
         totalLoaded += result.channels.length;
 
         if (result.channels.length === 0) return;
 
+        const tSave = Date.now();
         if (!sourceAdded) {
           // Primeira fase com conteúdo: registra a fonte e substitui apenas os
           // canais DESTA fonte (preserva as demais fontes já adicionadas)
@@ -340,11 +348,12 @@ export default function SetupScreen() {
             channelCount: 0, // atualizado ao final
           };
           if (editingId) updateSource(sourceId, xtreamSource); else addSource(xtreamSource);
-          replaceSourceChannels(sourceId, result.channels, result.groups);
+          await replaceSourceChannels(sourceId, result.channels, result.groups);
         } else {
           // Fases seguintes: merge incremental, mantendo o vínculo com a fonte
-          appendChannels(result.channels, result.groups, sourceId);
+          await appendChannels(result.channels, result.groups, sourceId);
         }
+        dlog(`[perf][${result.phase}] persistência no store: ${Date.now() - tSave}ms`);
       },
       onError: (phase, message) => {
         updatePhase(phase, { state: 'error' });
@@ -359,14 +368,21 @@ export default function SetupScreen() {
       const detail = phaseErrors.length > 0
         ? phaseErrors.join('\n')
         : 'Servidor não retornou canais. Verifique host, usuário e senha.';
-      Alert.alert('Falha na importação', detail);
+      showAlert('Falha na importação', detail);
       setShowPhases(false);
     } else {
       // Atualiza o channelCount da fonte com o total real carregado
       updateSource(sourceId, { channelCount: totalLoaded });
+      // Força o flush do save (debounced) ANTES de avisar "Pronto!" — sem isso,
+      // se o usuário fechar o app logo em seguida, o disco podia ficar com uma
+      // versão mais velha (ex.: sem a fase de séries) e o próximo boot recarregava
+      // tudo de novo silenciosamente achando o cache incompleto.
+      const tFlush = Date.now();
+      await useStore.getState().saveChannelsToStorage();
+      dlog(`[perf][flush] save final no disco: ${Date.now() - tFlush}ms`);
       setEditingSourceId(null);
       setConnectionResult({ success: true, channels: totalLoaded, vod: 0, latency: 0 });
-      Alert.alert(
+      showAlert(
         'Pronto!',
         `${totalLoaded} itens carregados em 3 fases.`,
         [{ text: 'OK', onPress: () => navigation.goBack() }],
@@ -386,7 +402,7 @@ export default function SetupScreen() {
   const startQuickConnect = async () => {
     const host = jHost.trim().replace(/\/$/, '');
     if (!host || host === 'http://' || host === 'https://') {
-      Alert.alert('Erro', 'Preencha o endereço do servidor antes de usar o Quick Connect');
+      showAlert('Erro', 'Preencha o endereço do servidor antes de usar o Quick Connect');
       return;
     }
     setShowQC(true);
@@ -453,7 +469,7 @@ export default function SetupScreen() {
             setIsLoadingLocal(false);
           }
 
-          Alert.alert('Jellyfin conectado!', `Servidor "${serverName}" adicionado com sucesso.`, [
+          showAlert('Jellyfin conectado!', `Servidor "${serverName}" adicionado com sucesso.`, [
             { text: 'OK', onPress: () => navigation.goBack() },
           ]);
         } catch (authErr: any) {
@@ -484,6 +500,15 @@ export default function SetupScreen() {
     setDeleteTarget(null);
   };
 
+  // Salva a correção manual de categoria de um grupo e reconstrói o índice —
+  // sem isso a mudança não aparece nas abas até o próximo reload de canais.
+  const saveGroupTypeOverride = (source: IPTVSource, group: string, type: 'live' | 'movies' | 'series' | null) => {
+    const next = { ...(source.groupTypeOverrides ?? {}) };
+    if (type) next[group] = type; else delete next[group];
+    updateSource(source.id, { groupTypeOverrides: next });
+    refreshChannelIndex();
+  };
+
   // Recarrega os canais de uma fonte do zero, usando a conexão já salva.
   const reloadSource = async (source: IPTVSource) => {
     if (reloadingIds.includes(source.id)) return;
@@ -494,10 +519,10 @@ export default function SetupScreen() {
         replaceSourceChannels(source.id, channels, groups);
         updateSource(source.id, { channelCount: channels.length });
       } else {
-        Alert.alert('Nada carregado', `Não foi possível recarregar "${source.name}".`);
+        showAlert('Nada carregado', `Não foi possível recarregar "${source.name}".`);
       }
     } catch {
-      Alert.alert('Erro', `Falha ao recarregar "${source.name}". Verifique a conexão.`);
+      showAlert('Erro', `Falha ao recarregar "${source.name}". Verifique a conexão.`);
     } finally {
       setReloadingIds(prev => prev.filter(id => id !== source.id));
     }
@@ -838,6 +863,13 @@ export default function SetupScreen() {
                           : <Ionicons name="refresh-outline" size={20} color={colors.text2} />}
                       </TVFocusable>
                       <TVFocusable
+                        onPress={() => setCategoryTarget(source)}
+                        style={tvStyles.editBtn}
+                        borderRadius={8}
+                      >
+                        <Ionicons name="pricetags-outline" size={20} color={colors.text2} />
+                      </TVFocusable>
+                      <TVFocusable
                         onPress={() => startEdit(source)}
                         style={tvStyles.editBtn}
                         borderRadius={8}
@@ -910,6 +942,13 @@ export default function SetupScreen() {
             </View>
           </View>
         </Modal>
+
+        <CategoryOverrideModal
+          source={categoryTarget}
+          channelIndex={channelIndex}
+          onClose={() => setCategoryTarget(null)}
+          onChange={saveGroupTypeOverride}
+        />
       </View>
     );
   }
@@ -997,6 +1036,12 @@ export default function SetupScreen() {
                     : <Ionicons name="refresh-outline" size={18} color={colors.text2} />}
                 </Pressable>
                 <Pressable
+                  onPress={() => setCategoryTarget(source)}
+                  style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.6 }]}
+                >
+                  <Ionicons name="pricetags-outline" size={18} color={colors.text2} />
+                </Pressable>
+                <Pressable
                   onPress={() => startEdit(source)}
                   style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.6 }]}
                 >
@@ -1053,6 +1098,13 @@ export default function SetupScreen() {
           </View>
         </View>
       </Modal>
+
+      <CategoryOverrideModal
+        source={categoryTarget}
+        channelIndex={channelIndex}
+        onClose={() => setCategoryTarget(null)}
+        onChange={saveGroupTypeOverride}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -1155,6 +1207,119 @@ const ppStyles = StyleSheet.create({
     paddingVertical: 2,
   },
   badgeText: { fontSize: 10, color: colors.green, fontWeight: '700' },
+});
+
+// ─── CategoryOverrideModal ────────────────────────────────────────
+// Corrige manualmente o tipo (Ao Vivo/Filme/Série) de cada grupo de UMA fonte —
+// pra listas M3U de outros provedores que a heurística automática (detectType)
+// não classifica bem. Some sozinho se a fonte ainda não tem canais carregados.
+
+const TYPE_OPTIONS: { key: 'live' | 'movies' | 'series'; label: string }[] = [
+  { key: 'live',   label: 'Ao Vivo' },
+  { key: 'movies', label: 'Filme'   },
+  { key: 'series', label: 'Série'   },
+];
+
+function CategoryOverrideModal({ source, channelIndex, onClose, onChange }: {
+  source: IPTVSource | null;
+  channelIndex: ChannelIndex | null;
+  onClose: () => void;
+  onChange: (source: IPTVSource, group: string, type: 'live' | 'movies' | 'series' | null) => void;
+}) {
+  if (!source || !channelIndex) return null;
+
+  // Grupos desta fonte + o tipo já resolvido (auto ou override) de cada um —
+  // usa o primeiro canal do grupo como amostra representativa.
+  const rows: { group: string; type: 'live' | 'movies' | 'series'; overridden: boolean }[] = [];
+  for (const [group, chans] of channelIndex.byGroup) {
+    const sample = chans.find(c => c.sourceId === source.id);
+    if (!sample) continue;
+    const overridden = !!source.groupTypeOverrides?.[group];
+    const type = overridden
+      ? source.groupTypeOverrides![group]
+      : (sample.streamType === 'live' ? 'live' : sample.streamType === 'movie' ? 'movies' : sample.streamType === 'series' ? 'series' : undefined) ?? 'live';
+    rows.push({ group, type, overridden });
+  }
+  rows.sort((a, b) => cleanGroupName(a.group).localeCompare(cleanGroupName(b.group)));
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalBox, coStyles.box]}>
+          <Text style={styles.modalTitle}>Corrigir categorias</Text>
+          <Text style={styles.modalDesc}>
+            {source.name} — toque num tipo pra corrigir manualmente um grupo
+            classificado errado. "Auto" volta a deixar a detecção automática decidir.
+          </Text>
+          <ScrollView style={coStyles.list}>
+            {rows.length === 0 && (
+              <Text style={coStyles.empty}>Nenhum grupo carregado ainda pra esta fonte.</Text>
+            )}
+            {rows.map(({ group, type, overridden }) => (
+              <View key={group} style={coStyles.row}>
+                <Text style={coStyles.groupName} numberOfLines={1}>{cleanGroupName(group)}</Text>
+                <View style={coStyles.options}>
+                  {TYPE_OPTIONS.map(opt => (
+                    <TVFocusable
+                      key={opt.key}
+                      onPress={() => onChange(source, group, opt.key === type && overridden ? null : opt.key)}
+                      style={[coStyles.optionBtn, type === opt.key && coStyles.optionBtnActive]}
+                      borderRadius={6}
+                    >
+                      <Text style={[coStyles.optionText, type === opt.key && coStyles.optionTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </TVFocusable>
+                  ))}
+                  {overridden && (
+                    <TVFocusable onPress={() => onChange(source, group, null)} style={coStyles.resetBtn} borderRadius={6}>
+                      <Ionicons name="refresh-outline" size={14} color={colors.text3} />
+                    </TVFocusable>
+                  )}
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+          <View style={styles.modalActions}>
+            <TVFocusable onPress={onClose} style={[styles.modalBtn, styles.modalBtnCancel]} hasTVPreferredFocus>
+              <Text style={styles.modalBtnCancelText}>Fechar</Text>
+            </TVFocusable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const coStyles = StyleSheet.create({
+  box: { maxHeight: '80%' },
+  list: { marginTop: spacing.sm, marginBottom: spacing.sm },
+  empty: { fontSize: 13, color: colors.text3, textAlign: 'center', paddingVertical: spacing.lg },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSoft,
+  },
+  groupName: { flex: 1, fontSize: 13, color: colors.text1 },
+  options: { flexDirection: 'row', gap: 4 },
+  optionBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: radius.sm,
+    backgroundColor: colors.bg2,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  optionBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  optionText: { fontSize: 11, color: colors.text3, fontWeight: '600' },
+  optionTextActive: { color: colors.white },
+  resetBtn: {
+    width: 26, height: 26, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.bg2, borderRadius: radius.sm,
+  },
 });
 
 // ─── FormField ───────────────────────────────────────────────────

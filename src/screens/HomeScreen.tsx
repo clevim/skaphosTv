@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, ScrollView,
-  ActivityIndicator, useWindowDimensions, Animated,
+  ActivityIndicator, useWindowDimensions, Animated, InteractionManager,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
-import { useStore, IPTVSource } from '../store/useStore';
+import { useStore, IPTVSource, resolveChannelType } from '../store/useStore';
 import ChannelCard from '../components/ChannelCard';
 import HomeContent from '../components/HomeContent';
 import SearchContent from '../components/SearchContent';
@@ -19,14 +19,17 @@ import { RootStackParamList, Channel } from '../types';
 import { loadSourceChannels } from '../utils/sourceLoader';
 import { useChannelFilter } from '../hooks/useChannelFilter';
 import { useAppLayout } from '../hooks/useAppLayout';
-import { detectType, getSeriesBaseName, LAUNCH_YEAR, NAV_ITEMS } from '../utils/channelUtils';
+import { getSeriesBaseName, LAUNCH_YEAR, NAV_ITEMS, cleanGroupName } from '../utils/channelUtils';
 import { searchChannels, SearchType } from '../utils/search';
 import { useRecentSearches } from '../store/recentSearches';
+import { useWatchProgress, watchStatusFor } from '../store/watchProgress';
 import RemoteHints from '../components/RemoteHints';
 import TVCatalogLayout from '../components/TVCatalogLayout';
 import TVSearchContent from '../components/TVSearchContent';
 
 import { IS_TV, IS_MOBILE } from '../utils/tvDetect';
+import { dlog } from '../utils/debugLog';
+import { checkExpiringSources } from '../utils/xtreamApi';
 import { lockLandscape } from '../utils/orientation';
 
 // Barra de abas inferior: layout de smartphone (TV e web usam a top bar).
@@ -46,13 +49,15 @@ interface FlatItemProps {
   cardWidth: number;
   cardHeight: number;
   displayName?: string;
+  progress: number;
+  watched: boolean;
   onPress: (channel: Channel) => void;
   onLongPress: (id: string) => void;
 }
 
 const FlatItem = memo(function FlatItem({
   item, index, isPlaying, isFavorite, epCount, contentType,
-  cardWidth, cardHeight, displayName, onPress, onLongPress,
+  cardWidth, cardHeight, displayName, progress, watched, onPress, onLongPress,
 }: FlatItemProps) {
   const handlePress     = useCallback(() => onPress(item),     [onPress, item]);
   const handleLongPress = useCallback(() => onLongPress(item.id), [onLongPress, item.id]);
@@ -68,6 +73,8 @@ const FlatItem = memo(function FlatItem({
       hasTVPreferredFocus={index === 0 && IS_TV}
       episodeCount={epCount > 1 ? epCount : undefined}
       contentType={contentType}
+      progress={progress}
+      watched={watched}
       cardWidth={cardWidth}
       cardHeight={cardHeight}
     />
@@ -77,6 +84,8 @@ const FlatItem = memo(function FlatItem({
   prev.isFavorite === next.isFavorite &&
   prev.item       === next.item       &&
   prev.displayName === next.displayName &&
+  prev.progress   === next.progress   &&
+  prev.watched    === next.watched    &&
   prev.cardWidth  === next.cardWidth  &&
   prev.cardHeight === next.cardHeight
 );
@@ -95,6 +104,7 @@ export default function HomeScreen() {
   const favorites      = useStore(s => s.favorites);
   const recentChannels = useStore(s => s.recentChannels);
   const currentChannel = useStore(s => s.currentChannel);
+  const watchEntries   = useWatchProgress(s => s.entries);
   const channelIndex   = useStore(s => s.channelIndex);
   const setSelectedGroup      = useStore(s => s.setSelectedGroup);
   const setLoading            = useStore(s => s.setLoading);
@@ -109,6 +119,9 @@ export default function HomeScreen() {
   // Query com debounce (evita re-buscar a cada tecla em listas grandes) + filtro de tipo
   const [searchDebounced, setSearchDebounced] = useState('');
   const [searchType, setSearchType] = useState<SearchType>('all');
+  const [filterGenre, setFilterGenre] = useState<string | null>(null);
+  const [filterYear, setFilterYear] = useState<string | null>(null);
+  const [filterQuality, setFilterQuality] = useState<string | null>(null);
   const recentQueries = useRecentSearches(s => s.queries);
   const clearRecentSearches = useRecentSearches(s => s.clear);
   const [categorySearch, setCategorySearch] = useState('');
@@ -138,6 +151,8 @@ export default function HomeScreen() {
   }, [selectedGroup]);
 
   useEffect(() => {
+    // Relógio só existe na top bar da TV/web — no celular não há onde exibi-lo
+    if (!IS_TV) return;
     const tick = () =>
       setClock(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
     tick();
@@ -147,9 +162,17 @@ export default function HomeScreen() {
 
   useEffect(() => {
     const init = async () => {
+      const tBoot = Date.now();
+      dlog('[perf][boot] loadFromStorage iniciado');
       await loadFromStorage();
       const state = useStore.getState();
+      dlog(`[perf][boot] loadFromStorage: ${Date.now() - tBoot}ms — ${state.channels.length} canais em memória, ${state.sources.length} fontes`);
       if (state.sources.length === 0) return;
+
+      // Espera o primeiro paint/gestos assentarem antes de disparar reload de rede
+      // pesado — senão ele compete pela thread JS bem na janela em que o usuário
+      // acabou de abrir o app e já tenta tocar em algo (ficava "travado" ao reabrir).
+      await new Promise<void>(resolve => InteractionManager.runAfterInteractions(() => resolve()));
 
       // Reconciliação por fonte: o cache de canais é debounced/serializado, então
       // pode ficar PARCIAL se o app fechar no meio. O Xtream carrega em 3 fases
@@ -175,6 +198,13 @@ export default function HomeScreen() {
       };
 
       let missing = incompleteSources(state.sources, state.channels);
+      if (missing.length > 0) {
+        const counts = new Map<string, number>();
+        for (const c of state.channels) if (c.sourceId) counts.set(c.sourceId, (counts.get(c.sourceId) ?? 0) + 1);
+        for (const s of missing) {
+          dlog(`[perf][boot] fonte "${s.name}" incompleta: tem ${counts.get(s.id) ?? 0} em cache, esperava ${s.channelCount ?? 0} → vai recarregar da rede`);
+        }
+      }
 
       // Cache completo porém VELHO: painéis Xtream rotacionam os ids de VOD com
       // frequência — URLs em cache passam a responder 406/404 e o player fica
@@ -197,7 +227,10 @@ export default function HomeScreen() {
         const RETRY_DELAYS = [3000, 6000, 12000];
         const missingIds = new Set(missing.map(s => s.id));
         for (let attempt = 0; ; attempt++) {
+          const tReload = Date.now();
+          dlog(`[perf][boot] recarregando ${missing.length} fonte(s) incompleta(s), tentativa ${attempt + 1}`);
           await loadSomeSources(missing);
+          dlog(`[perf][boot] loadSomeSources terminou em ${Date.now() - tReload}ms`);
           // Reavalia com o MESMO critério de completude (presença não basta: uma fonte
           // parcial que falhou em recarregar continuaria "presente" e pararia o retry).
           // Relê as fontes da store: o channelCount pode ter sido atualizado pela recarga.
@@ -211,14 +244,22 @@ export default function HomeScreen() {
         }
       }
 
+      dlog(`[perf][boot] bgRefresh: ${bgRefresh.length} fonte(s) (cacheStale=${cacheStale})`);
       // Atualização em background das fontes completas (Jellyfin sempre; todas se cache velho)
       for (const src of bgRefresh) {
+        const tBg = Date.now();
         loadOneSource(src)
           .then(({ channels: chs, groups: grps }) => {
+            dlog(`[perf][boot] bgRefresh "${src.name}" terminou em ${Date.now() - tBg}ms, ${chs.length} canais`);
             if (chs.length > 0) replaceSourceChannels(src.id, chs, grps);
           })
           .catch(() => {});
       }
+
+      // Alerta proativo de fonte Xtream vencendo — no máximo 1 notificação por
+      // fonte por dia (throttle em AsyncStorage), pra não repetir toda vez que
+      // o app abre enquanto a conta estiver nos últimos dias de validade.
+      checkExpiringSources(state.sources);
     };
     init();
   }, []);
@@ -318,17 +359,33 @@ export default function HomeScreen() {
 
   const searchResults = useMemo(() => {
     if (navKey !== 'search') return [];
-    return searchChannels(channels, searchDebounced, searchType);
-  }, [channels, searchDebounced, searchType, navKey]);
+    return searchChannels(channels, searchDebounced, searchType, 100, sources, {
+      genre: filterGenre, year: filterYear, quality: filterQuality,
+    });
+  }, [channels, searchDebounced, searchType, navKey, sources, filterGenre, filterYear, filterQuality]);
+
+  // Opções disponíveis pros filtros combinados — gêneros já vêm prontos do
+  // channelIndex; qualidade é um conjunto fixo; anos são extraídos sob demanda
+  // (só quando a busca está aberta) pra não escanear o catálogo à toa.
+  const genreOptions = useMemo(
+    () => (channelIndex?.topGenres ?? []).map(g => g.genre),
+    [channelIndex],
+  );
+  const yearOptions = useMemo(() => {
+    if (navKey !== 'search') return [];
+    const years = new Set<string>();
+    for (const c of channels) {
+      const y = c.releaseDate?.slice(0, 4);
+      if (y && /^\d{4}$/.test(y)) years.add(y);
+    }
+    return Array.from(years).sort((a, b) => Number(b) - Number(a)).slice(0, 20);
+  }, [channels, navKey]);
+  const QUALITY_OPTIONS = ['4K', 'FHD', 'HD', 'SD'];
 
   const handleChannelPress = useCallback((channel: Channel) => {
     // Xtream/Jellyfin definem streamType explicitamente — tem precedência sobre heurística
     const isSingleEpisodeSeries = channel.streamType === 'series';
-    const type = isSingleEpisodeSeries
-      ? 'series'
-      : channel.streamType === 'movie'
-        ? 'movies'
-        : detectType(channel.group || '', channel.name);
+    const type = resolveChannelType(channel);
 
     if (type === 'series') {
       if (isSingleEpisodeSeries) {
@@ -352,7 +409,7 @@ export default function HomeScreen() {
       // M3U: agrupa todos os episódios pelo nome base (comportamento original)
       const baseName = getSeriesBaseName(channel.name);
       const seriesChannels = channels
-        .filter(c => getSeriesBaseName(c.name) === baseName && detectType(c.group || '', c.name) === 'series')
+        .filter(c => getSeriesBaseName(c.name) === baseName && resolveChannelType(c) === 'series')
         .sort((a, b) => {
           const ma = a.name.match(/S(\d+)\s*E(\d+)/i);
           const mb = b.name.match(/S(\d+)\s*E(\d+)/i);
@@ -370,7 +427,7 @@ export default function HomeScreen() {
       const related = isJellyfinMovie
         ? channels.filter(c => c.id !== channel.id && c.group === channel.group).slice(0, 9)
         : channels
-            .filter(c => c.id !== channel.id && c.group === channel.group && detectType(c.group || '', c.name) === 'movies')
+            .filter(c => c.id !== channel.id && c.group === channel.group && resolveChannelType(c) === 'movies')
             .slice(0, 9);
       navigation.navigate('Detail', { channel, relatedChannels: related });
       return;
@@ -386,9 +443,7 @@ export default function HomeScreen() {
   // vai à tela da série (precisa escolher episódio). Diferente de handleChannelPress,
   // que para filme abre os Detalhes — esse é o comportamento do botão "Detalhes".
   const handleHeroWatch = useCallback((channel: Channel) => {
-    const type = channel.streamType === 'series' ? 'series'
-      : channel.streamType === 'movie' ? 'movies'
-      : detectType(channel.group || '', channel.name);
+    const type = resolveChannelType(channel);
     if (type === 'series') { handleChannelPress(channel); return; }
     setCurrentChannel(channel);
     lockLandscape();
@@ -448,14 +503,18 @@ export default function HomeScreen() {
 
   const renderCard = useCallback(
     (item: Channel, index: number) => {
-      const type: 'live' | 'movies' | 'series' =
-        item.streamType === 'movie'  ? 'movies'
-        : item.streamType === 'series' ? 'series'
-        : item.streamType === 'live'   ? 'live'
-        : detectType(item.group || '', item.name);
+      const type: 'live' | 'movies' | 'series' = resolveChannelType(item);
       const isSeries = type === 'series';
       const baseName = isSeries ? getSeriesBaseName(item.name) : item.name;
       const epCount = isSeries ? (episodeCountMap.get(baseName) || 0) : 0;
+      // Badge de "assistindo"/"assistido": filme mapeia 1:1 pro watchProgress (id
+      // estável), então mostra os dois. Série na grade geral é só o pick arbitrário
+      // do dedup do catálogo (sem noção de progresso) — mostrar "assistido" aqui
+      // seria enganoso (pode não ser o episódio certo), então só a barra de "em
+      // curso" quando o PRÓPRIO pick tiver progresso; sem check de concluído.
+      const status = type === 'live' ? { watched: false, progress: 0 } : watchStatusFor(watchEntries[item.id]);
+      const watched = type === 'movies' && status.watched;
+      const progress = type === 'live' ? 0 : status.progress;
       // Passa o item com referência ESTÁVEL + displayName separado — evita criar
       // objeto novo por render (que quebrava o memo das séries).
       return (
@@ -468,6 +527,8 @@ export default function HomeScreen() {
           isFavorite={favoritesSet.has(item.id)}
           epCount={epCount}
           contentType={type}
+          progress={progress}
+          watched={watched}
           cardWidth={cardWidth}
           cardHeight={cardHeight}
           onPress={handleChannelPress}
@@ -475,7 +536,7 @@ export default function HomeScreen() {
         />
       );
     },
-    [currentChannel?.id, favoritesSet, handleChannelPress, toggleFavorite, episodeCountMap, cardWidth, cardHeight]
+    [currentChannel?.id, favoritesSet, handleChannelPress, toggleFavorite, episodeCountMap, cardWidth, cardHeight, watchEntries]
   );
 
   const renderFlatItem = useCallback(
@@ -489,7 +550,7 @@ export default function HomeScreen() {
   const sectionTitle = selectedGroup
     ? (navKey === 'year'
         ? `${selectedGroup} ${LAUNCH_YEAR}`
-        : selectedGroup.replace(/[♦◆️\uFE0F]\s*/g, '').trim())
+        : cleanGroupName(selectedGroup))
     : NAV_ITEMS.find(n => n.key === navKey)?.label || '';
 
   const favoriteChannels = useMemo(
@@ -530,6 +591,7 @@ export default function HomeScreen() {
           renderCard={renderCard}
           contentH={contentH}
           channels={channels}
+          topGenres={channelIndex?.topGenres ?? []}
           onChannelPress={handleChannelPress}
           onWatch={handleHeroWatch}
           onDetails={handleChannelPress}
@@ -550,6 +612,15 @@ export default function HomeScreen() {
             recent={recentQueries}
             onRecentPress={setSearchQuery}
             onClearRecent={clearRecentSearches}
+            genreOptions={genreOptions}
+            filterGenre={filterGenre}
+            onFilterGenreChange={setFilterGenre}
+            yearOptions={yearOptions}
+            filterYear={filterYear}
+            onFilterYearChange={setFilterYear}
+            qualityOptions={QUALITY_OPTIONS}
+            filterQuality={filterQuality}
+            onFilterQualityChange={setFilterQuality}
           />
         );
       }
@@ -559,12 +630,20 @@ export default function HomeScreen() {
           onQueryChange={setSearchQuery}
           results={searchResults}
           onResultPress={handleSearchResultPress}
-          contentH={contentH}
           searchType={searchType}
           onSearchTypeChange={setSearchType}
           recent={recentQueries}
           onRecentPress={setSearchQuery}
           onClearRecent={clearRecentSearches}
+          genreOptions={genreOptions}
+          filterGenre={filterGenre}
+          onFilterGenreChange={setFilterGenre}
+          yearOptions={yearOptions}
+          filterYear={filterYear}
+          onFilterYearChange={setFilterYear}
+          qualityOptions={QUALITY_OPTIONS}
+          filterQuality={filterQuality}
+          onFilterQualityChange={setFilterQuality}
         />
       );
     }
@@ -594,7 +673,7 @@ export default function HomeScreen() {
           onReload={handleRefresh}
           onRandom={handleRandomPick}
         >
-          <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+          <Animated.View style={{ flex: 1, minHeight: 0, opacity: fadeAnim }}>
             <FlatList
               ref={listRef}
               style={{ flex: 1 }}
@@ -650,7 +729,7 @@ export default function HomeScreen() {
             onLayout={(e) => { chipScrollWRef.current = e.nativeEvent.layout.width; }}
           >
             {filteredGroups.map((g) => {
-              const cleanName = g.replace(/[♦◆️\uFE0F]\s*/g, '').trim();
+              const cleanName = cleanGroupName(g);
               const isActive = selectedGroup === g;
               return (
                 <View
@@ -679,7 +758,7 @@ export default function HomeScreen() {
     );
 
     return (
-      <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+      <Animated.View style={{ flex: 1, minHeight: 0, opacity: fadeAnim }}>
         <FlatList
           ref={listRef}
           style={{ flex: 1 }}
@@ -745,11 +824,20 @@ const styles = StyleSheet.create({
   },
   main: {
     flex: 1,
+    minHeight: 0,
     overflow: 'hidden',
   },
   mainTV: {
     flex: 1,
-    // overflow: 'hidden' removido — bloqueia o FocusFinder do Android TV
+    // minHeight:0 é o que faz o grid de cards (FlatList) rolar no web — sem
+    // ele, este item flex não encolhe abaixo da altura TOTAL do conteúdo
+    // virtualizado (pode passar de 500.000px em listas de 15k+ itens), e a
+    // página inteira tenta crescer para caber tudo (fica cortada, sem scroll,
+    // e o FlatList acha que a "janela visível" é gigante e renderiza milhares
+    // de cards de uma vez — daí a lentidão). O Yoga nativo não tem essa regra
+    // de CSS, por isso só quebrava no web.
+    // (overflow: 'hidden' removido — bloqueia o FocusFinder do Android TV)
+    minHeight: 0,
   },
 
   // Section header for list views

@@ -1,5 +1,5 @@
 import { Channel } from '../types';
-import { detectQuality } from './channelUtils';
+import { detectQuality, yieldToUI } from './channelUtils';
 
 export interface ParseResult {
   channels: Channel[];
@@ -16,7 +16,7 @@ const MAX_CHANNELS = 30_000;
  * Parse an M3U playlist string into Channel objects.
  * Supports: #EXTM3U, #EXTINF, tvg-id, tvg-name, tvg-logo, group-title
  */
-export function parseM3U(content: string): ParseResult {
+export async function parseM3U(content: string): Promise<ParseResult> {
   const lines = content.split('\n');
   const channels: Channel[] = [];
   const groupSet = new Set<string>();
@@ -60,6 +60,9 @@ export function parseM3U(content: string): ParseResult {
       } catch (e) {
         errors.push(`Erro na linha ${i}`);
       }
+      // ponytail: listas de 30k canais travavam a thread num loop síncrono só
+      // (mesma causa do freeze em Xtream) — cede o event loop periodicamente.
+      if (channels.length % 500 === 0) await yieldToUI();
       i = urlLine ? j + 1 : i + 1;
     } else {
       i++;
@@ -94,9 +97,10 @@ function parseExtInf(extinf: string, url: string): Channel | null {
       : tvgName || rawName || 'Canal sem nome';
   const quality = detectQuality(name + ' ' + url);
 
-  const id =
-    `${name}-${url}`.replace(/\W/g, '').slice(0, 32) +
-    Math.random().toString(36).slice(2, 6);
+  // ponytail: era `+ Math.random()` — gerava um id NOVO a cada reparse da
+  // mesma lista, perdendo favoritos/progresso a cada refresh. Hash da URL
+  // (identidade estável do stream) é determinístico e cobre qualquer volume.
+  const id = 'm3u-' + hashString(url);
 
   return {
     id,
@@ -110,8 +114,22 @@ function parseExtInf(extinf: string, url: string): Channel | null {
   };
 }
 
+// ponytail: `new RegExp` dinâmico não é cacheado pela engine — recompilar a
+// cada chamada (5x por canal x 30k canais = 150k compilações) é desperdício
+// puro. Os nomes de atributo são um conjunto fixo, então cacheia por nome.
+const attrRegexCache = new Map<string, RegExp>();
+function hashString(s: string): string {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
 function extractAttr(str: string, attr: string): string | null {
-  const regex = new RegExp(`${attr}="([^"]*)"`, 'i');
+  let regex = attrRegexCache.get(attr);
+  if (!regex) {
+    regex = new RegExp(`${attr}="([^"]*)"`, 'i');
+    attrRegexCache.set(attr, regex);
+  }
   const match = str.match(regex);
   return match ? match[1] : null;
 }

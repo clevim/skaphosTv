@@ -4,14 +4,14 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  Platform, StatusBar, Share,
+  StatusBar,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
-import { useStore } from '../store/useStore';
+import { useStore, resolveChannelType } from '../store/useStore';
 import TVFocusable from '../components/TVFocusable';
 import PulsingDot from '../components/PulsingDot';
 import GlassButton from '../components/GlassButton';
@@ -19,9 +19,8 @@ import JellyfinTrackSheet from '../components/JellyfinTrackSheet';
 import ExpandableText from '../components/ExpandableText';
 import { colors, fontSize, radius, fontFamily } from '../utils/theme';
 import { RootStackParamList } from '../types';
-import { detectType, getSeriesBaseName } from '../utils/channelUtils';
+import { getSeriesBaseName, cleanGroupName } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
-import { fetchTmdbMovie, fetchTmdbSeries, TmdbMeta } from '../utils/tmdbApi';
 import { fetchVodInfo, parseMovieCredentials, XtreamVodDetails } from '../utils/xtreamApi';
 import { parseJellyfinVideoUrl } from '../utils/jellyfinLoader';
 
@@ -39,20 +38,18 @@ export default function DetailScreen() {
   const setCurrentChannel = useStore(s => s.setCurrentChannel);
   const toggleFavorite    = useStore(s => s.toggleFavorite);
   const favorites         = useStore(s => s.favorites);
-  const settings          = useStore(s => s.settings);
   const [activeTab, setActiveTab] = useState<Tab>('Sobre');
-  const [tmdb, setTmdb] = useState<TmdbMeta | null>(null);
   const [trackSheetUrl, setTrackSheetUrl] = useState<string | null>(null);
 
-  const type = detectType(channel.group || '', channel.name);
+  const type = resolveChannelType(channel);
   const displayName = type === 'series' ? getSeriesBaseName(channel.name) : channel.name;
-  const groupClean = channel.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || '';
+  const groupClean = (channel.group ? cleanGroupName(channel.group) : '') || '';
   const isFav = favorites.includes(channel.id);
   const typeLabel = type === 'movies' ? 'Filme' : type === 'series' ? 'Série' : 'Canal';
 
   // Detalhes ricos do próprio painel Xtream (get_vod_info) — sinopse, elenco,
-  // nota, backdrop — sem depender de chave TMDB. A lista de VOD raramente traz
-  // esses campos; o endpoint por título traz quase sempre.
+  // nota, backdrop. A lista de VOD raramente traz esses campos; o endpoint
+  // por título traz quase sempre.
   const [vod, setVod] = useState<XtreamVodDetails | null>(null);
   useEffect(() => {
     if (type !== 'movies' || (channel.plot && channel.backdrop)) return;
@@ -64,26 +61,19 @@ export default function DetailScreen() {
     return () => { alive = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // TMDB enrichment para canais sem metadados (M3U / Xtream sem info)
-  useEffect(() => {
-    const key = settings.tmdbApiKey;
-    if (!key || channel.plot || channel.backdrop) return;
-    if (type === 'movies') {
-      fetchTmdbMovie(displayName, key, channel.releaseDate?.slice(0, 4)).then(setTmdb);
-    } else if (type === 'series') {
-      fetchTmdbSeries(displayName, key).then(setTmdb);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Precedência: dados do canal (lista) → get_vod_info (painel) → TMDB
-  const heroImage  = channel.backdrop ?? vod?.backdrop ?? tmdb?.backdrop ?? tmdb?.poster ?? channel.logo;
-  const displayGenre  = channel.genre  || vod?.genre  || tmdb?.genre  || groupClean;
-  const ratingValue   = channel.rating || vod?.rating || tmdb?.rating;
+  // Precedência: dados do canal (lista) → get_vod_info (painel). Backdrop de
+  // verdade (paisagem) pode cobrir a área e recortar; na falta dele, caímos
+  // pro logo (retrato/quadrado) — aí "cover" recorta esquisito e o banner
+  // parece torto, então esse caso usa "contain" centralizado.
+  const heroImage  = channel.backdrop ?? vod?.backdrop ?? channel.logo;
+  const heroIsLogo = !channel.backdrop && !vod?.backdrop && !!channel.logo;
+  const displayGenre  = channel.genre  || vod?.genre  || groupClean;
+  const ratingValue   = channel.rating || vod?.rating;
   const displayRating = ratingValue ? `⭐ ${ratingValue}` : null;
-  const displayYear   = (channel.releaseDate ?? vod?.releaseDate)?.slice(0, 4) ?? tmdb?.year ?? null;
-  const displayPlot   = channel.plot   || vod?.plot   || tmdb?.plot;
-  const displayCast   = channel.cast   || vod?.cast   || tmdb?.cast;
-  const displayDir    = channel.director || vod?.director || tmdb?.director;
+  const displayYear   = (channel.releaseDate ?? vod?.releaseDate)?.slice(0, 4) ?? null;
+  const displayPlot   = channel.plot   || vod?.plot;
+  const displayCast   = channel.cast   || vod?.cast;
+  const displayDir    = channel.director || vod?.director;
 
   const isJellyfin = !!parseJellyfinVideoUrl(channel.url);
 
@@ -112,18 +102,6 @@ export default function DetailScreen() {
       initialAudioIndex: audioIndex,
       initialAudioTracks: audioTracks,
     });
-  };
-
-  const handleShare = async () => {
-    const id = channel.tvgId || channel.id;
-    const contentType = type === 'movies' ? 'movie' : type === 'series' ? 'series' : 'live';
-    const link = `com.skaphostv.app://open?type=${contentType}&id=${encodeURIComponent(id)}&name=${encodeURIComponent(displayName)}`;
-    try {
-      await Share.share({
-        message: `${displayName}\n\nAbrir no SkaphosTV:\n${link}`,
-        title: displayName,
-      });
-    } catch (_) {}
   };
 
   // ── Shared: tab content (about + related grid) ──────────────────────────────
@@ -204,7 +182,7 @@ export default function DetailScreen() {
       ) : (
         <View style={styles.relatedGrid}>
           {relatedChannels.slice(0, 9).map(ch => {
-            const rName = detectType(ch.group || '', ch.name) === 'series'
+            const rName = resolveChannelType(ch) === 'series'
               ? getSeriesBaseName(ch.name) : ch.name;
             return (
               <TVFocusable
@@ -250,7 +228,13 @@ export default function DetailScreen() {
         {/* Left panel — backdrop (60%) */}
         <View style={tvStyles.leftPanel}>
           {heroImage ? (
-            <Image source={heroImage} style={tvStyles.backdrop} contentFit="cover" transition={150} />
+            <Image
+              source={heroImage}
+              style={tvStyles.backdrop}
+              contentFit={heroIsLogo ? 'contain' : 'cover'}
+              contentPosition="center"
+              transition={150}
+            />
           ) : (
             <View style={[tvStyles.backdrop, tvStyles.backdropFallback]}>
               <Text style={tvStyles.backdropInitials}>{displayName.slice(0, 3).toUpperCase()}</Text>
@@ -318,7 +302,6 @@ export default function DetailScreen() {
               label="Minha lista"
               onPress={() => toggleFavorite(channel.id)}
             />
-            {/* "Indicar" (compartilhar) não faz sentido na TV — fica só no layout mobile */}
           </View>
 
           {/* Tabs + content */}
@@ -348,7 +331,13 @@ export default function DetailScreen() {
         {/* Hero */}
         <View style={styles.hero}>
           {heroImage ? (
-            <Image source={heroImage} style={styles.heroImg} contentFit="cover" transition={150} />
+            <Image
+              source={heroImage}
+              style={styles.heroImg}
+              contentFit={heroIsLogo ? 'contain' : 'cover'}
+              contentPosition="center"
+              transition={150}
+            />
           ) : (
             <View style={styles.heroFallback}>
               <Text style={styles.heroInitials}>{displayName.slice(0, 3).toUpperCase()}</Text>
@@ -397,7 +386,6 @@ export default function DetailScreen() {
               label="Minha lista"
               onPress={() => toggleFavorite(channel.id)}
             />
-            <GlassButton icon="share-outline" label="Indicar" onPress={handleShare} />
           </View>
         </View>
 
@@ -421,6 +409,7 @@ const tvStyles = StyleSheet.create({
     width: '60%',
     position: 'relative',
     overflow: 'hidden',
+    backgroundColor: colors.bg2,
   },
   backdrop: {
     width: '100%',

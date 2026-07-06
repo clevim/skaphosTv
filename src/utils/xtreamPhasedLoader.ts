@@ -14,6 +14,8 @@
 import { Channel } from '../types';
 import { fetchJson as fetchJsonHttp } from './httpJson';
 import { mapLiveStream, mapVodStream, mapSeriesStream } from './xtreamMappers';
+import { yieldToUI } from './channelUtils';
+import { dlog } from './debugLog';
 
 export type XtreamPhase = 'live' | 'vod' | 'series';
 
@@ -31,7 +33,7 @@ export interface XtreamPhasedOptions {
   /** Chamado quando uma fase começa */
   onPhaseStart: (phase: XtreamPhase, label: string) => void;
   /** Chamado quando uma fase termina — adicione ao store aqui */
-  onPhaseComplete: (result: PhaseResult) => void;
+  onPhaseComplete: (result: PhaseResult) => void | Promise<void>;
   /** Chamado periodicamente durante o parse de cada fase */
   onProgress: (phase: XtreamPhase, count: number) => void;
   /** Chamado se uma fase falhar (não interrompe as demais) */
@@ -80,12 +82,19 @@ async function loadLive(
   const groupSet = new Set<string>();
   const list = Array.isArray(streams) ? streams : [];
 
-  for (const s of list) {
+  // ponytail: zera cada item cru já mapeado — o array de resposta (list) fica
+  // vivo até a função retornar; sem isso, o objeto bruto E o Channel mapeado
+  // coexistem na memória o loop inteiro. Catálogos grandes pareciam travar em
+  // yieldToUI (setTimeout de 0ms levando dezenas de segundos) — sintoma de GC
+  // sob pressão de memória, não da CPU do loop em si (mapear é sub-ms/item).
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i];
+    list[i] = null as any;
     if (!s.stream_id) continue;
     const group = catMap.get(String(s.category_id)) ?? 'Ao Vivo';
     groupSet.add(group);
     channels.push(mapLiveStream(s, host, user, pass, group));
-    if (channels.length % 500 === 0) onProgress(channels.length);
+    if (channels.length % 3000 === 0) { onProgress(channels.length); await yieldToUI(); }
   }
   onProgress(channels.length);
 
@@ -106,23 +115,39 @@ async function loadVod(
   pass: string,
   onProgress: (n: number) => void,
 ): Promise<PhaseResult> {
+  const t0 = Date.now();
   const [catMap, streams] = await Promise.all([
     fetchCategories(base, 'get_vod_categories'),
     fetchJson<any[]>(`${base}&action=get_vod_streams`),
   ]);
+  dlog(`[perf][vod] fetch resolvido em ${Date.now() - t0}ms, ${Array.isArray(streams) ? streams.length : 0} streams`);
 
   const channels: Channel[] = [];
   const groupSet = new Set<string>();
   const list = Array.isArray(streams) ? streams : [];
 
-  for (const s of list) {
+  const tLoop = Date.now();
+  let tChunk = tLoop;
+  // ponytail: zera cada item cru já mapeado (ver comentário em loadLive) — reduz
+  // o pico de memória do transform (raw + Channel coexistindo o loop inteiro).
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i];
+    list[i] = null as any;
     if (!s.stream_id) continue;
     const group = catMap.get(String(s.category_id)) ?? 'Filmes';
     groupSet.add(group);
     channels.push(mapVodStream(s, host, user, pass, group));
-    if (channels.length % 500 === 0) onProgress(channels.length);
+    if (channels.length % 3000 === 0) {
+      const tMap = Date.now();
+      dlog(`[perf][vod] ${channels.length} mapeados — mapear estes 3000: ${tMap - tChunk}ms`);
+      onProgress(channels.length);
+      await yieldToUI();
+      dlog(`[perf][vod] yieldToUI (setTimeout 0) levou ${Date.now() - tMap}ms`);
+      tChunk = Date.now();
+    }
   }
   onProgress(channels.length);
+  dlog(`[perf][vod] loop total: ${Date.now() - tLoop}ms para ${channels.length} itens`);
 
   return {
     phase: 'vod',
@@ -150,13 +175,15 @@ async function loadSeries(
   const groupSet = new Set<string>();
   const list = Array.isArray(seriesList) ? seriesList : [];
 
-  for (const s of list) {
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i];
+    list[i] = null as any;
     if (!s.series_id) continue;
     const catName = catMap.get(String(s.category_id)) ?? 'Séries';
     const group   = `♦ ${catName}`;
     groupSet.add(group);
     channels.push(mapSeriesStream(s, host, user, pass, group));
-    if (channels.length % 200 === 0) onProgress(channels.length);
+    if (channels.length % 1500 === 0) { onProgress(channels.length); await yieldToUI(); }
   }
   onProgress(channels.length);
 
@@ -185,6 +212,7 @@ export async function loadXtreamPhased(opts: XtreamPhasedOptions): Promise<void>
   ];
 
   for (const { id, label, fn } of phases) {
+    dlog(`[perf][${id}] fase iniciada`);
     opts.onPhaseStart(id, label);
     let result;
     try {
@@ -194,9 +222,13 @@ export async function loadXtreamPhased(opts: XtreamPhasedOptions): Promise<void>
         ? `HTTP ${e.response.status}: ${e?.message ?? label}`
         : (e?.code === 'ECONNABORTED' ? `Timeout ao carregar ${label}`
         : (e?.message ?? `Erro ao carregar ${label}`));
+      dlog(`[perf][${id}] ERRO: ${msg}`);
       opts.onError(id, msg);
       continue;
     }
-    opts.onPhaseComplete(result);
+    // Aguarda a fase persistir antes de seguir pra próxima — o índice agora é
+    // construído de forma assíncrona (yields), então sem isso a fase seguinte
+    // poderia ler o estado antes da anterior terminar de gravar.
+    await opts.onPhaseComplete(result);
   }
 }

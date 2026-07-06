@@ -2,20 +2,27 @@
 // Mobile: vertical scroll layout
 // TV: two-panel (left sidebar with categories + right panel with settings)
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, ActivityIndicator, TextInput, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Switch, ActivityIndicator, TextInput, Platform, Modal } from 'react-native';
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import TVFocusable from '../components/TVFocusable';
-import { enrichLiveLogos } from '../utils/logoResolver';
 import {
   checkOtaUpdate, reloadApp, fetchLatestRelease, isNewerVersion,
   downloadAndInstallApk,
 } from '../utils/appUpdate';
 import { APP_VERSION, VERSION_LABEL } from '../utils/version';
-import { colors, spacing, fontSize, radius } from '../utils/theme';
-import { IS_TV } from '../utils/tvDetect';
+import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
+import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import { showAlert } from '../components/AppAlert';
+import { IS_DEV_BUILD, dlog } from '../utils/debugLog';
+import { shareBackup, downloadBackupWeb, copyBackupToClipboard, pasteFromClipboard, importBackup } from '../utils/backup';
+import { useThemeStore } from '../store/useThemeStore';
+import { useUsageStats, topChannelFor, formatWatchTime, computeWrapped, WrappedSummary } from '../store/usageStats';
+import WrappedModal from '../components/WrappedModal';
+import { getAchievements, Achievement } from '../utils/achievements';
+import AchievementsModal from '../components/AchievementsModal';
 
 // ── Shared sub-components ───────────────────────────────────────────────────
 
@@ -111,14 +118,15 @@ function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle
   toggle?: boolean; on?: boolean; onToggle?: (v: boolean) => void;
   onPress?: () => void;
 }) {
+  const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
   const content = (
     <View style={styles.row}>
       <View style={styles.rowIcon}>
         <Ionicons name={icon as any} size={16} color={colors.text2} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={styles.rowLabel}>{label}</Text>
-        {sub && <Text style={styles.rowSub}>{sub}</Text>}
+        <Text style={[styles.rowLabel, { fontSize: 14 * scale }]}>{label}</Text>
+        {sub && <Text style={[styles.rowSub, { fontSize: fontSize.xs * scale }]}>{sub}</Text>}
       </View>
       {toggle && onToggle ? (
         <Switch
@@ -129,7 +137,7 @@ function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle
         />
       ) : value ? (
         <View style={styles.rowValueWrap}>
-          <Text style={[styles.rowValue, valueColor ? { color: valueColor } : null]}>{value}</Text>
+          <Text style={[styles.rowValue, { fontSize: 12 * scale }, valueColor ? { color: valueColor } : null]}>{value}</Text>
           {onPress && <Ionicons name="chevron-forward" size={12} color={colors.text3} />}
         </View>
       ) : onPress ? (
@@ -154,6 +162,7 @@ function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
   value: string;
   onChange: (v: string) => void;
 }) {
+  const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
   const current = options.find(o => o.value === value) ?? options[0];
   const cycle = () => {
     const idx = options.findIndex(o => o.value === value);
@@ -166,11 +175,11 @@ function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
           <Ionicons name={icon as any} size={16} color={colors.text2} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.rowLabel}>{label}</Text>
-          {sub && <Text style={styles.rowSub}>{sub}</Text>}
+          <Text style={[styles.rowLabel, { fontSize: 14 * scale }]}>{label}</Text>
+          {sub && <Text style={[styles.rowSub, { fontSize: fontSize.xs * scale }]}>{sub}</Text>}
         </View>
         <View style={styles.rowValueWrap}>
-          <Text style={styles.rowValue}>{current.label}</Text>
+          <Text style={[styles.rowValue, { fontSize: 12 * scale }]}>{current.label}</Text>
           <Ionicons name="swap-horizontal-outline" size={12} color={colors.text3} />
         </View>
       </View>
@@ -178,47 +187,62 @@ function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
   );
 }
 
-// ── LogoRefreshRow ──────────────────────────────────────────────────────────
-// Busca sob demanda os logos faltantes de canais ao vivo (iptv-org, com cache).
+// ── SeasonalThemeRow ────────────────────────────────────────────────────────
+// Liga/desliga a troca automática de cores em datas comemorativas (Natal,
+// Halloween) — ver SEASONAL_PRESETS em useThemeStore.ts. Nunca sobrescreve a
+// escolha manual de tema, só substitui temporariamente enquanto a data bate.
 
-function LogoRefreshRow() {
-  const [state, setState] = useState<'idle' | 'running' | 'done'>('idle');
-  const [count, setCount] = useState(0);
-
-  const run = async () => {
-    if (state === 'running') return;
-    setState('running');
-    try {
-      const { channels, sources, appendChannels } = useStore.getState();
-      let total = 0;
-      for (const src of sources) {
-        const candidates = channels.filter(c => c.sourceId === src.id && !c.logo);
-        if (candidates.length === 0) continue;
-        const updated = await enrichLiveLogos(candidates);
-        const withLogo = updated.filter(c => c.logo);
-        if (withLogo.length) { appendChannels(withLogo, [], src.id); total += withLogo.length; }
-      }
-      setCount(total);
-      setState('done');
-    } catch {
-      setState('idle');
-    }
-  };
-
-  const sub =
-    state === 'running' ? 'Buscando no iptv-org…'
-    : state === 'done'  ? `${count} logo${count !== 1 ? 's' : ''} adicionado${count !== 1 ? 's' : ''}`
-    : 'Preenche logos faltantes dos canais ao vivo';
-
+function SeasonalThemeRow() {
+  const seasonalEnabled = useThemeStore(s => s.seasonalEnabled);
+  const setSeasonalEnabled = useThemeStore(s => s.setSeasonalEnabled);
   return (
     <SettingsRow
-      icon="images-outline"
-      label="Atualizar logos dos canais"
-      sub={sub}
-      value={state === 'running' ? '…' : undefined}
-      valueColor={state === 'done' ? colors.green : undefined}
-      onPress={state === 'running' ? undefined : run}
+      icon="gift-outline"
+      label="Tema sazonal automático"
+      sub="Cores especiais no Natal e Halloween"
+      toggle
+      on={seasonalEnabled}
+      onToggle={setSeasonalEnabled}
     />
+  );
+}
+
+// ── DevUpdateUrlRow ──────────────────────────────────────────────────────────
+// Só existe em build de dev (IS_DEV_BUILD). Aponta "Verificar/Forçar
+// atualização" pro dev-update-server local em vez do GitHub — editável aqui
+// pra não precisar rebuildar o APK toda vez que o IP do PC mudar de rede.
+function DevUpdateUrlRow() {
+  const devUpdateUrl = useStore(s => s.settings.devUpdateUrl);
+  const updateSettings = useStore(s => s.updateSettings);
+  const [value, setValue] = useState(devUpdateUrl);
+
+  if (!IS_DEV_BUILD) return null;
+
+  return (
+    <>
+      <View style={styles.row}>
+        <View style={styles.rowIcon}>
+          <Ionicons name="construct-outline" size={16} color={colors.text2} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.rowLabel}>Servidor de update (dev)</Text>
+          <Text style={styles.rowSub}>scripts/dev-update-server.js — ex: http://192.168.0.10:8787</Text>
+        </View>
+      </View>
+      <View style={[styles.row, { paddingTop: 4, paddingBottom: 12 }]}>
+        <TextInput
+          style={styles.textInput}
+          value={value}
+          onChangeText={setValue}
+          onBlur={() => updateSettings({ devUpdateUrl: value.trim().replace(/\/$/, '') })}
+          placeholder="http://<ip-do-pc>:8787"
+          placeholderTextColor={colors.text3}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+        />
+      </View>
+    </>
   );
 }
 
@@ -235,10 +259,12 @@ function UpdateCheckRow() {
     setSub('Verificando…');
     try {
       // 1) OTA — atualiza o JS sem baixar APK
+      const tOta = Date.now();
       const ota = await checkOtaUpdate();
+      dlog(`[perf][update] checkOtaUpdate: ${Date.now() - tOta}ms, resultado: ${ota}`);
       if (ota === 'ready') {
         setBusy(false);
-        Alert.alert('Atualização pronta', 'Uma atualização foi baixada. Reiniciar o app agora para aplicar?', [
+        showAlert('Atualização pronta', 'Uma atualização foi baixada. Reiniciar o app agora para aplicar?', [
           { text: 'Depois', style: 'cancel', onPress: () => setSub('Atualização pendente — reinicie para aplicar') },
           { text: 'Reiniciar', onPress: () => reloadApp() },
         ]);
@@ -246,15 +272,17 @@ function UpdateCheckRow() {
       }
 
       // 2) GitHub Release — APK (mudanças nativas)
+      const tRel = Date.now();
       const rel = await fetchLatestRelease();
+      dlog(`[perf][update] fetchLatestRelease: ${Date.now() - tRel}ms, resultado: ${rel ? `v${rel.version}` : 'null'}`);
       if (rel && isNewerVersion(rel.version, APP_VERSION)) {
         setBusy(false);
         if (!rel.apkUrl) {
           setSub(`Nova versão v${rel.version} disponível no GitHub`);
-          Alert.alert('Nova versão', `A v${rel.version} está disponível, mas sem APK anexado ao release.`);
+          showAlert('Nova versão', `A v${rel.version} está disponível, mas sem APK anexado ao release.`);
           return;
         }
-        Alert.alert('Nova versão disponível', `v${rel.version} requer atualização do app (APK). Baixar e instalar agora?`, [
+        showAlert('Nova versão disponível', `v${rel.version} requer atualização do app (APK). Baixar e instalar agora?`, [
           { text: 'Agora não', style: 'cancel', onPress: () => setSub(`Nova versão v${rel.version} disponível`) },
           {
             text: 'Atualizar', onPress: async () => {
@@ -265,7 +293,7 @@ function UpdateCheckRow() {
                 setSub('Abrindo instalador…');
               } catch {
                 setSub('Falha ao baixar o APK');
-                Alert.alert('Erro', 'Não foi possível baixar/instalar o APK.');
+                showAlert('Erro', 'Não foi possível baixar/instalar o APK.');
               } finally {
                 setBusy(false);
               }
@@ -313,13 +341,15 @@ function ForceUpdateRow() {
     setBusy(true);
     setSub('Buscando última versão no GitHub…');
     try {
+      const tRel = Date.now();
       const rel = await fetchLatestRelease();
+      dlog(`[perf][update] (force) fetchLatestRelease: ${Date.now() - tRel}ms, resultado: ${rel ? `v${rel.version}` : 'null'}`);
       if (!rel) { setSub('Não foi possível consultar o GitHub'); return; }
       if (!rel.apkUrl) { setSub(`v${rel.version} está sem APK anexado no release`); return; }
 
       const isSameOrOlder = !isNewerVersion(rel.version, APP_VERSION);
       setBusy(false);
-      Alert.alert(
+      showAlert(
         'Forçar atualização',
         `Baixar e reinstalar a v${rel.version}?` +
           (isSameOrOlder ? `\n\nVocê já está na ${VERSION_LABEL} — o APK será reinstalado por cima.` : ''),
@@ -334,7 +364,7 @@ function ForceUpdateRow() {
                 setSub('Abrindo instalador…');
               } catch {
                 setSub('Falha ao baixar o APK');
-                Alert.alert('Erro', 'Não foi possível baixar/instalar o APK.');
+                showAlert('Erro', 'Não foi possível baixar/instalar o APK.');
               } finally {
                 setBusy(false);
               }
@@ -360,7 +390,259 @@ function ForceUpdateRow() {
   );
 }
 
+// ── BackupRows ──────────────────────────────────────────────────────────────
+// Exporta fontes+favoritos+ajustes como .json (compartilha via intent do
+// sistema — mesmo mecanismo do instalador de APK, sem picker de arquivo).
+// Importar é colar o JSON de volta (evita adicionar uma dependência de picker
+// de arquivo só pra esse fluxo raro de troca de aparelho).
+
+// ── WrappedRow ──────────────────────────────────────────────────────────────
+// "Wrapped" do ano — calcula sob demanda (usageStats + watchProgress cruzados
+// com o catálogo atual) e mostra num modal, mesmo padrão auto-contido acima.
+
+function WrappedRow() {
+  const enabled = useStore(s => s.settings.showWrapped);
+  const [summary, setSummary] = useState<WrappedSummary | null>(null);
+  if (!enabled) return null;
+
+  const open = () => setSummary(computeWrapped(useStore.getState().channels));
+
+  return (
+    <>
+      <SettingsRow
+        icon="sparkles-outline"
+        label="Seu resumo do ano"
+        sub="Tempo assistido, gênero e canal favoritos"
+        onPress={open}
+      />
+      <WrappedModal visible={!!summary} summary={summary} onClose={() => setSummary(null)} />
+    </>
+  );
+}
+
+function AchievementsRow() {
+  const enabled = useStore(s => s.settings.showAchievements);
+  const [achievements, setAchievements] = useState<Achievement[] | null>(null);
+  if (!enabled) return null;
+
+  const open = () => setAchievements(getAchievements(useStore.getState().sources));
+
+  return (
+    <>
+      <SettingsRow
+        icon="trophy-outline"
+        label="Conquistas"
+        sub="Badges por uso — maratonista, madrugador, fiel..."
+        onPress={open}
+      />
+      <AchievementsModal
+        visible={!!achievements}
+        achievements={achievements ?? []}
+        onClose={() => setAchievements(null)}
+      />
+    </>
+  );
+}
+
+function BackupRows() {
+  const [showExport, setShowExport] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importBusy, setImportBusy] = useState(false);
+
+  const runExport = async (action: () => Promise<void> | void, doneMsg: string) => {
+    setExportBusy(true);
+    try {
+      await action();
+      setShowExport(false);
+      showAlert('Backup pronto', doneMsg);
+    } catch {
+      showAlert('Erro', 'Não foi possível gerar o backup.');
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  const handlePasteFromClipboard = async () => {
+    const text = await pasteFromClipboard();
+    if (text.trim()) setImportText(text.trim());
+  };
+
+  const handleImport = async () => {
+    if (!importText.trim()) return;
+    setImportBusy(true);
+    try {
+      const { sourcesCount } = await importBackup(importText.trim());
+      setShowImport(false);
+      setImportText('');
+      showAlert('Backup importado', `${sourcesCount} fonte(s) restaurada(s) — os canais estão recarregando em segundo plano.`);
+    } catch (e: any) {
+      showAlert('Erro ao importar', e?.message ?? 'JSON inválido ou incompleto.');
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <SettingsRow
+        icon="share-outline"
+        label="Exportar configuração"
+        sub="Fontes (com credenciais), favoritos e ajustes — .json"
+        onPress={() => setShowExport(true)}
+      />
+      <SettingsRow
+        icon="download-outline"
+        label="Importar configuração"
+        sub="Cole o .json exportado de outro aparelho"
+        onPress={() => setShowImport(true)}
+      />
+
+      <Modal visible={showExport} transparent animationType="fade" onRequestClose={() => setShowExport(false)}>
+        <View style={backupStyles.overlay}>
+          <View style={backupStyles.box}>
+            <Text style={backupStyles.title}>Exportar configuração</Text>
+            <Text style={backupStyles.desc}>Escolha como salvar o backup.</Text>
+
+            {IS_WEB && (
+              <TVFocusable
+                onPress={() => runExport(() => downloadBackupWeb(), 'Arquivo baixado.')}
+                style={backupStyles.optionRow}
+                hasTVPreferredFocus
+                disabled={exportBusy}
+              >
+                <Ionicons name="cloud-download-outline" size={18} color={colors.accent} />
+                <Text style={backupStyles.optionText}>Baixar arquivo .json</Text>
+              </TVFocusable>
+            )}
+            {Platform.OS === 'android' && (
+              <TVFocusable
+                onPress={() => runExport(() => shareBackup(), 'Compartilhado.')}
+                style={backupStyles.optionRow}
+                hasTVPreferredFocus={!IS_WEB}
+                disabled={exportBusy}
+              >
+                <Ionicons name="share-social-outline" size={18} color={colors.accent} />
+                <Text style={backupStyles.optionText}>Compartilhar / salvar arquivo</Text>
+              </TVFocusable>
+            )}
+            <TVFocusable
+              onPress={() => runExport(() => copyBackupToClipboard(), 'Copiado — cole em outro aparelho ou app.')}
+              style={backupStyles.optionRow}
+              disabled={exportBusy}
+            >
+              <Ionicons name="copy-outline" size={18} color={colors.accent} />
+              <Text style={backupStyles.optionText}>Copiar para a área de transferência</Text>
+            </TVFocusable>
+
+            <View style={backupStyles.actions}>
+              <TVFocusable onPress={() => setShowExport(false)} style={backupStyles.btnCancel}>
+                <Text style={backupStyles.btnCancelText}>Fechar</Text>
+              </TVFocusable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showImport} transparent animationType="fade" onRequestClose={() => setShowImport(false)}>
+        <View style={backupStyles.overlay}>
+          <View style={backupStyles.box}>
+            <Text style={backupStyles.title}>Importar configuração</Text>
+            <Text style={backupStyles.desc}>Cole aqui o conteúdo do arquivo .json exportado.</Text>
+            <TextInput
+              style={backupStyles.input}
+              value={importText}
+              onChangeText={setImportText}
+              placeholder='{"version": 1, "sources": [...]}'
+              placeholderTextColor={colors.text3}
+              multiline
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TVFocusable onPress={handlePasteFromClipboard} style={backupStyles.pasteBtn}>
+              <Ionicons name="clipboard-outline" size={14} color={colors.text2} />
+              <Text style={backupStyles.pasteBtnText}>Colar da área de transferência</Text>
+            </TVFocusable>
+            <View style={backupStyles.actions}>
+              <TVFocusable onPress={() => setShowImport(false)} style={backupStyles.btnCancel}>
+                <Text style={backupStyles.btnCancelText}>Cancelar</Text>
+              </TVFocusable>
+              <TVFocusable onPress={handleImport} style={backupStyles.btnConfirm} disabled={importBusy}>
+                <Text style={backupStyles.btnConfirmText}>{importBusy ? 'Importando…' : 'Importar'}</Text>
+              </TVFocusable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
+const backupStyles = StyleSheet.create({
+  overlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center', justifyContent: 'center', padding: spacing.xl,
+  },
+  box: {
+    width: '100%', maxWidth: 420,
+    backgroundColor: colors.bg1, borderRadius: radius.xl,
+    borderWidth: 1, borderColor: colors.border,
+    padding: spacing.xl, gap: spacing.sm,
+  },
+  title: { fontSize: fontSize.lg, fontWeight: '600', color: colors.text1 },
+  desc: { fontSize: 12.5, color: colors.text2 },
+  optionRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 13, paddingHorizontal: 14,
+    backgroundColor: colors.bg2, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  optionText: { fontSize: fontSize.sm, fontWeight: '500', color: colors.text1 },
+  pasteBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+  },
+  pasteBtnText: { fontSize: 12, fontWeight: '500', color: colors.text2 },
+  input: {
+    minHeight: 120, maxHeight: 220,
+    backgroundColor: colors.bg2, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.border,
+    padding: spacing.sm, color: colors.text1, fontSize: 12,
+    textAlignVertical: 'top',
+  },
+  actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
+  btnCancel: {
+    flex: 1, height: 44, borderRadius: radius.md,
+    backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  btnCancelText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text2 },
+  btnConfirm: {
+    flex: 1, height: 44, borderRadius: radius.md,
+    backgroundColor: colors.accent3,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  btnConfirmText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.white },
+});
+
 // ── XtreamSourceCard ────────────────────────────────────────────────────────
+
+/** Tempo assistido + canal mais usado de uma fonte — reusado nos 3 tipos de card. */
+function UsageRows({ sourceId }: { sourceId: string }) {
+  const usage = useUsageStats(s => s.bySource[sourceId]);
+  if (!usage || usage.watchSeconds === 0) return null;
+  const top = topChannelFor(usage);
+  return (
+    <>
+      <SettingsRow icon="hourglass-outline" label="Tempo assistido" value={formatWatchTime(usage.watchSeconds)} />
+      {top && (
+        <SettingsRow icon="trophy-outline" label="Mais assistido" value={`${top.name} (${top.count}x)`} />
+      )}
+    </>
+  );
+}
 
 function XtreamSourceCard({ source, authInfo }: {
   source: { id: string; name: string; host?: string; username?: string; password?: string; channelCount?: number };
@@ -377,6 +659,7 @@ function XtreamSourceCard({ source, authInfo }: {
       <SettingsRow icon="person-outline"      label="Usuário"  value={source.username ?? '—'} />
       <SettingsRow icon="lock-closed-outline" label="Senha"    value={'•'.repeat(Math.min(source.password?.length ?? 0, 10))} />
       <SettingsRow icon="layers-outline"      label="Canais"   value={`${source.channelCount ?? 0} itens`} />
+      <UsageRows sourceId={source.id} />
       {isLoading && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10 }}>
           <ActivityIndicator size="small" color={colors.accent} />
@@ -442,6 +725,7 @@ function JellyfinSourceCard({ source }: {
     <SettingsGroup title={`JELLYFIN: ${source.serverName || source.name}`}>
       <SettingsRow icon="server-outline"    label="Servidor"  value={source.host ?? '—'} />
       <SettingsRow icon="layers-outline"    label="Conteúdo"  value={`${source.channelCount ?? 0} itens`} />
+      <UsageRows sourceId={source.id} />
       {serverInfo === 'loading' && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10 }}>
           <ActivityIndicator size="small" color="#00a4dc" />
@@ -513,28 +797,32 @@ function InterfaceGroup({ settings, updateSettings }: {
         on={settings.showEpg}
         onToggle={v => updateSettings({ showEpg: v })}
       />
-      <SettingsRow
-        icon="time-outline"
-        label="Relógio na barra da TV"
-        toggle
-        on={settings.showClock}
-        onToggle={v => updateSettings({ showClock: v })}
-      />
+      {/* Relógio: recurso da top bar da TV — no celular não existe onde exibi-lo */}
+      {IS_TV && (
+        <SettingsRow
+          icon="time-outline"
+          label="Relógio na barra da TV"
+          toggle
+          on={settings.showClock}
+          onToggle={v => updateSettings({ showClock: v })}
+        />
+      )}
     </SettingsGroup>
   );
 }
 
 type CategoryKey = 'reproducao' | 'conta' | 'sistema';
 
-const TV_CATEGORIES: { key: CategoryKey; label: string; icon: string }[] = [
+const CATEGORIES: { key: CategoryKey; label: string; icon: string }[] = [
   { key: 'reproducao', label: 'Reprodução',           icon: 'play-circle-outline' },
   { key: 'conta',      label: 'Conta e dispositivos', icon: 'person-circle-outline' },
   { key: 'sistema',    label: 'Sistema',              icon: 'settings-outline' },
 ];
 
-// ── TV Panel content ────────────────────────────────────────────────────────
+// ── Category panel content (TV e mobile compartilham o mesmo conteúdo;
+//    só o layout de navegação entre categorias muda) ────────────────────────
 
-function TVPanel({
+function CategoryPanel({
   category, settings, updateSettings, sources, navigation, authInfoMap,
 }: {
   category: CategoryKey;
@@ -576,6 +864,14 @@ function TVPanel({
             value={settings.subtitleSize}
             onChange={v => updateSettings({ subtitleSize: v as 'small' | 'medium' | 'large' })}
           />
+          <SettingsRowSelect
+            icon="resize-outline"
+            label="Tamanho de fonte da interface"
+            sub="Ajustes, busca e guia de programação"
+            options={SUBSIZE_OPTIONS}
+            value={settings.uiFontScale}
+            onChange={v => updateSettings({ uiFontScale: v as 'small' | 'medium' | 'large' })}
+          />
         </SettingsGroup>
       </>
     );
@@ -599,6 +895,7 @@ function TVPanel({
           <SettingsGroup key={s.id} title={s.name}>
             <SettingsRow icon="link-outline"   label="URL"    value={s.url ?? '—'} />
             <SettingsRow icon="layers-outline" label="Canais" value={`${s.channelCount ?? 0} itens`} />
+            <UsageRows sourceId={s.id} />
           </SettingsGroup>
         ))}
         {sources.filter(s => s.type === 'jellyfin').map(s => (
@@ -611,21 +908,60 @@ function TVPanel({
   // sistema
   return (
     <>
+      <SettingsGroup title="Notificações">
+        <SettingsRow
+          icon="tv-outline"
+          label="Canal indisponível"
+          sub="Avisa quando um canal ao vivo para de responder"
+          toggle
+          on={settings.notifyChannelOffline}
+          onToggle={v => updateSettings({ notifyChannelOffline: v })}
+        />
+        <SettingsRow
+          icon="albums-outline"
+          label="Catálogo atualizado"
+          sub="Avisa quando uma fonte ganha itens novos ao recarregar"
+          toggle
+          on={settings.notifyCatalogUpdate}
+          onToggle={v => updateSettings({ notifyCatalogUpdate: v })}
+        />
+        <SettingsRow
+          icon="calendar-outline"
+          label="Fonte prestes a vencer"
+          sub="Avisa quando a assinatura Xtream está perto do vencimento"
+          toggle
+          on={settings.notifySourceExpiring}
+          onToggle={v => updateSettings({ notifySourceExpiring: v })}
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Estatísticas">
+        <SettingsRow
+          icon="sparkles-outline"
+          label="Mostrar resumo do ano"
+          toggle
+          on={settings.showWrapped}
+          onToggle={v => updateSettings({ showWrapped: v })}
+        />
+        <SettingsRow
+          icon="trophy-outline"
+          label="Mostrar conquistas"
+          toggle
+          on={settings.showAchievements}
+          onToggle={v => updateSettings({ showAchievements: v })}
+        />
+        <WrappedRow />
+        <AchievementsRow />
+      </SettingsGroup>
+      <SettingsGroup title="Backup">
+        <BackupRows />
+      </SettingsGroup>
       <SettingsGroup title="Sistema">
         <SettingsRow icon="language-outline"           label="Idioma"   value={settings.language || 'pt-BR'} />
+        <SeasonalThemeRow />
+        <DevUpdateUrlRow />
         <UpdateCheckRow />
         <ForceUpdateRow />
-        <LogoRefreshRow />
         <SettingsRow icon="information-circle-outline" label="Versão"   value={VERSION_LABEL} />
-      </SettingsGroup>
-      <SettingsGroup title="Integrações">
-        <SettingsRow
-          icon="film-outline"
-          label="TMDB API Key"
-          sub="Para enriquecer filmes e séries com metadata do TMDB"
-          value={settings.tmdbApiKey ? '••••••••' : 'Não configurado'}
-          valueColor={settings.tmdbApiKey ? colors.green : colors.text3}
-        />
       </SettingsGroup>
     </>
   );
@@ -664,7 +1000,7 @@ export default function SettingsScreen() {
         {/* Sidebar */}
         <View style={tvStyles.sidebar}>
           <View style={tvStyles.categoryList}>
-            {TV_CATEGORIES.map((cat, i) => {
+            {CATEGORIES.map((cat, i) => {
               const active = cat.key === activeCategory;
               return (
                 <TVFocusable
@@ -696,11 +1032,11 @@ export default function SettingsScreen() {
         <View style={tvStyles.panel}>
           <View style={tvStyles.panelHeader}>
             <Text style={tvStyles.panelTitle}>
-              {TV_CATEGORIES.find(c => c.key === activeCategory)?.label}
+              {CATEGORIES.find(c => c.key === activeCategory)?.label}
             </Text>
           </View>
           <ScrollView contentContainerStyle={tvStyles.panelContent}>
-            <TVPanel
+            <CategoryPanel
               category={activeCategory}
               settings={settings}
               updateSettings={updateSettings}
@@ -715,6 +1051,8 @@ export default function SettingsScreen() {
   }
 
   // ── Mobile Layout ────────────────────────────────────────────────────────
+  // Mesmas categorias/conteúdo da TV (CategoryPanel) — só troca o sidebar por
+  // uma barra de abas horizontal, já que não há espaço lateral no celular.
   return (
     <View style={styles.root}>
       <View style={styles.header}>
@@ -724,95 +1062,37 @@ export default function SettingsScreen() {
         <Text style={styles.title}>Ajustes</Text>
       </View>
 
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabBar}
+        contentContainerStyle={styles.tabBarInner}
+      >
+        {CATEGORIES.map(cat => {
+          const active = cat.key === activeCategory;
+          return (
+            <TVFocusable
+              key={cat.key}
+              onPress={() => setActiveCategory(cat.key)}
+              style={[styles.tab, active && styles.tabActive]}
+              borderRadius={radius.full}
+            >
+              <Ionicons name={cat.icon as any} size={15} color={active ? colors.accent : colors.text3} />
+              <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{cat.label}</Text>
+            </TVFocusable>
+          );
+        })}
+      </ScrollView>
+
       <ScrollView style={styles.content} contentContainerStyle={styles.inner}>
-        <SettingsGroup title="Reprodução">
-          <PlaybackRows settings={settings} updateSettings={updateSettings} />
-        </SettingsGroup>
-
-        <InterfaceGroup settings={settings} updateSettings={updateSettings} />
-
-
-        <SettingsGroup title="Jellyfin · Preferências">
-          <SettingsRowSelect
-            icon="musical-note-outline"
-            label="Áudio preferido"
-            sub="Idioma pré-selecionado ao abrir conteúdo"
-            options={LANG_OPTIONS}
-            value={settings.jellyfinPreferredAudio}
-            onChange={v => updateSettings({ jellyfinPreferredAudio: v })}
-          />
-          <SettingsRowSelect
-            icon="chatbox-ellipses-outline"
-            label="Legenda preferida"
-            sub="Idioma pré-selecionado ao abrir conteúdo"
-            options={LANG_OPTIONS}
-            value={settings.jellyfinPreferredSubtitle}
-            onChange={v => updateSettings({ jellyfinPreferredSubtitle: v })}
-          />
-          <SettingsRowSelect
-            icon="text-outline"
-            label="Tamanho da legenda"
-            sub="Tamanho do texto das legendas no player"
-            options={SUBSIZE_OPTIONS}
-            value={settings.subtitleSize}
-            onChange={v => updateSettings({ subtitleSize: v as 'small' | 'medium' | 'large' })}
-          />
-        </SettingsGroup>
-
-        <SettingsGroup title="Fontes">
-          <SettingsRow
-            icon="globe-outline"
-            label="Gerenciar listas"
-            value={`${sources.length} lista${sources.length !== 1 ? 's' : ''}`}
-            onPress={() => (navigation as any).navigate('Setup')}
-          />
-        </SettingsGroup>
-
-        {sources.filter(s => s.type === 'xtream').map(s => (
-          <XtreamSourceCard key={s.id} source={s} authInfo={authInfoMap[s.id]} />
-        ))}
-
-        {sources.filter(s => s.type === 'm3u').map(s => (
-          <SettingsGroup key={s.id} title={s.name}>
-            <SettingsRow icon="link-outline"   label="URL"    value={s.url ?? '—'} />
-            <SettingsRow icon="layers-outline" label="Canais" value={`${s.channelCount ?? 0} itens`} />
-          </SettingsGroup>
-        ))}
-
-        {sources.filter(s => s.type === 'jellyfin').map(s => (
-          <JellyfinSourceCard key={s.id} source={s} />
-        ))}
-
-        <SettingsGroup title="Integrações">
-          <View style={styles.row}>
-            <View style={styles.rowIcon}>
-              <Ionicons name="film-outline" size={16} color={colors.text2} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowLabel}>TMDB API Key</Text>
-              <Text style={styles.rowSub}>Para metadata de filmes e séries</Text>
-            </View>
-          </View>
-          <View style={[styles.row, { paddingTop: 4, paddingBottom: 12 }]}>
-            <TextInput
-              style={styles.tmdbInput}
-              value={settings.tmdbApiKey}
-              onChangeText={v => updateSettings({ tmdbApiKey: v.trim() })}
-              placeholder="Cole sua API key aqui"
-              placeholderTextColor={colors.text3}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-        </SettingsGroup>
-
-        <SettingsGroup title="Sistema">
-          <SettingsRow icon="language-outline" label="Idioma" value={settings.language || 'pt-BR'} />
-          <UpdateCheckRow />
-        <ForceUpdateRow />
-          <LogoRefreshRow />
-          <SettingsRow icon="information-circle-outline" label="Versão" value={VERSION_LABEL} />
-        </SettingsGroup>
+        <CategoryPanel
+          category={activeCategory}
+          settings={settings}
+          updateSettings={updateSettings}
+          sources={sources}
+          navigation={navigation}
+          authInfoMap={authInfoMap}
+        />
 
         <View style={styles.footer}>
           <View style={styles.footerLogoRow}>
@@ -950,6 +1230,19 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   title: { fontSize: 28, fontWeight: '600', color: colors.text1, letterSpacing: -0.6 },
+
+  tabBar: { flexGrow: 0, marginTop: spacing.sm },
+  tabBarInner: { paddingHorizontal: 22, gap: 8 },
+  tab: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingVertical: 8, paddingHorizontal: 14,
+    borderRadius: radius.full,
+    backgroundColor: colors.bg1, borderWidth: 1, borderColor: colors.border,
+  },
+  tabActive: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
+  tabLabel: { fontSize: fontSize.xs, fontWeight: '600', color: colors.text3 },
+  tabLabelActive: { color: colors.accent },
+
   content: { flex: 1 },
   inner: {
     paddingHorizontal: 22,
@@ -992,7 +1285,7 @@ const styles = StyleSheet.create({
   footerLogoText: { fontSize: 11, fontWeight: '600', color: colors.text3, letterSpacing: 0.4 },
   footerVersion: { fontSize: 10, color: colors.text3, letterSpacing: 0.4 },
   footerBy: { fontSize: 10, color: colors.text3, letterSpacing: 0.4, marginTop: 2 },
-  tmdbInput: {
+  textInput: {
     flex: 1,
     height: 38,
     borderRadius: radius.sm,

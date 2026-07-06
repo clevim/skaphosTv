@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { Animated } from 'react-native';
-import { useStore } from '../store/useStore';
+import { useStore, resolveChannelType } from '../store/useStore';
 import { Channel } from '../types';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import { lockLandscape, unlockOrientation } from '../utils/orientation';
@@ -11,13 +11,14 @@ import {
 } from '../utils/jellyfinLoader';
 import { SubtitleTrack, AudioTrack } from '../types';
 import { useWatchProgress, resumePositionFor } from '../store/watchProgress';
-import { resolveContentType } from '../utils/channelUtils';
+import { useUsageStats } from '../store/usageStats';
+import { notify } from '../utils/notifications';
 
 /** Live pelo TIPO do canal — nunca pela duração: streams HLS/TS ao vivo reportam a
  *  janela de buffer como duração, o que fazia o app tratá-los como VOD (resume
  *  indevido, progresso gravado e auto-close no fim do buffer). */
 const channelIsLive = (ch: Channel | null | undefined) =>
-  !!ch && resolveContentType(ch) === 'live';
+  !!ch && resolveChannelType(ch) === 'live';
 const OSD_TIMEOUT = IS_TV ? 6000 : 4000;
 
 export const MAX_RETRIES = 5;
@@ -61,12 +62,19 @@ export function usePlayer(
   const seekAccumRef      = useRef(0);   // total acumulado exibido no indicador durante saltos rápidos
   const sourcesRef        = useRef(sources);
   const durationRef       = useRef(0);   // duração atual (p/ salvar progresso fora de render)
-  const lastProgressSaveRef = useRef(0); // throttle do save de progresso local
+  // Throttle do save de progresso local. Começa em Date.now() (não em 0!) —
+  // senão o primeiro tick calcula elapsed = Date.now() - 0 (o epoch inteiro em
+  // ms) e isso vira segundos de "tempo assistido" na hora, um valor absurdo.
+  const lastProgressSaveRef = useRef(Date.now());
   useEffect(() => { sourcesRef.current = sources; }, [sources]);
 
   // Ações do store de progresso local (identidade estável no Zustand)
   const recordProgress = useWatchProgress(s => s.record);
   const markWatchedLocal = useWatchProgress(s => s.markWatched);
+  // Métricas de uso por fonte (tempo assistido + canal mais usado) — conta ao
+  // vivo também, ao contrário do progresso local acima.
+  const recordPlay = useUsageStats(s => s.recordPlay);
+  const addWatchSeconds = useUsageStats(s => s.addWatchSeconds);
 
   // Persiste a posição atual no store local (filme/episódio; nunca ao vivo).
   const saveLocalProgress = useCallback(() => {
@@ -82,6 +90,10 @@ export function usePlayer(
   }, [recordProgress]);
 
   const [playingChannel, setPlayingChannel] = useState<Channel>(initialChannel);
+  // Conta o play inicial (trocas de canal contam em playChannel, mais abaixo)
+  useEffect(() => {
+    recordPlay(initialChannel.sourceId, initialChannel.id, initialChannel.name);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [videoKey, setVideoKey] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isBuffering, setIsBuffering] = useState(true);
@@ -91,6 +103,28 @@ export function usePlayer(
   // Velocidade de reprodução. 1.0 normal; vira 2.0 enquanto o usuário segura o canto
   // da tela (volta a 1.0 ao soltar). Não usado em ao vivo.
   const [rate, setRate] = useState(1.0);
+
+  // Sleep timer — pausa sozinho depois de N minutos. setTimeout pro disparo real;
+  // sleepTimerEndAt (timestamp) é só pro anel de contagem regressiva na OSD calcular
+  // a fração restante sem precisar de um segundo timer.
+  const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
+  const [sleepTimerEndAt, setSleepTimerEndAt] = useState<number | null>(null);
+  const sleepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setSleepTimer = useCallback((minutes: number | null) => {
+    if (sleepTimerRef.current) { clearTimeout(sleepTimerRef.current); sleepTimerRef.current = null; }
+    setSleepTimerMinutes(minutes);
+    setSleepTimerEndAt(minutes ? Date.now() + minutes * 60_000 : null);
+    if (minutes) {
+      sleepTimerRef.current = setTimeout(() => {
+        setPaused(true);
+        setIsPlaying(false);
+        setSleepTimerMinutes(null);
+        setSleepTimerEndAt(null);
+        sleepTimerRef.current = null;
+      }, minutes * 60_000);
+    }
+  }, []);
+  useEffect(() => () => { if (sleepTimerRef.current) clearTimeout(sleepTimerRef.current); }, []);
 
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -224,6 +258,9 @@ export function usePlayer(
     if (attempt >= MAX_RETRIES) {
       setError(`Falha após ${MAX_RETRIES} tentativas. Verifique sua conexão.`);
       setRetryingIn(null);
+      if (channelIsLive(playingChannel) && useStore.getState().settings.notifyChannelOffline) {
+        notify('Canal indisponível', `${playingChannel.name} não respondeu após ${MAX_RETRIES} tentativas.`);
+      }
       return;
     }
     const delay = RETRY_DELAYS[attempt] ?? 30000;
@@ -243,7 +280,7 @@ export function usePlayer(
       setError(null);
       setVideoKey(k => k + 1);
     }, delay);
-  }, []);
+  }, [playingChannel]);
 
   const manualRetry = useCallback(() => {
     clearAllTimers();
@@ -257,6 +294,7 @@ export function usePlayer(
   const playChannel = useCallback((ch: Channel) => {
     // Salva o progresso do canal que está saindo antes de trocar
     saveLocalProgress();
+    recordPlay(ch.sourceId, ch.id, ch.name);
     clearAllTimers();
     setAudioReady(false);
     durationRef.current = 0;
@@ -280,7 +318,7 @@ export function usePlayer(
     isFirstLoadRef.current = true;
     setVideoKey(k => k + 1);
     showOSDTemporarily();
-  }, [setCurrentChannel, showOSDTemporarily, saveLocalProgress]);
+  }, [setCurrentChannel, showOSDTemporarily, saveLocalProgress, recordPlay]);
 
   const prevChannel = useCallback(() => {
     if (currentIndex > 0) playChannel(siblings[currentIndex - 1]);
@@ -381,9 +419,13 @@ export function usePlayer(
     // Salva o progresso local a cada ~10s (independente do OSD) — alimenta o
     // "continuar assistindo" e os badges. Ignorado para ao vivo (sem duração).
     const now = Date.now();
-    if (now - lastProgressSaveRef.current > 10_000) {
+    const elapsed = now - lastProgressSaveRef.current;
+    if (elapsed > 10_000) {
       lastProgressSaveRef.current = now;
       saveLocalProgress();
+      // Métricas de uso contam AO VIVO também (diferente do progresso acima) —
+      // usa o elapsed real (não fixo em 10s) pra não superestimar após um buffer/seek.
+      addWatchSeconds(playingChannelRef.current?.sourceId, Math.round(elapsed / 1000));
     }
     // Só atualiza o estado (→ re-render) quando o OSD está visível; senão, nada
     // consome `position`. Em playback com OSD oculto isto zera os re-renders por tick.
@@ -391,7 +433,7 @@ export function usePlayer(
       setPosition(t);
       if (data.seekableDuration) setSeekableDuration(data.seekableDuration);
     }
-  }, [saveLocalProgress]);
+  }, [saveLocalProgress, addWatchSeconds]);
 
   const onBuffer = useCallback((data: any) => {
     setIsBuffering(data.isBuffering);
@@ -537,6 +579,7 @@ export function usePlayer(
     playingChannel, isPlaying, isBuffering,
     isMuted, volume, error,
     rate, setRate,
+    sleepTimerMinutes, sleepTimerEndAt, setSleepTimer,
     retryCount, retryingIn,
     position, duration, seekableDuration,
     showOSD, showSidebar, seekHint,

@@ -128,3 +128,10 @@ export function progressFractionFor(entry: WatchEntry | undefined): number {
   if (!entry || entry.durationSec <= 0) return 0;
   return Math.max(0, Math.min(1, entry.positionSec / entry.durationSec));
 }
+
+/** Status pra badge de card: "assistido" (check) OU "assistindo" (barra), nunca os dois. */
+export function watchStatusFor(entry: WatchEntry | undefined): { watched: boolean; progress: number } {
+  if (!entry) return { watched: false, progress: 0 };
+  if (entry.watched) return { watched: true, progress: 0 };
+  return { watched: false, progress: resumePositionFor(entry) > 0 ? progressFractionFor(entry) : 0 };
+}

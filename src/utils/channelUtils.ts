@@ -1,8 +1,17 @@
 import type { Channel } from '../types';
 
+// ponytail: mapear/indexar catálogos de 50k+ itens num loop síncrono trava a
+// thread JS (web e nativo são igualmente single-thread). Chame isto a cada
+// ~500-1000 itens dentro de loops grandes para devolver o controle ao event
+// loop e manter a UI/spinner respondendo, sem limite de tamanho de catálogo.
+export const yieldToUI = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+
 export const LAUNCH_YEAR = new Date().getFullYear().toString();
 
 export const YEAR_GROUPS = ['Filmes', 'Séries'] as const;
+
+/** Subcategorias fixas pra filtrar a lista de Favoritos por tipo de conteúdo. */
+export const FAVORITES_GROUPS = ['Ao vivo', 'Filmes', 'Séries'] as const;
 
 export const NAV_ITEMS = [
   { key: 'home',      label: 'Início',    icon: 'home-outline'   },
@@ -14,32 +23,59 @@ export const NAV_ITEMS = [
   { key: 'search',    label: 'Busca',     icon: 'search-outline' },
 ];
 
+// M3U genérico não tem streamType nem o marcador ♦ (esse é injetado só pelo
+// nosso próprio código quando a fonte é Xtream — ver mapSeriesStream/
+// xtreamEnricher). Sem essas palavras-chave, uma lista de outro provedor caia
+// inteira em "ao vivo". pt/en/es cobre os formatos mais comuns.
+const SERIES_KEYWORDS = ['série', 'series', 'novela', 'drama', 'anime', 'temporada', 'season'];
+const MOVIE_KEYWORDS = ['filme', 'movie', 'vod', 'cinema', 'película', 'peliculas', 'filmes'];
+const MOVIE_EXTENSIONS = ['.mp4', '.mkv', '.avi'];
+
+function matchesAny(haystack: string, needles: string[]): boolean {
+  return needles.some(n => haystack.includes(n));
+}
+
 /**
- * Detecta o tipo do conteúdo pela group-title do M3U.
- * ♦️/◆ no grupo → filmes ou séries (séries têm S##E## no nome).
- * Sem ♦ → ao vivo.
+ * Detecta o tipo do conteúdo pela group-title (e opcionalmente URL) do M3U,
+ * em cadeia de sinais — do mais confiável ao mais fraco:
+ *  1. Nome com S##E## → série, sempre (antes só valia com o marcador ♦).
+ *  2. Marcador ♦️/◆ no grupo (injetado internamente p/ fontes Xtream) → filme.
+ *  3. Palavra-chave de série no group-title → série.
+ *  4. Palavra-chave de filme no group-title → filme.
+ *  5. Extensão de VOD na URL (.mp4/.mkv/.avi) → filme — sinal mais fraco,
+ *     só usado se nada acima decidiu.
+ *  6. Default → ao vivo (comportamento anterior preservado).
  */
-export function detectType(group: string, name?: string): 'live' | 'movies' | 'series' {
-  const clean = group.replace(/\uFE0F/g, ''); // normaliza ♦️ → ♦
-  if (clean.includes('♦') || clean.includes('◆')) {
-    if (name && /S\d+\s*E\d+/i.test(name)) return 'series';
-    return 'movies';
-  }
+export function detectType(group: string, name?: string, url?: string): 'live' | 'movies' | 'series' {
+  const isSeriesName = !!name && /S\d+\s*E\d+/i.test(name);
+  if (isSeriesName) return 'series';
+
+  const clean = group.replace(/\uFE0F/g, '').toLowerCase(); // normaliza ♦️ → ♦
+  if (clean.includes('♦') || clean.includes('◆')) return 'movies';
+  if (matchesAny(clean, SERIES_KEYWORDS)) return 'series';
+  if (matchesAny(clean, MOVIE_KEYWORDS)) return 'movies';
+  if (url && matchesAny(url.toLowerCase(), MOVIE_EXTENSIONS)) return 'movies';
   return 'live';
 }
 
 /**
  * Tipo efetivo do conteúdo, normalizado para 'live' | 'movies' | 'series'.
- * Xtream/Jellyfin definem `streamType` ('live'|'movie'|'series') explicitamente — tem
- * precedência sobre a heurística por group-title (detectType). Só quando não há
- * `streamType` (ex.: M3U puro) caímos no detectType. Evita série marcada como "Filme".
+ * Ordem de precedência: 1) override manual do usuário pra esse grupo/fonte
+ * (ver IPTVSource.groupTypeOverrides em useStore.ts); 2) `streamType` explícito
+ * (Xtream/Jellyfin); 3) heurística por group-title/URL (detectType) — caso de
+ * M3U puro sem correção manual.
  */
-export function resolveContentType(channel: Channel): 'live' | 'movies' | 'series' {
+export function resolveContentType(
+  channel: Channel,
+  groupOverrides?: Record<string, 'live' | 'movies' | 'series'>,
+): 'live' | 'movies' | 'series' {
+  const override = groupOverrides?.[channel.group || ''];
+  if (override) return override;
   switch (channel.streamType) {
     case 'series': return 'series';
     case 'movie':  return 'movies';
     case 'live':   return 'live';
-    default:       return detectType(channel.group || '', channel.name);
+    default:       return detectType(channel.group || '', channel.name, channel.url);
   }
 }
 
@@ -54,6 +90,19 @@ export function detectQuality(str: string): string {
   if (s.includes('HD') || s.includes('720')) return 'HD';
   if (s.includes('SD') || s.includes('480')) return 'SD';
   return 'HD';
+}
+
+/**
+ * Nome de exibição de um grupo/categoria: remove o marcador ♦ de série e o
+ * prefixo "Categoria | " que alguns provedores Xtream usam (ex.: "FILMES | AÇÃO"
+ * → "AÇÃO", "Series | Amazon Prime Video" → "Amazon Prime Video"). Mantém a
+ * string original (com o prefixo) intacta em todo o resto do app — isso é só
+ * pra exibição.
+ */
+export function cleanGroupName(group: string): string {
+  const withoutMarker = group.replace(/[♦◆️]\s*/g, '').trim();
+  const pipeIdx = withoutMarker.indexOf('|');
+  return pipeIdx === -1 ? withoutMarker : withoutMarker.slice(pipeIdx + 1).trim();
 }
 
 export function getSeriesBaseName(name: string): string {

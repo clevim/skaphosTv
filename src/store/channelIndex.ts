@@ -4,11 +4,15 @@
  * Construído uma única vez quando a lista é carregada (setChannels / appendChannels / cache).
  * Todas as operações de filtro passam de O(n) para O(1) via lookup no Map.
  *
- * Para 30 000 canais a construção leva ~30-50 ms (passe único, operações O(1) por canal).
+ * ponytail: pra catálogos grandes (Xtream com dezenas de milhares de itens,
+ * rebuilds a cada fase — Ao Vivo/Filmes/Séries), mesmo um passe único síncrono
+ * trava a thread por tempo suficiente pra travar o app/dar ANR num device
+ * fraco (Firestick). Async + yield a cada 2000 itens no passe principal.
  */
 
 import { Channel } from '../types';
-import { detectType, getSeriesBaseName, isLaunchYear, YEAR_GROUPS } from '../utils/channelUtils';
+import { resolveContentType, getSeriesBaseName, isLaunchYear, YEAR_GROUPS, yieldToUI } from '../utils/channelUtils';
+import type { IPTVSource } from './useStore';
 
 export interface ChannelIndex {
   // Listas pré-filtradas por tipo (sem duplicatas de séries)
@@ -32,6 +36,11 @@ export interface ChannelIndex {
   yearMovies: Channel[];
   yearSeries: Channel[];   // deduplicado
 
+  // Gêneros mais frequentes entre filmes/séries (campo `genre` da API, dividido
+  // por vírgula) — pra carrosséis tipo "Recomendados por gênero" na Home.
+  // Ordenado por quantidade, só gêneros com pelo menos 4 itens.
+  topGenres: { genre: string; channels: Channel[] }[];
+
   // Contagens para badges de navegação
   counts: { live: number; movies: number; series: number; year: number };
 }
@@ -42,11 +51,19 @@ const EMPTY_INDEX: ChannelIndex = {
   liveGroups: [], movieGroups: [], seriesGroups: [],
   episodeCountMap: new Map(),
   yearMovies: [], yearSeries: [],
+  topGenres: [],
   counts: { live: 0, movies: 0, series: 0, year: 0 },
 };
 
-export function buildChannelIndex(channels: Channel[]): ChannelIndex {
+export async function buildChannelIndex(channels: Channel[], sources: IPTVSource[] = []): Promise<ChannelIndex> {
   if (channels.length === 0) return EMPTY_INDEX;
+
+  // Overrides manuais de tipo (Ajustes > Corrigir categorias), indexados por fonte
+  // pra lookup O(1) no passe principal — a maioria das fontes não tem nenhum.
+  const overridesBySource = new Map<string, Record<string, 'live' | 'movies' | 'series'>>();
+  for (const s of sources) {
+    if (s.groupTypeOverrides) overridesBySource.set(s.id, s.groupTypeOverrides);
+  }
 
   const live:      Channel[] = [];
   const movies:    Channel[] = [];
@@ -59,15 +76,28 @@ export function buildChannelIndex(channels: Channel[]): ChannelIndex {
   const yearMoviesArr: Channel[] = [];
   const yearSeriesRaw: Channel[] = [];
 
+  // genre (string "Ação, Aventura" da API) → canais únicos daquele gênero.
+  // Cap por gênero evita um gênero gigante (ex.: "Drama") inflar memória/render.
+  const GENRE_CAP = 30;
+  const genreMap = new Map<string, Channel[]>();
+  const genreSeen = new Map<string, Set<string>>(); // gênero → ids já adicionados
+
   // ── Passe único ─────────────────────────────────────────────────────────────
+  let i = 0;
   for (const c of channels) {
-    // Prefer explicit streamType from Xtream API; fall back to heuristic for M3U
-    const type: 'live' | 'movies' | 'series' =
-      c.streamType === 'live'   ? 'live'
-      : c.streamType === 'movie'  ? 'movies'
-      : c.streamType === 'series' ? 'series'
-      : detectType(c.group || '', c.name);
+    const type = resolveContentType(c, c.sourceId ? overridesBySource.get(c.sourceId) : undefined);
     const group = c.group || '';
+
+    if (type !== 'live' && c.genre) {
+      for (const g of c.genre.split(',').map(s => s.trim()).filter(Boolean)) {
+        let seen = genreSeen.get(g);
+        if (!seen) { seen = new Set(); genreSeen.set(g, seen); }
+        if (seen.has(c.id)) continue;
+        let list = genreMap.get(g);
+        if (!list) { list = []; genreMap.set(g, list); }
+        if (list.length < GENRE_CAP) { list.push(c); seen.add(c.id); }
+      }
+    }
 
     // byGroup
     let arr = byGroup.get(group);
@@ -92,6 +122,8 @@ export function buildChannelIndex(channels: Channel[]): ChannelIndex {
       episodeCountMap.set(base, (episodeCountMap.get(base) || 0) + 1);
       if (isLaunchYear(c.name, c.releaseDate)) yearSeriesRaw.push(c);
     }
+
+    if (++i % 2000 === 0) await yieldToUI();
   }
 
   // ── Dedup global de séries ────────────────────────────────────────────────
@@ -111,10 +143,7 @@ export function buildChannelIndex(channels: Channel[]): ChannelIndex {
     seriesByGroup.set(
       group,
       chans.filter(c => {
-        const t = c.streamType === 'series' ? 'series'
-          : c.streamType === 'live' ? 'live'
-          : c.streamType === 'movie' ? 'movies'
-          : detectType(c.group || '', c.name);
+        const t = resolveContentType(c, c.sourceId ? overridesBySource.get(c.sourceId) : undefined);
         if (t !== 'series') return false;
         const b = getSeriesBaseName(c.name);
         if (gSeen.has(b)) return false;
@@ -144,6 +173,13 @@ export function buildChannelIndex(channels: Channel[]): ChannelIndex {
     if (types.has('series'))  seriesGroups.push(group);
   }
 
+  // ── Top gêneros ────────────────────────────────────────────────────────────
+  const topGenres = Array.from(genreMap.entries())
+    .filter(([, chans]) => chans.length >= 4)
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, 8)
+    .map(([genre, chans]) => ({ genre, channels: chans }));
+
   return {
     live,
     movies,
@@ -156,6 +192,7 @@ export function buildChannelIndex(channels: Channel[]): ChannelIndex {
     episodeCountMap,
     yearMovies: yearMoviesArr,
     yearSeries,
+    topGenres,
     counts: {
       live:   live.length,
       movies: movies.length,

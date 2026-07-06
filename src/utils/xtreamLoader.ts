@@ -12,6 +12,7 @@
 import { Channel } from '../types';
 import { fetchJson } from './httpJson';
 import { mapLiveStream, mapVodStream, mapSeriesStream, XtreamRawStream } from './xtreamMappers';
+import { yieldToUI } from './channelUtils';
 
 const TIMEOUT = 30000;
 
@@ -64,26 +65,41 @@ export async function loadXtreamChannels(
     if (ch.group) groupSet.add(ch.group);
   };
 
+  // ponytail: catálogos de 50k+ itens travam a thread num loop síncrono só
+  // (web e nativo são igualmente single-thread) — cede o event loop a cada
+  // 500 itens pra manter a UI respondendo, sem limite de tamanho. Zera cada
+  // item cru (arrays[i]=null) assim que mapeado: os 3 arrays (live+vod+series)
+  // já estão TODOS em memória de uma vez (Promise.all acima) — sem isso, o
+  // bruto e o Channel mapeado coexistem até o fim da função inteira.
   // ── Live channels ────────────────────────────────────────────
-  for (const s of liveStreams) {
+  for (let i = 0; i < liveStreams.length; i++) {
+    const s = liveStreams[i];
+    (liveStreams as any)[i] = null;
     if (!s.stream_id || !s.name) continue;
     const group = liveCatMap.get(String(s.category_id)) || 'Ao Vivo';
     addChannel(mapLiveStream(s, host, username, password, group));
+    if (channels.length % 500 === 0) await yieldToUI();
   }
 
   // ── Movies (VOD) ─────────────────────────────────────────────
   // Grupo SEM prefixo ♦ para casar com o loadXtreamPhased (evita o sidebar mudar no refresh)
-  for (const s of vodStreams) {
+  for (let i = 0; i < vodStreams.length; i++) {
+    const s = vodStreams[i];
+    (vodStreams as any)[i] = null;
     if (!s.stream_id || !s.name) continue;
     const catName = vodCatMap.get(String(s.category_id)) || 'Filmes';
     addChannel(mapVodStream(s, host, username, password, catName));
+    if (channels.length % 500 === 0) await yieldToUI();
   }
 
   // ── Series ───────────────────────────────────────────────────
-  for (const s of seriesList) {
+  for (let i = 0; i < seriesList.length; i++) {
+    const s = seriesList[i];
+    (seriesList as any)[i] = null;
     if (!s.series_id || !s.name) continue;
     const catName = seriesCatMap.get(String(s.category_id)) || 'Séries';
     addChannel(mapSeriesStream(s, host, username, password, `♦ ${catName}`));
+    if (channels.length % 500 === 0) await yieldToUI();
   }
 
   return {

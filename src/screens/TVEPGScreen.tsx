@@ -3,7 +3,7 @@
 // url-tvg do M3U). Blocos posicionados pelo horário verdadeiro dos programas.
 import React, { useRef, useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, ActivityIndicator, FlatList, TextInput,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
@@ -11,11 +11,12 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { useEpgStore } from '../store/epgStore';
-import { EpgProgram } from '../utils/epg';
+import { EpgProgram, nowNextFor } from '../utils/epg';
+import { fold } from '../utils/search';
 import TVFocusable from '../components/TVFocusable';
-import { colors, spacing, fontSize, radius } from '../utils/theme';
+import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
 import { RootStackParamList, Channel } from '../types';
-import { resolveContentType } from '../utils/channelUtils';
+import { IS_MOBILE } from '../utils/tvDetect';
 
 type Nav = StackNavigationProp<RootStackParamList>;
 
@@ -61,9 +62,50 @@ function buildRowBlocks(programs: EpgProgram[] | undefined, winStart: number, wi
 const fmtTime = (ms: number) =>
   new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
+/** Linha do guia no CELULAR: logo + agora (com progresso) + a seguir. */
+function MobileEpgRow({ ch, programs, onPress }: {
+  ch: Channel; programs?: EpgProgram[]; onPress: () => void;
+}) {
+  const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
+  const { now, next } = nowNextFor(programs);
+  const progress = now ? Math.min(1, Math.max(0, (Date.now() - now.start) / (now.end - now.start))) : 0;
+  return (
+    <TVFocusable onPress={onPress} style={mStyles.row}>
+      {ch.logo ? (
+        <Image source={ch.logo} style={mStyles.logo} contentFit="contain" transition={0} recyclingKey={ch.id} />
+      ) : (
+        <View style={mStyles.logoPlaceholder}>
+          <Text style={mStyles.logoText}>{ch.name.slice(0, 2).toUpperCase()}</Text>
+        </View>
+      )}
+      <View style={mStyles.info}>
+        <Text style={[mStyles.channelName, { fontSize: 13 * scale }]} numberOfLines={1}>{ch.name}</Text>
+        {now ? (
+          <>
+            <Text style={[mStyles.nowTitle, { fontSize: 12 * scale }]} numberOfLines={1}>
+              {now.title}
+              <Text style={mStyles.nowTime}>  {fmtTime(now.start)}–{fmtTime(now.end)}</Text>
+            </Text>
+            <View style={mStyles.progressBg}>
+              <View style={[mStyles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
+            </View>
+            {next && (
+              <Text style={[mStyles.nextTitle, { fontSize: 11 * scale }]} numberOfLines={1}>A seguir: {next.title}</Text>
+            )}
+          </>
+        ) : (
+          <Text style={mStyles.noInfo}>Sem informação de programação</Text>
+        )}
+      </View>
+      <Ionicons name="play-circle-outline" size={22} color={colors.text3} />
+    </TVFocusable>
+  );
+}
+
 export default function TVEPGScreen() {
   const navigation = useNavigation<Nav>();
-  const channels          = useStore(s => s.channels);
+  const channelIndex      = useStore(s => s.channelIndex);
+  const scale             = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
   const setCurrentChannel = useStore(s => s.setCurrentChannel);
   const epgByChannel = useEpgStore(s => s.byChannelId);
   const epgLoading   = useEpgStore(s => s.loading);
@@ -72,6 +114,23 @@ export default function TVEPGScreen() {
 
   // Programa focado no D-pad — sinopse no rodapé
   const [focused, setFocused] = useState<{ channel: string; program: EpgProgram } | null>(null);
+
+  // Busca por nome de programa — varre TODOS os canais ao vivo com guia (não só
+  // os 60 exibidos na grade), tolerante a acento. Um resultado por canal.
+  const [programQuery, setProgramQuery] = useState('');
+  const programMatches = useMemo(() => {
+    const q = fold(programQuery);
+    if (!q) return [];
+    const results: { channel: Channel; program: EpgProgram }[] = [];
+    for (const ch of channelIndex?.live ?? []) {
+      const progs = epgByChannel[ch.id];
+      if (!progs) continue;
+      const hit = progs.find(p => fold(p.title).includes(q));
+      if (hit) results.push({ channel: ch, program: hit });
+      if (results.length >= 30) break;
+    }
+    return results;
+  }, [programQuery, channelIndex, epgByChannel]);
 
   const winStart = useMemo(() => windowStartMs(), []);
   const winEnd = winStart + SLOT_COUNT * SLOT_MS;
@@ -84,23 +143,103 @@ export default function TVEPGScreen() {
   useEffect(() => { loadEpg(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Only live channels for EPG — com programação primeiro (canais com guia sobem).
-  // resolveContentType respeita o streamType do Xtream/Jellyfin: só a heurística
-  // por ♦ no grupo classificava TODO o VOD Xtream como "live" e lotava o guia.
+  // channelIndex.live já vem classificado (O(1)) do carregamento — reaproveita
+  // em vez de re-escanear o catálogo inteiro com resolveContentType aqui.
   const liveChannels = useMemo(() => {
-    const live = channels.filter(c => resolveContentType(c) === 'live');
+    const live = channelIndex?.live ?? [];
     const withEpg = live.filter(c => epgByChannel[c.id]?.length);
     const without = live.filter(c => !epgByChannel[c.id]?.length);
     return [...withEpg, ...without].slice(0, 60);
-  }, [channels, epgByChannel]);
+  }, [channelIndex, epgByChannel]);
 
-  const scrollRef = useRef<ScrollView>(null);
+  const isEmpty = liveChannels.length === 0;
+
+  const scrollRef = useRef<ScrollView>(null);   // eixo X — timeline única
+  const leftColRef = useRef<ScrollView>(null);  // eixo Y — coluna de canais
+  const rowsRef = useRef<ScrollView>(null);     // eixo Y — linhas de programas
+
+  // Colunas de canais e linhas de programas rolam JUNTAS no eixo Y.
+  // scrollTo no mesmo offset não re-emite evento → converge sem loop.
+  // Roda do mouse: vertical rola os canais (webWheel global deixa o navegador
+  // agir); Shift+roda/trackpad horizontal move o TEMPO — sempre em bloco,
+  // porque a timeline inteira vive num único ScrollView horizontal.
+  const syncY = (target: React.RefObject<ScrollView>) => (e: any) => {
+    target.current?.scrollTo({ y: e.nativeEvent.contentOffset.y, animated: false });
+  };
 
   const handlePlay = (ch: Channel) => {
     setCurrentChannel(ch);
     navigation.navigate('Player', { channel: ch });
   };
 
-  const isEmpty = liveChannels.length === 0;
+  // ── Celular: lista vertical (agora/a seguir) — a grade de timeline não cabe
+  // numa tela estreita e, sem virtualização, travava. FlatList resolve os dois.
+  if (IS_MOBILE) {
+    return (
+      <View style={styles.root}>
+        <View style={mStyles.header}>
+          <TVFocusable onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="chevron-back" size={18} color={colors.text1} />
+          </TVFocusable>
+          <Text style={styles.headerTitle}>Guia</Text>
+          <View style={{ flex: 1 }} />
+          {epgLoading ? (
+            <ActivityIndicator size="small" color={colors.accent} />
+          ) : (
+            <TVFocusable onPress={() => loadEpg(true)} style={styles.nowBtn}>
+              <Ionicons name="refresh-outline" size={14} color={colors.text2} />
+            </TVFocusable>
+          )}
+        </View>
+        <View style={mStyles.searchWrap}>
+          <Ionicons name="search-outline" size={14} color={colors.text3} />
+          <TextInput
+            value={programQuery}
+            onChangeText={setProgramQuery}
+            placeholder="Onde passa..."
+            placeholderTextColor={colors.text3}
+            style={mStyles.searchInput}
+          />
+        </View>
+        {!epgLoading && epgError && (
+          <Text style={mStyles.error} numberOfLines={2}>{epgError}</Text>
+        )}
+        {programQuery ? (
+          <FlatList
+            data={programMatches}
+            keyExtractor={m => m.channel.id}
+            renderItem={({ item }) => (
+              <TVFocusable onPress={() => { setProgramQuery(''); handlePlay(item.channel); }} style={mStyles.searchResultRow}>
+                <Text style={mStyles.searchResultTitle} numberOfLines={1}>{item.program.title}</Text>
+                <Text style={mStyles.searchResultMeta} numberOfLines={1}>
+                  {item.channel.name} · {fmtTime(item.program.start)}–{fmtTime(item.program.end)}
+                </Text>
+              </TVFocusable>
+            )}
+            contentContainerStyle={mStyles.listContent}
+            ListEmptyComponent={<Text style={mStyles.error}>Nenhum programa encontrado</Text>}
+          />
+        ) : isEmpty ? (
+          <View style={styles.empty}>
+            <Ionicons name="calendar-outline" size={64} color={colors.text3} />
+            <Text style={styles.emptyTitle}>Nenhum canal ao vivo</Text>
+            <Text style={styles.emptySubtitle}>Configure uma fonte M3U ou Xtream para ver a programação</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={liveChannels}
+            keyExtractor={ch => ch.id}
+            renderItem={({ item }) => (
+              <MobileEpgRow ch={item} programs={epgByChannel[item.id]} onPress={() => handlePlay(item)} />
+            )}
+            contentContainerStyle={mStyles.listContent}
+            initialNumToRender={12}
+            windowSize={7}
+          />
+        )}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
@@ -113,6 +252,34 @@ export default function TVEPGScreen() {
         <Text style={styles.headerSub}>
           {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
         </Text>
+
+        <View style={styles.searchWrap}>
+          <Ionicons name="search-outline" size={14} color={colors.text3} />
+          <TextInput
+            value={programQuery}
+            onChangeText={setProgramQuery}
+            placeholder="Onde passa..."
+            placeholderTextColor={colors.text3}
+            style={styles.searchInput}
+          />
+          {programMatches.length > 0 && (
+            <View style={styles.searchResults}>
+              {programMatches.map(({ channel, program }) => (
+                <TVFocusable
+                  key={channel.id}
+                  onPress={() => { setProgramQuery(''); handlePlay(channel); }}
+                  style={styles.searchResultRow}
+                >
+                  <Text style={styles.searchResultTitle} numberOfLines={1}>{program.title}</Text>
+                  <Text style={styles.searchResultMeta} numberOfLines={1}>
+                    {channel.name} · {fmtTime(program.start)}–{fmtTime(program.end)}
+                  </Text>
+                </TVFocusable>
+              ))}
+            </View>
+          )}
+        </View>
+
         <View style={{ flex: 1 }} />
         {/* Estado do guia + atualizar */}
         {epgLoading && (
@@ -153,80 +320,99 @@ export default function TVEPGScreen() {
         </View>
       ) : (
         <View style={styles.grid}>
-          {/* Fixed channel column header */}
-          <View style={styles.cornerCell} />
-
-          {/* Scrollable area: time header + program rows */}
-          <ScrollView
-            ref={scrollRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.hScroll}
-          >
-            {/* Time header row */}
-            <View style={styles.timeHeader}>
-              {timeSlots.map((t, i) => (
-                <View key={i} style={[styles.timeCell, i === nowOffset && styles.timeCellNow]}>
-                  <Text style={[styles.timeText, i === nowOffset && styles.timeTextNow]}>{t}</Text>
-                </View>
-              ))}
+          <View style={styles.gridBody}>
+            {/* Coluna FIXA de canais — rola no eixo Y em sincronia com as linhas */}
+            <View style={styles.channelCol}>
+              <View style={styles.cornerCell} />
+              <ScrollView
+                ref={leftColRef}
+                showsVerticalScrollIndicator={false}
+                onScroll={syncY(rowsRef)}
+                scrollEventThrottle={16}
+              >
+                {liveChannels.map(ch => (
+                  <TVFocusable key={ch.id} onPress={() => handlePlay(ch)} style={styles.channelCell}>
+                    {ch.logo ? (
+                      <Image source={ch.logo} style={styles.channelLogo} contentFit="contain" transition={0} recyclingKey={ch.id} />
+                    ) : (
+                      <View style={styles.channelLogoPlaceholder}>
+                        <Text style={styles.channelLogoText}>{ch.name.slice(0, 2).toUpperCase()}</Text>
+                      </View>
+                    )}
+                    <Text style={[styles.channelName, { fontSize: 11 * scale }]} numberOfLines={2}>{ch.name}</Text>
+                  </TVFocusable>
+                ))}
+              </ScrollView>
             </View>
-          </ScrollView>
 
-          {/* Channel list + scrollable program rows */}
-          <ScrollView showsVerticalScrollIndicator={false} style={styles.rowsOuter}>
-            {liveChannels.map(ch => (
-              <View key={ch.id} style={styles.epgRow}>
-                {/* Channel info — fixed column */}
-                <TVFocusable onPress={() => handlePlay(ch)} style={styles.channelCell}>
-                  {ch.logo ? (
-                    <Image source={ch.logo} style={styles.channelLogo} contentFit="contain" transition={0} recyclingKey={ch.id} />
-                  ) : (
-                    <View style={styles.channelLogoPlaceholder}>
-                      <Text style={styles.channelLogoText}>{ch.name.slice(0, 2).toUpperCase()}</Text>
-                    </View>
-                  )}
-                  <Text style={styles.channelName} numberOfLines={2}>{ch.name}</Text>
-                </TVFocusable>
+            {/* Timeline ÚNICA: cabeçalho + todas as linhas movem juntos no eixo X.
+                No web, a roda do mouse sobre esta área rola o TEMPO (ver useEffect). */}
+            <View style={styles.timelineWrap}>
+              <ScrollView
+                ref={scrollRef}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                scrollEventThrottle={16}
+                contentContainerStyle={styles.timelineContent}
+              >
+                <View style={styles.timeline}>
+                  {/* Cabeçalho de horários */}
+                  <View style={styles.timeHeader}>
+                    {timeSlots.map((t, i) => (
+                      <View key={i} style={[styles.timeCell, i === nowOffset && styles.timeCellNow]}>
+                        <Text style={[styles.timeText, i === nowOffset && styles.timeTextNow]}>{t}</Text>
+                      </View>
+                    ))}
+                  </View>
 
-                {/* Program blocks — horizontally scrollable, posicionados por horário real */}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.programRow}>
-                  {buildRowBlocks(epgByChannel[ch.id], winStart, winEnd).map(block => {
-                    if (!block.program) {
-                      return (
-                        <View key={block.key} style={[styles.programBlock, styles.programBlockEmpty, { width: block.width - 2 }]}>
-                          {block.width > 90 && (
-                            <Text style={styles.programEmptyText} numberOfLines={1}>Sem informação</Text>
-                          )}
-                        </View>
-                      );
-                    }
-                    const p = block.program;
-                    const isNow = p.start <= Date.now() && Date.now() < p.end;
-                    return (
-                      <TVFocusable
-                        key={block.key}
-                        onPress={() => handlePlay(ch)}
-                        onFocus={() => setFocused({ channel: ch.name, program: p })}
-                        style={[
-                          styles.programBlock,
-                          { width: block.width - 2 },
-                          isNow && styles.programBlockNow,
-                        ]}
-                      >
-                        <Text style={[styles.programTitle, isNow && styles.programTitleNow]} numberOfLines={1}>
-                          {p.title}
-                        </Text>
-                        <Text style={styles.programTime}>
-                          {fmtTime(p.start)} — {fmtTime(p.end)}
-                        </Text>
-                      </TVFocusable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            ))}
-          </ScrollView>
+                  {/* Linhas de programas — eixo Y sincronizado com a coluna de canais */}
+                  <ScrollView
+                    ref={rowsRef}
+                    showsVerticalScrollIndicator={false}
+                    onScroll={syncY(leftColRef)}
+                    scrollEventThrottle={16}
+                  >
+                    {liveChannels.map(ch => (
+                      <View key={ch.id} style={styles.programsLine}>
+                        {buildRowBlocks(epgByChannel[ch.id], winStart, winEnd).map(block => {
+                          if (!block.program) {
+                            return (
+                              <View key={block.key} style={[styles.programBlock, styles.programBlockEmpty, { width: block.width - 2 }]}>
+                                {block.width > 90 && (
+                                  <Text style={styles.programEmptyText} numberOfLines={1}>Sem informação</Text>
+                                )}
+                              </View>
+                            );
+                          }
+                          const p = block.program;
+                          const isNow = p.start <= Date.now() && Date.now() < p.end;
+                          return (
+                            <TVFocusable
+                              key={block.key}
+                              onPress={() => handlePlay(ch)}
+                              onFocus={() => setFocused({ channel: ch.name, program: p })}
+                              style={[
+                                styles.programBlock,
+                                { width: block.width - 2 },
+                                isNow && styles.programBlockNow,
+                              ]}
+                            >
+                              <Text style={[styles.programTitle, { fontSize: 12 * scale }, isNow && styles.programTitleNow]} numberOfLines={1}>
+                                {p.title}
+                              </Text>
+                              <Text style={styles.programTime}>
+                                {fmtTime(p.start)} — {fmtTime(p.end)}
+                              </Text>
+                            </TVFocusable>
+                          );
+                        })}
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
 
           {/* Rodapé: detalhes do programa focado no D-pad */}
           {focused && (
@@ -247,6 +433,81 @@ export default function TVEPGScreen() {
     </View>
   );
 }
+
+// ── Estilos do layout de celular ──────────────────────────────────────────────
+const mStyles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.full,
+    backgroundColor: colors.bg1,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  searchInput: { flex: 1, fontSize: 13, color: colors.text1, padding: 0 },
+  searchResultRow: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSoft,
+  },
+  searchResultTitle: { fontSize: 13, fontWeight: '600', color: colors.text1 },
+  searchResultMeta: { fontSize: 11, color: colors.text3, marginTop: 2 },
+  error: {
+    fontSize: fontSize.xs,
+    color: colors.yellow,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+  },
+  listContent: {
+    paddingVertical: spacing.sm,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSoft,
+  },
+  logo: {
+    width: 44, height: 44, borderRadius: radius.md,
+    backgroundColor: colors.bg1,
+  },
+  logoPlaceholder: {
+    width: 44, height: 44, borderRadius: radius.md,
+    backgroundColor: colors.bg2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  logoText: { fontSize: 12, fontWeight: '700', color: colors.text3 },
+  info: { flex: 1, gap: 3 },
+  channelName: { fontSize: 13, fontWeight: '600', color: colors.text1 },
+  nowTitle: { fontSize: 12, color: colors.accent2, fontWeight: '500' },
+  nowTime: { fontSize: 10, color: colors.text3, fontWeight: '400' },
+  progressBg: {
+    height: 3, borderRadius: 2, backgroundColor: colors.bg2,
+    overflow: 'hidden', marginVertical: 2,
+  },
+  progressFill: { height: 3, borderRadius: 2, backgroundColor: colors.accent },
+  nextTitle: { fontSize: 11, color: colors.text2 },
+  noInfo: { fontSize: 11, color: colors.text3, fontStyle: 'italic' },
+});
 
 const styles = StyleSheet.create({
   root: {
@@ -299,28 +560,91 @@ const styles = StyleSheet.create({
     fontSize: 12, fontWeight: '600', color: colors.text1,
   },
 
+  // Busca de programa no guia
+  searchWrap: {
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    width: 220,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.full,
+    backgroundColor: colors.bg1,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.text1,
+    padding: 0,
+  },
+  searchResults: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 6,
+    backgroundColor: colors.bg1,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    maxHeight: 320,
+    overflow: 'hidden',
+    zIndex: 50,
+    elevation: 10,
+  },
+  searchResultRow: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSoft,
+  },
+  searchResultTitle: { fontSize: 13, fontWeight: '600', color: colors.text1 },
+  searchResultMeta: { fontSize: 11, color: colors.text3, marginTop: 2 },
+
   // Grid layout
+  // minHeight:0 em toda a cadeia flex vertical até os ScrollViews: sem isso, no
+  // web (CSS puro) um item flex não encolhe abaixo do tamanho do seu conteúdo
+  // (min-height:auto por padrão), então a grade cresce e empurra a página em vez
+  // de rolar internamente. O Yoga (nativo) não tem essa regra — por isso a TV/
+  // Android sempre rolou normal e só o web ficava travado.
   grid: {
     flex: 1,
     flexDirection: 'column',
+    minHeight: 0,
+  },
+  gridBody: {
+    flex: 1,
+    flexDirection: 'row',
+    minHeight: 0,
+  },
+  channelCol: {
+    width: CHANNEL_COL,
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+    backgroundColor: colors.bg0,
+    minHeight: 0,
   },
   cornerCell: {
-    width: CHANNEL_COL,
     height: ROW_HEIGHT * 0.75,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    zIndex: 2,
-    backgroundColor: colors.bg0,
   },
-  hScroll: {
-    marginLeft: CHANNEL_COL,
-    height: ROW_HEIGHT * 0.75,
-    // react-native-web dá flexGrow:1 a ScrollView por padrão — sem isto o
-    // cabeçalho de horários crescia e empurrava as linhas pro fundo da tela.
-    flexGrow: 0,
+  timelineWrap: {
+    flex: 1,
+    minHeight: 0,
+  },
+  // flexGrow garante que o conteúdo estique na vertical dentro do ScrollView
+  // horizontal (react-native-web dá flexGrow:1 só no eixo principal).
+  timelineContent: {
+    flexGrow: 1,
+  },
+  timeline: {
+    width: SLOT_COUNT * SLOT_WIDTH,
+    flexDirection: 'column',
+    minHeight: 0,
   },
   timeHeader: {
     flexDirection: 'row',
@@ -350,26 +674,21 @@ const styles = StyleSheet.create({
   },
 
   // Rows
-  // Sem marginTop: o cabeçalho (hScroll) está no fluxo normal e já ocupa a
-  // própria altura — o offset extra criava um vão entre o cabeçalho e as linhas.
-  rowsOuter: {
-    flex: 1,
-  },
-  epgRow: {
+  programsLine: {
     flexDirection: 'row',
     height: ROW_HEIGHT,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSoft,
   },
   channelCell: {
-    width: CHANNEL_COL,
+    height: ROW_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 14,
     backgroundColor: colors.bg0,
-    borderRightWidth: 1,
-    borderRightColor: colors.border,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSoft,
   },
   channelLogo: {
     width: 32, height: 32, borderRadius: radius.sm,
@@ -386,9 +705,6 @@ const styles = StyleSheet.create({
     flex: 1, fontSize: 11, fontWeight: '500', color: colors.text1, lineHeight: 14,
   },
 
-  programRow: {
-    flex: 1,
-  },
   programBlock: {
     height: ROW_HEIGHT - 1,
     justifyContent: 'center',

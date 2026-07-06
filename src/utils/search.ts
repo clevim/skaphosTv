@@ -1,8 +1,18 @@
 // search.ts — busca de catálogo com tolerância a acentos, múltiplos termos e ranking.
 import { Channel } from '../types';
 import { resolveContentType, getSeriesBaseName } from './channelUtils';
+import type { IPTVSource } from '../store/useStore';
 
 export type SearchType = 'all' | 'live' | 'movies' | 'series';
+
+export interface SearchFilters {
+  /** Um dos gêneros de channel.genre (string "Ação, Aventura" dividida por vírgula). */
+  genre?: string | null;
+  /** Ano de channel.releaseDate ("YYYY-MM-DD" ou "YYYY"), comparado por prefixo. */
+  year?: string | null;
+  /** channel.quality exato (HD/FHD/4K/SD). */
+  quality?: string | null;
+}
 
 /** Remove acentos e baixa caixa — busca tolerante a acentuação (pt-BR: "acao" acha "Ação"). */
 export function fold(s: string): string {
@@ -24,18 +34,27 @@ export function searchChannels(
   rawQuery: string,
   type: SearchType = 'all',
   limit = 100,
+  sources: IPTVSource[] = [],
+  filters: SearchFilters = {},
 ): Channel[] {
   const q = fold(rawQuery);
   if (!q) return [];
+  const { genre, year, quality } = filters;
   const terms = q.split(/\s+/).filter(Boolean);
   const wordStart = new RegExp(`(^|\\s)${escapeRegExp(q)}`);
+
+  const overridesBySource = new Map<string, Record<string, 'live' | 'movies' | 'series'>>();
+  for (const s of sources) if (s.groupTypeOverrides) overridesBySource.set(s.id, s.groupTypeOverrides);
 
   const seen = new Set<string>();
   const scored: { c: Channel; displayName: string; score: number; len: number }[] = [];
 
   for (const c of channels) {
-    const ct = resolveContentType(c);
+    const ct = resolveContentType(c, c.sourceId ? overridesBySource.get(c.sourceId) : undefined);
     if (type !== 'all' && ct !== type) continue;
+    if (genre && !c.genre?.includes(genre)) continue;
+    if (year && !c.releaseDate?.startsWith(year)) continue;
+    if (quality && c.quality !== quality) continue;
 
     const displayName = ct === 'series' ? getSeriesBaseName(c.name) : c.name;
     const key = ct + '|' + displayName.toLowerCase();

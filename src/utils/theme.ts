@@ -71,6 +71,17 @@ export const fontSize = {
   hero: 36,
 };
 
+// Escala de fonte configurável (Ajustes > Reprodução) — não é um multiplicador
+// global do app (o fontSize acima é usado em centenas de StyleSheet.create()
+// estáticos, não reativos; refazer isso pra tudo exigiria sobrescrever o
+// render interno do Text do RN, arriscado demais sem poder testar no
+// aparelho). Aplicada só nas telas de texto denso: Ajustes, busca, guia.
+export const UI_FONT_SCALE: Record<'small' | 'medium' | 'large', number> = {
+  small: 0.9,
+  medium: 1,
+  large: 1.15,
+};
+
 // Geist font family — carregada via useGeistFonts() no App.tsx
 export const fontFamily = {
   regular:  'Geist-Regular',

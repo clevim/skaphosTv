@@ -7,8 +7,9 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
-import { colors, spacing, fontSize, radius } from '../utils/theme';
-import { resolveContentType, getSeriesBaseName } from '../utils/channelUtils';
+import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
+import { getSeriesBaseName, cleanGroupName } from '../utils/channelUtils';
+import { resolveChannelType, useStore } from '../store/useStore';
 import { SearchType } from '../utils/search';
 
 interface Props {
@@ -21,6 +22,40 @@ interface Props {
   recent: string[];
   onRecentPress: (q: string) => void;
   onClearRecent: () => void;
+  genreOptions: string[];
+  filterGenre: string | null;
+  onFilterGenreChange: (g: string | null) => void;
+  yearOptions: string[];
+  filterYear: string | null;
+  onFilterYearChange: (y: string | null) => void;
+  qualityOptions: string[];
+  filterQuality: string | null;
+  onFilterQualityChange: (q: string | null) => void;
+}
+
+/** Linha de chips (wrap) reutilizada pra gênero/ano/qualidade — clicar de novo
+ *  no já ativo desmarca (volta pra "todos"). */
+function FilterChipsRow({ options, value, onChange }: {
+  options: string[]; value: string | null; onChange: (v: string | null) => void;
+}) {
+  if (options.length === 0) return null;
+  return (
+    <View style={styles.filterRow}>
+      {options.map(opt => {
+        const active = value === opt;
+        return (
+          <TVFocusable
+            key={opt}
+            onPress={() => onChange(active ? null : opt)}
+            style={[styles.filterChip, active && styles.filterChipActive]}
+            focusScale={1}
+          >
+            <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{opt}</Text>
+          </TVFocusable>
+        );
+      })}
+    </View>
+  );
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -37,9 +72,10 @@ const TYPE_FILTERS: { key: SearchType; label: string }[] = [
 const SUGGESTIONS = ['Ao Vivo', 'Filmes', 'Séries', 'Lançamentos 2026'];
 
 function ResultItem({ channel, onPress }: { channel: Channel; onPress: () => void }) {
-  const type = resolveContentType(channel);
+  const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
+  const type = resolveChannelType(channel);
   const displayName = type === 'series' ? getSeriesBaseName(channel.name) : channel.name;
-  const groupClean = channel.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || '';
+  const groupClean = channel.group ? cleanGroupName(channel.group) : '';
 
   return (
     <TVFocusable onPress={onPress} style={styles.resultItem}>
@@ -54,8 +90,8 @@ function ResultItem({ channel, onPress }: { channel: Channel; onPress: () => voi
       </View>
       <View style={styles.resultMeta}>
         <Text style={styles.resultType}>{TYPE_LABEL[type] || 'CONTEÚDO'}</Text>
-        <Text style={styles.resultName} numberOfLines={1}>{displayName}</Text>
-        {groupClean ? <Text style={styles.resultSub} numberOfLines={1}>{groupClean}</Text> : null}
+        <Text style={[styles.resultName, { fontSize: fontSize.sm * scale }]} numberOfLines={1}>{displayName}</Text>
+        {groupClean ? <Text style={[styles.resultSub, { fontSize: 10 * scale }]} numberOfLines={1}>{groupClean}</Text> : null}
       </View>
       <Ionicons name="play-circle-outline" size={22} color={colors.text3} />
     </TVFocusable>
@@ -65,6 +101,9 @@ function ResultItem({ channel, onPress }: { channel: Channel; onPress: () => voi
 export default function TVSearchContent({
   query, onQueryChange, results, onResultPress,
   searchType, onSearchTypeChange, recent, onRecentPress, onClearRecent,
+  genreOptions, filterGenre, onFilterGenreChange,
+  yearOptions, filterYear, onFilterYearChange,
+  qualityOptions, filterQuality, onFilterQualityChange,
 }: Props) {
   const inputRef = useRef<TextInput>(null);
   const hasResults = results.length > 0;
@@ -116,6 +155,15 @@ export default function TVSearchContent({
             );
           })}
         </View>
+
+        {/* Filtros combinados — só fazem sentido com uma busca ativa */}
+        {!isEmpty && (
+          <>
+            <FilterChipsRow options={genreOptions} value={filterGenre} onChange={onFilterGenreChange} />
+            <FilterChipsRow options={yearOptions} value={filterYear} onChange={onFilterYearChange} />
+            <FilterChipsRow options={qualityOptions} value={filterQuality} onChange={onFilterQualityChange} />
+          </>
+        )}
 
         <View style={styles.stateArea}>
           {isEmpty ? (

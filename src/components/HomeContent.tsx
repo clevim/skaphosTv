@@ -10,11 +10,11 @@ import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import PulsingDot from './PulsingDot';
 import { colors, spacing, fontSize, radius, fontFamily } from '../utils/theme';
-import { detectType, getSeriesBaseName, isLaunchYear, LAUNCH_YEAR } from '../utils/channelUtils';
+import { getSeriesBaseName, isLaunchYear, LAUNCH_YEAR, cleanGroupName } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
-import { useWatchProgress, progressFractionFor, resumePositionFor, WatchEntry } from '../store/watchProgress';
+import { useWatchProgress, progressFractionFor, resumePositionFor, watchStatusFor, WatchEntry } from '../store/watchProgress';
 import { useNowNext } from '../store/epgStore';
-import { useStore } from '../store/useStore';
+import { useStore, resolveChannelType } from '../store/useStore';
 
 interface Props {
   recentChannels: Channel[];
@@ -23,6 +23,8 @@ interface Props {
   renderCard: (item: Channel, index: number) => React.ReactNode;
   contentH: number;
   channels?: Channel[];
+  /** Gêneros mais frequentes do catálogo (pré-computados em channelIndex.topGenres). */
+  topGenres?: { genre: string; channels: Channel[] }[];
   onChannelPress?: (channel: Channel) => void;
   /** Hero "Assistir" — inicia a reprodução direto (filme/ao vivo → player). */
   onWatch?: (channel: Channel) => void;
@@ -39,6 +41,40 @@ function remainingLabel(entry: WatchEntry | undefined): string | null {
   if (!entry || entry.watched || entry.durationSec <= 0) return null;
   const remainMin = Math.max(1, Math.round((entry.durationSec - entry.positionSec) / 60));
   return `Restam ${remainMin} min`;
+}
+
+/**
+ * Se o pick (dedup por série) já está 100% assistido, troca por um episódio EM
+ * CURSO da mesma série achado em recentChannels (lista pequena) — evita mostrar
+ * na Home um episódio já concluído como se fosse novidade, sem varrer o
+ * catálogo inteiro (caro em TV box com 10k+ canais) atrás de um substituto.
+ */
+function swapWatchedSeriesPick(
+  pick: Channel,
+  recentChannels: Channel[],
+  watchEntries: Record<string, WatchEntry>,
+): Channel {
+  const entry = watchEntries[pick.id];
+  if (!entry?.watched) return pick;
+  const base = getSeriesBaseName(pick.name);
+  const sibling = recentChannels.find(c =>
+    c.id !== pick.id &&
+    resolveChannelType(c) === 'series' &&
+    getSeriesBaseName(c.name) === base &&
+    resumePositionFor(watchEntries[c.id]) > 0,
+  );
+  return sibling ?? pick;
+}
+
+/**
+ * Badge de card pra seções SEM o swap acima (Lançamentos, Recomendados por
+ * gênero) — filme mapeia 1:1 pro watchProgress, mostra os dois estados; série
+ * é só o pick arbitrário do catálogo, então só a barra de "em curso" (um check
+ * de "assistido" aqui poderia ser um episódio errado, e enganar o usuário).
+ */
+function badgeFor(ch: Channel, watchEntries: Record<string, WatchEntry>): { watched: boolean; progress: number } {
+  const status = watchStatusFor(watchEntries[ch.id]);
+  return resolveChannelType(ch) === 'series' ? { watched: false, progress: status.progress } : status;
 }
 
 function ContinueCard({
@@ -76,7 +112,7 @@ function ContinueCard({
       </View>
       <Text style={cStyles.title} numberOfLines={1}>{channel.name}</Text>
       <Text style={[cStyles.sub, remaining != null && cStyles.subProgress]} numberOfLines={1}>
-        {remaining ?? (channel.group ? channel.group.replace(/[♦◆️]\s*/g, '').trim() : '')}
+        {remaining ?? (channel.group ? cleanGroupName(channel.group) : '')}
       </Text>
     </TVFocusable>
   );
@@ -147,7 +183,7 @@ function LiveCard({ channel, onPress, nowPlaying }: {
       </View>
       <Text style={lStyles.title} numberOfLines={1}>{channel.name}</Text>
       <Text style={[lStyles.sub, nowPlaying != null && lStyles.subNow]} numberOfLines={1}>
-        {nowPlaying ?? (channel.group ? channel.group.replace(/[♦◆️]\s*/g, '').trim() : '')}
+        {nowPlaying ?? (channel.group ? cleanGroupName(channel.group) : '')}
       </Text>
     </TVFocusable>
   );
@@ -250,11 +286,15 @@ function Row({ children }: { children: React.ReactNode }) {
 }
 
 // ── VOD Poster Card ───────────────────────────────────────────
-function VodCard({ channel, onPress, displayName, isNew }: {
+function VodCard({ channel, onPress, displayName, isNew, progress, watched }: {
   channel: Channel; onPress: () => void; displayName?: string; isNew?: boolean;
+  /** 0–1: mostra a barra de "assistindo" no rodapé do pôster. */
+  progress?: number;
+  /** Mostra o check de "assistido" no canto oposto ao de qualidade. */
+  watched?: boolean;
 }) {
   const name = displayName ?? channel.name;
-  const groupClean = channel.group ? channel.group.replace(/[♦◆️\uFE0F]\s*/g, '').trim() : '';
+  const groupClean = channel.group ? cleanGroupName(channel.group) : '';
   const quality = channel.quality;
   return (
     <TVFocusable onPress={onPress} style={vStyles.card}>
@@ -276,6 +316,18 @@ function VodCard({ channel, onPress, displayName, isNew }: {
         {quality && (
           <View style={vStyles.qualBadge}>
             <Text style={vStyles.qualBadgeText}>{quality}</Text>
+          </View>
+        )}
+        {/* "Assistido" — canto inferior direito */}
+        {watched && (
+          <View style={vStyles.watchedBadge}>
+            <Ionicons name="checkmark" size={10} color={colors.white} />
+          </View>
+        )}
+        {/* Barra de "assistindo" — rodapé do pôster */}
+        {progress != null && progress > 0 && (
+          <View style={vStyles.progressTrack}>
+            <View style={[vStyles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
           </View>
         )}
       </View>
@@ -314,6 +366,17 @@ const vStyles = StyleSheet.create({
     borderRadius: 3, borderWidth: 1, borderColor: colors.border,
   },
   qualBadgeText: { fontSize: 8, fontWeight: '700', color: colors.text2, letterSpacing: 0.3 },
+  watchedBadge: {
+    position: 'absolute', bottom: 5, right: 5,
+    width: 16, height: 16, borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  progressTrack: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    height: 3, backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  progressFill: { height: '100%', backgroundColor: colors.accent },
   title: { fontSize: 12, fontWeight: '500', color: colors.text1, marginTop: 8, lineHeight: 16 },
   sub: { fontSize: 10, color: colors.text3, marginTop: 2 },
 });
@@ -321,7 +384,7 @@ const vStyles = StyleSheet.create({
 // ── Main HomeContent ──────────────────────────────────────────
 export default function HomeContent({
   recentChannels, favoriteChannels, sourcesEmpty, renderCard, contentH,
-  channels = [], onChannelPress, onWatch, onDetails, onNavPress,
+  channels = [], topGenres = [], onChannelPress, onWatch, onDetails, onNavPress,
 }: Props) {
   const navigation = useNavigation();
   const watchEntries = useWatchProgress(s => s.entries);
@@ -337,7 +400,7 @@ export default function HomeContent({
       const entry = watchEntries[ch.id];
       // Ao vivo nunca entra como "em curso" (entradas antigas podem existir de quando
       // streams live com duração reportada gravavam progresso indevidamente)
-      const isLiveCh = ch.streamType ? ch.streamType === 'live' : detectType(ch.group || '', ch.name) === 'live';
+      const isLiveCh = resolveChannelType(ch) === 'live';
       if (!isLiveCh && entry && !entry.watched && resumePositionFor(entry) > 0) {
         inProgress.push({ channel: ch, progress: progressFractionFor(entry), entry });
       } else {
@@ -363,19 +426,33 @@ export default function HomeContent({
   const heroChannel = useMemo(() =>
     recentChannels[0] ||
     favoriteChannels[0] ||
-    channels.find(c => detectType(c.group || '', c.name) === 'live') ||
+    channels.find(c => resolveChannelType(c) === 'live') ||
     channels[0] ||
     null,
   [recentChannels, favoriteChannels, channels]);
 
+  // "Porque você assistiu X": pega o gênero do último item não-ao-vivo assistido
+  // (recentChannels já vem ordenado por recência) — sem isso não tem o que comparar.
+  const seed = useMemo(() => {
+    const ch = recentChannels.find(c => {
+      const isLiveCh = resolveChannelType(c) === 'live';
+      return !isLiveCh && !!c.genre;
+    });
+    if (!ch?.genre) return null;
+    return { id: ch.id, name: getSeriesBaseName(ch.name), genre: ch.genre.split(',')[0].trim() };
+  }, [recentChannels]);
+
   // Seções derivadas do catálogo completo — memoizadas E em UM passe com parada
   // antecipada. Antes rodavam a cada render (relógio de 30 s, qualquer estado)
   // varrendo a lista inteira 4× com regex — pesado em TV box com 10k+ canais.
-  const { liveChannels, movieChannels, seriesChannels, yearChannels } = useMemo(() => {
+  const { liveChannels, movieChannels, seriesChannels, yearChannels, becauseYouWatched } = useMemo(() => {
     const live: Channel[] = [], movies: Channel[] = [], series: Channel[] = [], year: Channel[] = [];
+    const because: Channel[] = [];
     const seenSeries = new Set<string>();
+    const seenBecauseSeries = new Set<string>();
+    const becauseCap = seed ? 12 : 0;
     for (const c of channels) {
-      const type = detectType(c.group || '', c.name);
+      const type = resolveChannelType(c);
       if (type === 'live') {
         if (live.length < 12) live.push(c);
       } else {
@@ -385,18 +462,40 @@ export default function HomeContent({
           if (!seenSeries.has(base)) { seenSeries.add(base); series.push(c); }
         }
         if (year.length < 12 && isLaunchYear(c.name)) year.push(c);
+        if (seed && because.length < becauseCap && c.id !== seed.id && c.genre?.includes(seed.genre)) {
+          // Dedup por série — sem isso, várias episódios do mesmo show (M3U)
+          // podiam poluir a fileira inteira com o mesmo título repetido.
+          if (type === 'series') {
+            const base = getSeriesBaseName(c.name);
+            if (!seenBecauseSeries.has(base)) { seenBecauseSeries.add(base); because.push(c); }
+          } else {
+            because.push(c);
+          }
+        }
       }
-      if (live.length >= 12 && movies.length >= 12 && series.length >= 12 && year.length >= 12) break;
+      if (live.length >= 12 && movies.length >= 12 && series.length >= 12 && year.length >= 12 && because.length >= becauseCap) break;
     }
-    return { liveChannels: live, movieChannels: movies, seriesChannels: series, yearChannels: year };
-  }, [channels]);
+    return { liveChannels: live, movieChannels: movies, seriesChannels: series, yearChannels: year, becauseYouWatched: because };
+  }, [channels, seed]);
+
+  // Troca picks de série já 100% assistidos por um episódio em curso conhecido
+  // (recentChannels) — ver swapWatchedSeriesPick. Baseado numa lista pequena,
+  // seguro de rodar toda vez que watchEntries muda (a cada ~10s durante o play).
+  const seriesChannelsDisplay = useMemo(
+    () => seriesChannels.map(c => swapWatchedSeriesPick(c, recentChannels, watchEntries)),
+    [seriesChannels, recentChannels, watchEntries],
+  );
+  const becauseYouWatchedDisplay = useMemo(
+    () => becauseYouWatched.map(c => resolveChannelType(c) === 'series' ? swapWatchedSeriesPick(c, recentChannels, watchEntries) : c),
+    [becauseYouWatched, recentChannels, watchEntries],
+  );
 
   // streamType tem precedência sobre heurística — Jellyfin define isso explicitamente
   const heroType = heroChannel
     ? (heroChannel.streamType === 'movie'  ? 'movies'
        : heroChannel.streamType === 'series' ? 'series'
        : heroChannel.streamType === 'live'   ? 'live'
-       : detectType(heroChannel.group || '', heroChannel.name))
+       : resolveChannelType(heroChannel))
     : 'live';
 
   const isHeroJellyfin = Boolean(heroChannel?.id?.startsWith('jf-'));
@@ -480,11 +579,11 @@ export default function HomeContent({
             {/* Bottom content */}
             <View style={IS_TV ? styles.heroBottomTV : styles.heroBottom}>
               <Text style={styles.heroCategory}>
-                EM DESTAQUE · {heroChannel.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim().toUpperCase() || 'CANAL'}
+                EM DESTAQUE · {(heroChannel.group ? cleanGroupName(heroChannel.group).toUpperCase() : '') || 'CANAL'}
               </Text>
               <Text style={styles.heroTitle} numberOfLines={2}>{heroChannel.name}</Text>
               <Text style={styles.heroMeta}>
-                {heroChannel.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || ''} · {heroChannel.quality || 'HD'}
+                {(heroChannel.group ? cleanGroupName(heroChannel.group) : '') || ''} · {heroChannel.quality || 'HD'}
               </Text>
               <View style={styles.heroActions}>
                 <TVFocusable
@@ -560,31 +659,42 @@ export default function HomeContent({
       {movieChannels.length > 0 && (
         <Section title="Filmes para você" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('movies')}>
           <Row>
-            {movieChannels.map(ch => (
-              <VodCard
-                key={ch.id}
-                channel={ch}
-                onPress={() => handlePress(ch)}
-                isNew={isLaunchYear(ch.name)}
-              />
-            ))}
+            {movieChannels.map(ch => {
+              const status = watchStatusFor(watchEntries[ch.id]);
+              return (
+                <VodCard
+                  key={ch.id}
+                  channel={ch}
+                  onPress={() => handlePress(ch)}
+                  isNew={isLaunchYear(ch.name)}
+                  watched={status.watched}
+                  progress={status.progress}
+                />
+              );
+            })}
           </Row>
         </Section>
       )}
 
-      {/* Séries */}
-      {seriesChannels.length > 0 && (
+      {/* Séries — pick já trocado (swapWatchedSeriesPick) por um episódio em
+          curso quando o representante original estava 100% assistido. */}
+      {seriesChannelsDisplay.length > 0 && (
         <Section title="Séries" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('series')}>
           <Row>
-            {seriesChannels.map(ch => (
-              <VodCard
-                key={ch.id}
-                channel={ch}
-                onPress={() => handlePress(ch)}
-                displayName={getSeriesBaseName(ch.name)}
-                isNew={isLaunchYear(ch.name)}
-              />
-            ))}
+            {seriesChannelsDisplay.map(ch => {
+              const status = watchStatusFor(watchEntries[ch.id]);
+              return (
+                <VodCard
+                  key={ch.id}
+                  channel={ch}
+                  onPress={() => handlePress(ch)}
+                  displayName={getSeriesBaseName(ch.name)}
+                  isNew={isLaunchYear(ch.name)}
+                  watched={status.watched}
+                  progress={status.progress}
+                />
+              );
+            })}
           </Row>
         </Section>
       )}
@@ -593,18 +703,65 @@ export default function HomeContent({
       {yearChannels.length > 0 && (
         <Section title={`Lançamentos ${LAUNCH_YEAR}`} trailing="Ver tudo" onTrailingPress={() => onNavPress?.('year')}>
           <Row>
-            {yearChannels.map(ch => (
-              <VodCard
-                key={ch.id}
-                channel={ch}
-                onPress={() => handlePress(ch)}
-                displayName={detectType(ch.group || '', ch.name) === 'series' ? getSeriesBaseName(ch.name) : ch.name}
-                isNew
-              />
-            ))}
+            {yearChannels.map(ch => {
+              const status = badgeFor(ch, watchEntries);
+              return (
+                <VodCard
+                  key={ch.id}
+                  channel={ch}
+                  onPress={() => handlePress(ch)}
+                  displayName={resolveChannelType(ch) === 'series' ? getSeriesBaseName(ch.name) : ch.name}
+                  isNew
+                  watched={status.watched}
+                  progress={status.progress}
+                />
+              );
+            })}
           </Row>
         </Section>
       )}
+
+      {/* Porque você assistiu X — mesmo gênero do último item não-ao-vivo visto */}
+      {seed && becauseYouWatchedDisplay.length > 0 && (
+        <Section title={`Porque você assistiu ${seed.name}`}>
+          <Row>
+            {becauseYouWatchedDisplay.map(ch => {
+              const status = watchStatusFor(watchEntries[ch.id]);
+              return (
+                <VodCard
+                  key={ch.id}
+                  channel={ch}
+                  onPress={() => handlePress(ch)}
+                  displayName={resolveChannelType(ch) === 'series' ? getSeriesBaseName(ch.name) : ch.name}
+                  watched={status.watched}
+                  progress={status.progress}
+                />
+              );
+            })}
+          </Row>
+        </Section>
+      )}
+
+      {/* Recomendados por gênero — top gêneros pré-computados no channelIndex */}
+      {topGenres.slice(0, 3).map(({ genre, channels: genreChannels }) => (
+        <Section key={genre} title={`Recomendados: ${genre}`}>
+          <Row>
+            {genreChannels.slice(0, MAX).map(ch => {
+              const status = badgeFor(ch, watchEntries);
+              return (
+                <VodCard
+                  key={ch.id}
+                  channel={ch}
+                  onPress={() => handlePress(ch)}
+                  displayName={resolveChannelType(ch) === 'series' ? getSeriesBaseName(ch.name) : ch.name}
+                  watched={status.watched}
+                  progress={status.progress}
+                />
+              );
+            })}
+          </Row>
+        </Section>
+      ))}
 
       <View style={{ height: 60 }} />
     </ScrollView>

@@ -236,14 +236,15 @@ export default function AnimatedSplash({ ready, onFinish }: { ready: boolean; on
   const logoW = Math.min(Math.max(190, Math.min(winW, winH) * 0.46), 600);
 
   useEffect(() => {
-    // Logo entrance: scale .62 → 1 in 1.25 s (delay 0.9 s — espera os tentáculos crescerem)
+    // Logo entrance: já começa assim que a splash monta (sem esperar o WebView dos
+    // tentáculos subir) — a tela nunca fica "vazia" enquanto o canvas ainda carrega.
     Animated.parallel([
       Animated.timing(logoScale, {
-        toValue: 1, duration: 1250, delay: 900,
+        toValue: 1, duration: 900,
         easing: Easing.out(Easing.cubic), useNativeDriver: true,
       }),
       Animated.timing(logoOpacity, {
-        toValue: 1, duration: 750, delay: 900,
+        toValue: 1, duration: 550,
         easing: Easing.out(Easing.ease), useNativeDriver: true,
       }),
     ]).start();

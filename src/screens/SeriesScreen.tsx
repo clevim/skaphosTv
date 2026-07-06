@@ -18,12 +18,11 @@ import TVFocusable from '../components/TVFocusable';
 import GlassButton from '../components/GlassButton';
 import { colors, radius, fontFamily } from '../utils/theme';
 import { Channel, RootStackParamList } from '../types';
-import { getSeriesBaseName } from '../utils/channelUtils';
+import { getSeriesBaseName, cleanGroupName } from '../utils/channelUtils';
 import { fetchSeriesInfo, parseSeriesCredentials } from '../utils/xtreamApi';
 import { parseJellyfinSeriesUrl, fetchJellyfinEpisodes, parseJellyfinVideoUrl } from '../utils/jellyfinLoader';
 import { IS_TV } from '../utils/tvDetect';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { fetchTmdbSeries, TmdbMeta } from '../utils/tmdbApi';
 import JellyfinTrackSheet from '../components/JellyfinTrackSheet';
 import ExpandableText from '../components/ExpandableText';
 
@@ -65,6 +64,42 @@ const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(ma
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
+/** Botão de temporada (TV) — mesmo padrão visual do NavItem da TVTopBar: sem
+ *  pílula preenchida, ativo = texto em negrito + ponto embaixo, foco = destaque
+ *  translúcido. Antes usava uma pílula sólida própria, destoando da barra. */
+function SeasonPill({ label, active, fontSize, onPress }: {
+  label: string; active: boolean; fontSize: number; onPress: () => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <TVFocusable
+      onPress={onPress}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      style={tvStyles.seasonPill}
+      focusStyle={tvStyles.seasonPillFocused}
+      focusScale={1}
+      borderRadius={radius.full}
+    >
+      <Text
+        style={[
+          tvStyles.seasonPillText,
+          { fontSize },
+          active && tvStyles.seasonPillTextActive,
+          focused && tvStyles.seasonPillTextFocused,
+        ]}
+      >
+        {label}
+      </Text>
+      {active && (
+        <View style={tvStyles.seasonDotWrap}>
+          <View style={tvStyles.seasonDot} />
+        </View>
+      )}
+    </TVFocusable>
+  );
+}
+
 function EpThumb({ logo, size }: { logo?: string; size: { w: number; h: number } }) {
   return (
     <View style={[thumbStyles.ph, { width: size.w, height: size.h }]}>
@@ -97,7 +132,6 @@ export default function SeriesScreen() {
   const toggleFavorite    = useStore(s => s.toggleFavorite);
   const favorites         = useStore(s => s.favorites);
   const recentChannels    = useStore(s => s.recentChannels);
-  const settings          = useStore(s => s.settings);
   const sources           = useStore(s => s.sources);
   // Progresso de reprodução local (por dispositivo) — badges de assistido / em curso
   const watchEntries = useWatchProgress(s => s.entries);
@@ -112,7 +146,6 @@ export default function SeriesScreen() {
   const [allEpisodes, setAllEpisodes] = useState<Channel[]>(isXtreamSeries ? [] : routeChannels);
   const [loadingEpisodes, setLoadingEpisodes] = useState(isXtreamSeries);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [tmdb, setTmdb] = useState<TmdbMeta | null>(null);
   const [trackSheetUrl, setTrackSheetUrl] = useState<string | null>(null);
   const pendingEpRef = useRef<Channel | null>(null);
   const railRef = useRef<FlatList<Channel>>(null);
@@ -213,13 +246,6 @@ export default function SeriesScreen() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { doFetchEpisodes(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // TMDB enrichment para séries sem metadados (M3U sem info)
-  useEffect(() => {
-    const key = settings.tmdbApiKey;
-    if (!key || seriesChannel?.plot || seriesChannel?.backdrop) return;
-    fetchTmdbSeries(seriesName, key).then(setTmdb);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const baseName = isXtreamSeries ? seriesName : getSeriesBaseName(seriesName);
   const heroChannel = seriesChannel;
@@ -449,15 +475,17 @@ export default function SeriesScreen() {
   }
 
   // ── Metadados para exibição ───────────────────────────────────────────────
-  const groupClean = heroChannel?.group?.replace(/[♦◆️\uFE0F]\s*/g, '').trim() || '';
+  const groupClean = (heroChannel?.group ? cleanGroupName(heroChannel.group) : '') || '';
 
-  const displayPlot = seriesChannel?.plot || tmdb?.plot
+  const displayPlot = seriesChannel?.plot
     || (isXtreamSeries ? (seriesChannel?.genre || '') : groupClean);
 
-  const displayGenre = seriesChannel?.genre || tmdb?.genre || groupClean || 'Drama';
+  const displayGenre = seriesChannel?.genre || groupClean || 'Drama';
 
-  const backdropUri = seriesChannel?.backdrop || seriesChannel?.logo
-    || tmdb?.backdrop || tmdb?.poster || heroChannel?.logo;
+  const backdropUri = seriesChannel?.backdrop || seriesChannel?.logo || heroChannel?.logo;
+  // Sem backdrop de verdade (paisagem) — caiu pro logo (retrato/quadrado).
+  // "cover" recorta esquisito nesse caso e o banner parece torto; usa "contain".
+  const backdropIsLogo = !seriesChannel?.backdrop;
 
   const trackSheet = (
     <JellyfinTrackSheet
@@ -505,7 +533,12 @@ export default function SeriesScreen() {
         <StatusBar hidden />
         {trackSheet}
         {backdropUri ? (
-          <Image source={backdropUri} style={tvStyles.backdrop} contentFit="cover" />
+          <Image
+            source={backdropUri}
+            style={tvStyles.backdrop}
+            contentFit={backdropIsLogo ? 'contain' : 'cover'}
+            contentPosition="center"
+          />
         ) : (
           <View style={[tvStyles.backdrop, { backgroundColor: colors.bg2 }]} />
         )}
@@ -579,30 +612,19 @@ export default function SeriesScreen() {
           {/* Pills de temporada + rail de episódios */}
           <View style={tvStyles.bottom}>
             <View style={[tvStyles.seasonRow, { paddingLeft: pH }]}>
-              {seasonKeys.map((s) => {
-                const active = s === selectedSeason;
-                return (
-                  <TVFocusable
-                    key={s}
-                    onPress={() => {
-                      setSelectedSeason(s);
-                      setFocusedEp(0);
-                      railRef.current?.scrollToOffset({ offset: 0, animated: false });
-                    }}
-                    style={[tvStyles.seasonPill, active && tvStyles.seasonPillActive]}
-                  >
-                    <Text
-                      style={[
-                        tvStyles.seasonPillText,
-                        active && tvStyles.seasonPillTextActive,
-                        { fontSize: fPill },
-                      ]}
-                    >
-                      {seasonLabel(s)}
-                    </Text>
-                  </TVFocusable>
-                );
-              })}
+              {seasonKeys.map((s) => (
+                <SeasonPill
+                  key={s}
+                  label={seasonLabel(s)}
+                  active={s === selectedSeason}
+                  fontSize={fPill}
+                  onPress={() => {
+                    setSelectedSeason(s);
+                    setFocusedEp(0);
+                    railRef.current?.scrollToOffset({ offset: 0, animated: false });
+                  }}
+                />
+              ))}
               <Text style={[tvStyles.epCount, { fontSize: fEpCount }]}>
                 {episodes.length} EPISÓDIOS
               </Text>
@@ -717,7 +739,12 @@ export default function SeriesScreen() {
 
         <View style={[styles.hero, { height: heroH }]}>
           {backdropUri ? (
-            <Image source={backdropUri} style={styles.heroImg} contentFit="cover" />
+            <Image
+              source={backdropUri}
+              style={styles.heroImg}
+              contentFit={backdropIsLogo ? 'contain' : 'cover'}
+              contentPosition="center"
+            />
           ) : (
             <View style={[styles.heroImg, styles.heroFallback]}>
               <Text style={styles.heroInitials}>{baseName.slice(0, 3).toUpperCase()}</Text>
@@ -1022,21 +1049,46 @@ const tvStyles = StyleSheet.create({
     // paddingLeft vem do JSX
     paddingBottom: 16,
   },
+  // Mesmo padrão do NavItem da TVTopBar: sem pílula preenchida — foco é um
+  // destaque translúcido, ativo é só texto em negrito + ponto embaixo.
   seasonPill: {
-    paddingHorizontal: 18, paddingVertical: 8, borderRadius: radius.full,
-    backgroundColor: 'transparent',
-    borderWidth: 1, borderColor: colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: radius.full,
+    position: 'relative',
   },
-  seasonPillActive: {
-    backgroundColor: colors.text1,
-    borderColor: colors.text1,
+  seasonPillFocused: {
+    backgroundColor: 'rgba(167,139,250,0.25)',
   },
   seasonPillText: {
     // fontSize vem do JSX
-    fontWeight: '500', color: colors.text2,
+    fontFamily: fontFamily.medium,
+    color: colors.text2,
+    letterSpacing: -0.1,
   },
   seasonPillTextActive: {
-    color: colors.textInverse, fontWeight: '600',
+    fontFamily: fontFamily.semiBold,
+    color: colors.text1,
+  },
+  seasonPillTextFocused: {
+    color: colors.text1,
+    fontFamily: fontFamily.semiBold,
+  },
+  seasonDotWrap: {
+    position: 'absolute',
+    bottom: 2,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  seasonDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.accent,
   },
   epCount: {
     // fontSize vem do JSX

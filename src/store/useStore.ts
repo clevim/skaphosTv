@@ -3,6 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Channel } from '../types';
 import { ChannelIndex, buildChannelIndex } from './channelIndex';
 import { saveSourceSecrets, loadSourceSecrets, deleteSourceSecrets } from '../utils/secrets';
+import { resolveContentType } from '../utils/channelUtils';
+import { notify } from '../utils/notifications';
 
 export interface IPTVSource {
   id: string;
@@ -20,6 +22,9 @@ export interface IPTVSource {
   channelCount?: number;
   /** URL do guia XMLTV (M3U: capturada do url-tvg/x-tvg-url do cabeçalho). */
   epgUrl?: string;
+  /** Correção manual de tipo por group-title cru — sobrepõe a heurística
+   *  automática (detectType) pra listas M3U que ela classifica errado. */
+  groupTypeOverrides?: Record<string, 'live' | 'movies' | 'series'>;
 }
 
 interface AppState {
@@ -49,21 +54,40 @@ interface AppState {
     subtitleSize: 'small' | 'medium' | 'large';
     /** Mostra o Guia (EPG) na navegação. (chave nova — o antigo epgEnabled ficava false) */
     showEpg: boolean;
-    tmdbApiKey: string;
     jellyfinPreferredAudio: string;
     jellyfinPreferredSubtitle: string;
+    /** URL do dev-update-server (só usado em build de dev — ver debugLog.ts). Editável
+     *  em Ajustes pra não precisar rebuildar quando o IP do PC muda. */
+    devUpdateUrl: string;
+    /** Escala de fonte da UI — aplicada em telas de texto denso (Ajustes, busca,
+     *  guia). Não é um multiplicador global de todo o app de propósito (ver
+     *  useUiFontScale em theme.ts). */
+    uiFontScale: 'small' | 'medium' | 'large';
+    /** Liga/desliga o resumo "Wrapped" do ano e as conquistas/badges em Ajustes. */
+    showWrapped: boolean;
+    showAchievements: boolean;
+    /** Notificações locais — cada uma liga/desliga um dos 3 tipos que o app dispara. */
+    notifyChannelOffline: boolean;
+    notifyCatalogUpdate: boolean;
+    notifySourceExpiring: boolean;
   };
 
   addSource: (source: IPTVSource) => void;
   updateSource: (id: string, patch: Partial<IPTVSource>) => void;
-  removeSource: (id: string) => void;
-  setChannels: (channels: Channel[], groups: string[]) => void;
+  // ponytail: async porque buildChannelIndex agora cede o event loop (catálogos
+  // grandes travavam a thread) — chamadores que não esperam continuam ok
+  // (fire-and-forget), quem precisa de ordem (fases do Xtream) já aguarda.
+  removeSource: (id: string) => Promise<void>;
+  setChannels: (channels: Channel[], groups: string[]) => Promise<void>;
   /** Adiciona canais à lista existente sem apagar os anteriores (carregamento faseado).
    *  Se `sourceId` for informado, marca cada canal com a fonte de origem. */
-  appendChannels: (channels: Channel[], groups: string[], sourceId?: string) => void;
+  appendChannels: (channels: Channel[], groups: string[], sourceId?: string) => Promise<void>;
   /** Substitui todos os canais de UMA fonte, preservando os das demais fontes.
    *  Usado ao adicionar/atualizar/recarregar uma fonte específica. */
-  replaceSourceChannels: (sourceId: string, channels: Channel[], groups: string[]) => void;
+  replaceSourceChannels: (sourceId: string, channels: Channel[], groups: string[]) => Promise<void>;
+  /** Reconstrói só o channelIndex a partir do channels/sources atuais — usado
+   *  depois que o usuário edita um groupTypeOverrides (não mexe em channels/disco). */
+  refreshChannelIndex: () => Promise<void>;
   setSelectedGroup: (group: string | null) => void;
   setLoading: (loading: boolean) => void;
   setLoadError: (error: string | null) => void;
@@ -79,6 +103,21 @@ interface AppState {
 const CHUNK_SIZE = 500;
 const CHANNELS_KEY = 'skaphostv_channels';
 const CHANNELS_META_KEY = 'skaphostv_channels_meta';
+
+// ─── Serialização das mutações de canais em memória ──────────────────────────
+// setChannels/appendChannels/replaceSourceChannels/removeSource leem `get()`,
+// esperam buildChannelIndex (async — yields pra não travar a thread em catálogos
+// grandes) e só then chamam `set()`. Múltiplas fontes carregando em paralelo
+// (boot, refresh em background) podiam disparar duas dessas em overlap: a
+// segunda lê o estado ANTES do `set()` da primeira e, ao gravar, apaga a
+// atualização dela. A fila garante que cada mutação sempre parte do estado
+// mais recente, não importa quantos chamadores concorrentes existam.
+let channelsMutationChain: Promise<void> = Promise.resolve();
+function serializeChannelsMutation<T>(fn: () => Promise<T>): Promise<T> {
+  const run = channelsMutationChain.then(fn, fn);
+  channelsMutationChain = run.then(() => undefined, () => undefined);
+  return run;
+}
 
 // ─── Persistência serializada de canais ──────────────────────────────────────
 // Saves são SERIALIZADOS (encadeados) e com DEBOUNCE. Isso evita a corrida em que
@@ -141,9 +180,12 @@ async function flushChannelsSave(channels: Channel[], groups: string[], sources:
   }
   // Salva chunks ANTES dos metadados — se o app fechar no meio, o metadata antigo
   // ainda aponta para chunks válidos (dados completos, possivelmente desatualizados).
-  for (let i = 0; i < chunks.length; i++) {
-    await AsyncStorage.setItem(`${CHANNELS_KEY}_${i}`, JSON.stringify(chunks[i]));
-  }
+  // Em PARALELO (não sequencial): catálogos grandes viram 50+ chunks — escrever um
+  // de cada vez multiplicava a chance do processo ser morto (fechar o app) no meio
+  // do save, deixando o disco com uma versão mais velha (ex.: sem a fase de séries).
+  await Promise.all(
+    chunks.map((chunk, i) => AsyncStorage.setItem(`${CHANNELS_KEY}_${i}`, JSON.stringify(chunk))),
+  );
   await AsyncStorage.setItem(CHANNELS_META_KEY, JSON.stringify({ chunks: chunks.length, groups, savedAt: Date.now() }));
   // Remove chunks órfãos remanescentes de uma lista anterior maior
   if (lastWrittenChunks > chunks.length) {
@@ -182,6 +224,29 @@ function saveChannelsNow(channels: Channel[], groups: string[], sources: IPTVSou
   return saveChain;
 }
 
+/**
+ * Antecipa um save JÁ AGENDADO (debounced) — nunca escreve o estado atual "do
+ * nada". Usado ao esconder/fechar a aba (visibilitychange/pagehide/AppState).
+ *
+ * Por quê: reconstruir e persistir `get().channels` incondicionalmente é
+ * perigoso com múltiplas abas — uma aba mais antiga, com uma lista de canais
+ * desatualizada em memória, pode ficar oculta (perder foco) DEPOIS de outra
+ * aba já ter atualizado o disco, e sobrescrever o cache novo com o snapshot
+ * velho. Como só existe UM `pendingSave` por módulo (compartilhado entre
+ * todas as instâncias do store nesta aba), essa função só adianta uma escrita
+ * que ESTA aba já ia fazer de qualquer forma — nunca inventa uma nova.
+ */
+function flushPendingChannelsSave(): Promise<void> {
+  if (!pendingSave) return Promise.resolve();
+  const job = pendingSave;
+  pendingSave = null;
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  saveChain = saveChain
+    .then(() => flushChannelsSave(job.channels, job.groups, job.sources))
+    .catch(e => console.warn('Erro ao salvar canais no cache:', e));
+  return saveChain;
+}
+
 async function loadChannelsChunked(): Promise<{ channels: Channel[]; groups: string[]; savedAt: number } | null> {
   const metaRaw = await AsyncStorage.getItem(CHANNELS_META_KEY);
   if (!metaRaw) return null;
@@ -215,6 +280,16 @@ function migrateChannelSourceIds(channels: Channel[], sources: IPTVSource[]): Ch
   });
 }
 
+/** resolveContentType já considerando o override manual de categoria (Ajustes >
+ *  Corrigir categorias) da fonte do canal — helper único pra não repetir o
+ *  lookup sourceId→groupTypeOverrides em cada tela que precisa do tipo real. */
+export function resolveChannelType(channel: Channel): 'live' | 'movies' | 'series' {
+  const overrides = channel.sourceId
+    ? useStore.getState().sources.find(s => s.id === channel.sourceId)?.groupTypeOverrides
+    : undefined;
+  return resolveContentType(channel, overrides);
+}
+
 export const useStore = create<AppState>((set, get) => ({
   sources: [],
   activeSourceId: null,
@@ -236,9 +311,15 @@ export const useStore = create<AppState>((set, get) => ({
     subtitleEnabled: false,
     subtitleSize: 'medium',
     showEpg: true,
-    tmdbApiKey: '',
     jellyfinPreferredAudio: 'pt-BR',
     jellyfinPreferredSubtitle: 'pt-BR',
+    devUpdateUrl: '',
+    uiFontScale: 'medium',
+    showWrapped: true,
+    showAchievements: true,
+    notifyChannelOffline: true,
+    notifyCatalogUpdate: true,
+    notifySourceExpiring: true,
   },
 
   addSource: (source) => {
@@ -263,78 +344,92 @@ export const useStore = create<AppState>((set, get) => ({
     get().saveToStorage();
   },
 
-  removeSource: (id) => {
-    set(state => {
-      // Remove apenas os canais desta fonte; preserva os das demais
-      const channels = state.channels.filter(c => c.sourceId !== id);
-      const groups = Array.from(
-        new Set(channels.map(c => c.group).filter(Boolean) as string[]),
-      ).sort();
-      const channelIndex = buildChannelIndex(channels);
-      return {
-        sources: state.sources.filter(s => s.id !== id),
-        channels,
-        groups,
-        channelIndex,
-        currentChannel: state.currentChannel?.sourceId === id ? null : state.currentChannel,
-        recentChannels: state.recentChannels.filter(c => c.sourceId !== id),
-        activeSourceId: state.activeSourceId === id ? null : state.activeSourceId,
-        selectedGroup: groups.includes(state.selectedGroup ?? '') ? state.selectedGroup : null,
-      };
+  removeSource: (id) => serializeChannelsMutation(async () => {
+    const state = get();
+    // Remove apenas os canais desta fonte; preserva os das demais
+    const channels = state.channels.filter(c => c.sourceId !== id);
+    const groups = Array.from(
+      new Set(channels.map(c => c.group).filter(Boolean) as string[]),
+    ).sort();
+    const channelIndex = await buildChannelIndex(channels, state.sources);
+    set({
+      sources: state.sources.filter(s => s.id !== id),
+      channels,
+      groups,
+      channelIndex,
+      currentChannel: state.currentChannel?.sourceId === id ? null : state.currentChannel,
+      recentChannels: state.recentChannels.filter(c => c.sourceId !== id),
+      activeSourceId: state.activeSourceId === id ? null : state.activeSourceId,
+      selectedGroup: groups.includes(state.selectedGroup ?? '') ? state.selectedGroup : null,
     });
     // Ação destrutiva: grava imediatamente (limpa órfãos automaticamente)
     saveChannelsNow(get().channels, get().groups, get().sources);
     deleteSourceSecrets(id);
     get().saveToStorage();
-  },
+  }),
 
-  setChannels: (channels, groups) => {
-    const channelIndex = buildChannelIndex(channels);
+  setChannels: (channels, groups) => serializeChannelsMutation(async () => {
+    const channelIndex = await buildChannelIndex(channels, get().sources);
     set({ channels, groups, channelIndex, channelsSavedAt: Date.now() });
     scheduleChannelsSave(channels, groups, get().sources);
-  },
+  }),
 
-  appendChannels: (newChannels, newGroups, sourceId) => {
-    set(state => {
-      const tagged = sourceId
-        ? newChannels.map(c => ({ ...c, sourceId }))
-        : newChannels;
-      // Deduplica por id — novos dados sobrescrevem os antigos (útil para re-fetch Jellyfin)
-      const newIds = new Set(tagged.map(c => c.id));
-      const existing = state.channels.filter(c => !newIds.has(c.id));
-      const merged = [...existing, ...tagged];
-      const groupSet = new Set([...state.groups, ...newGroups]);
-      const groups = Array.from(groupSet).sort();
-      const channelIndex = buildChannelIndex(merged);
-      scheduleChannelsSave(merged, groups, state.sources);
-      return { channels: merged, groups, channelIndex, channelsSavedAt: Date.now() };
-    });
-  },
+  appendChannels: (newChannels, newGroups, sourceId) => serializeChannelsMutation(async () => {
+    const state = get();
+    const tagged = sourceId
+      ? newChannels.map(c => ({ ...c, sourceId }))
+      : newChannels;
+    // Deduplica por id — novos dados sobrescrevem os antigos (útil para re-fetch Jellyfin)
+    const newIds = new Set(tagged.map(c => c.id));
+    const existing = state.channels.filter(c => !newIds.has(c.id));
+    const merged = [...existing, ...tagged];
+    const groupSet = new Set([...state.groups, ...newGroups]);
+    const groups = Array.from(groupSet).sort();
+    const channelIndex = await buildChannelIndex(merged, state.sources);
+    scheduleChannelsSave(merged, groups, state.sources);
+    set({ channels: merged, groups, channelIndex, channelsSavedAt: Date.now() });
+  }),
 
-  replaceSourceChannels: (sourceId, newChannels, newGroups) => {
-    set(state => {
-      const tagged = newChannels.map(c => ({ ...c, sourceId }));
-      const newIds = new Set(tagged.map(c => c.id));
-      // Remove os canais antigos desta fonte (por sourceId) e quaisquer duplicados por id
-      const kept = state.channels.filter(
-        c => c.sourceId !== sourceId && !newIds.has(c.id),
-      );
-      const merged = [...kept, ...tagged];
-      const groups = Array.from(
-        new Set([...merged.map(c => c.group).filter(Boolean) as string[], ...newGroups]),
-      ).sort();
-      const channelIndex = buildChannelIndex(merged);
-      // Atualiza o total real da fonte: este é o baseline que a reconciliação do boot
-      // usa para detectar cache parcial. Sem isto, um catálogo que mudou de tamanho
-      // deixaria o channelCount defasado e a fonte recarregaria da rede a cada boot.
-      const sources = state.sources.map(s =>
-        s.id === sourceId ? { ...s, channelCount: tagged.length } : s,
-      );
-      scheduleChannelsSave(merged, groups, sources);
-      return { channels: merged, groups, channelIndex, sources, channelsSavedAt: Date.now() };
-    });
+  replaceSourceChannels: (sourceId, newChannels, newGroups) => serializeChannelsMutation(async () => {
+    const state = get();
+    const oldSource = state.sources.find(s => s.id === sourceId);
+    const oldCount = oldSource?.channelCount ?? 0;
+    const tagged = newChannels.map(c => ({ ...c, sourceId }));
+    const newIds = new Set(tagged.map(c => c.id));
+    // Remove os canais antigos desta fonte (por sourceId) e quaisquer duplicados por id
+    const kept = state.channels.filter(
+      c => c.sourceId !== sourceId && !newIds.has(c.id),
+    );
+    const merged = [...kept, ...tagged];
+    const groups = Array.from(
+      new Set([...merged.map(c => c.group).filter(Boolean) as string[], ...newGroups]),
+    ).sort();
+    const channelIndex = await buildChannelIndex(merged, state.sources);
+    // Atualiza o total real da fonte: este é o baseline que a reconciliação do boot
+    // usa para detectar cache parcial. Sem isto, um catálogo que mudou de tamanho
+    // deixaria o channelCount defasado e a fonte recarregaria da rede a cada boot.
+    const sources = state.sources.map(s =>
+      s.id === sourceId ? { ...s, channelCount: tagged.length } : s,
+    );
+    scheduleChannelsSave(merged, groups, sources);
+    set({ channels: merged, groups, channelIndex, sources, channelsSavedAt: Date.now() });
     get().saveToStorage();
-  },
+
+    // Notifica só em RECARGA de uma fonte já existente (oldCount>0) — na
+    // primeira adição (oldCount===0) o "aumento" é o catálogo inteiro, óbvio
+    // demais pra virar notificação. Limiar de +10 evita ruído por flutuação
+    // normal do provedor entre reloads.
+    const added = tagged.length - oldCount;
+    if (oldCount > 0 && added >= 10 && get().settings.notifyCatalogUpdate) {
+      notify('Catálogo atualizado', `${oldSource?.name ?? 'Sua fonte'}: ${added} itens novos desde a última atualização.`);
+    }
+  }),
+
+  refreshChannelIndex: () => serializeChannelsMutation(async () => {
+    const state = get();
+    const channelIndex = await buildChannelIndex(state.channels, state.sources);
+    set({ channelIndex });
+  }),
 
   setSelectedGroup: (group) => set({ selectedGroup: group }),
   setLoading: (loading) => set({ isLoading: loading }),
@@ -369,10 +464,9 @@ export const useStore = create<AppState>((set, get) => ({
     get().saveToStorage();
   },
 
-  saveChannelsToStorage: async () => {
-    const { channels, groups, sources } = get();
-    await saveChannelsNow(channels, groups, sources);
-  },
+  // Antecipa um save JÁ DEBOUNCED (ver flushPendingChannelsSave) — nunca
+  // reconstrói/reescreve o estado atual do zero. Chamada ao esconder a aba.
+  saveChannelsToStorage: () => flushPendingChannelsSave(),
 
   loadFromStorage: async () => {
     try {
@@ -421,7 +515,7 @@ export const useStore = create<AppState>((set, get) => ({
         const migrated = migrateChannelSourceIds(cached.channels, sources);
         // Restaura os segredos mascarados nas URLs (player/imagens precisam delas em memória)
         const rehydrated = transformChannelSecrets(migrated, sources, 'restore');
-        const channelIndex = buildChannelIndex(rehydrated);
+        const channelIndex = await buildChannelIndex(rehydrated, sources);
         set({ channels: rehydrated, groups: cached.groups, channelIndex, channelsSavedAt: cached.savedAt });
         if (migrated !== cached.channels) scheduleChannelsSave(rehydrated, cached.groups, sources);
         return; // Cache encontrado — não precisa baixar da rede
