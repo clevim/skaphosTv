@@ -25,15 +25,21 @@ SkaphosTV é um player IPTV completo construído com **React Native + Expo**, pr
 
 | Categoria | Detalhes |
 |-----------|----------|
-| **Fontes IPTV** | Xtream Codes (usuário/senha) e lista M3U por URL |
+| **Fontes IPTV** | Xtream Codes (usuário/senha), lista M3U por URL e Jellyfin |
+| **Categorização configurável** | Heurístico por palavras-chave/URL + correção manual por grupo, por fonte |
 | **Ao Vivo** | Canais em tempo real com guia EPG |
 | **Filmes** | Catálogo VOD com posters, badges de qualidade e lançamentos |
-| **Séries** | Navegação por temporada e episódio, progresso individual |
-| **Busca** | Busca em tempo real com filtros por tipo e buscas recentes |
-| **Favoritos** | Minha Lista com acesso rápido na navegação e na Home |
-| **Player** | Vídeo full-screen com OSD, sidebar de canais e controle de qualidade |
+| **Séries** | Navegação por temporada e episódio, resume no episódio certo |
+| **Assistindo/Assistido** | Badges de progresso em toda a navegação, retomada exata em filme e série |
+| **Recomendações** | "Recomendados por gênero" e "Porque você assistiu X" na Home |
+| **Busca** | Tempo real, filtros combinados (gênero + ano + qualidade) e busca por programa no EPG |
+| **Favoritos** | Minha Lista com subcategorias (Ao Vivo/Filmes/Séries) |
+| **Player** | Vídeo full-screen com OSD, sleep timer radial e Picture-in-Picture |
 | **TV Focus** | Navegação por D-pad com anel de foco animado em todos os elementos |
 | **EPG** | Guia real (XMLTV) com grade de canais × horários e "Agora/A seguir" |
+| **Backup** | Exportar/importar fontes, favoritos e ajustes — baixar arquivo, compartilhar ou copiar |
+| **Notificações** | Canal indisponível, catálogo atualizado e fonte vencendo — cada uma com toggle |
+| **Estatísticas** | Resumo anual (Wrapped), conquistas e métricas de uso por fonte |
 | **Configuração por QR** | Preencha as credenciais pelo celular escaneando o QR da TV |
 | **Deep Links** | Abertura direta de séries/canais por URI externa |
 
