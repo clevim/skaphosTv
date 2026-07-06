@@ -118,6 +118,28 @@ class MainActivity : ReactActivity() {
     enterPipNow()
   }
 
+  // O botão "X" da janela do PiP do sistema chama finish() na Activity — igual a
+  // sair do app normalmente, sem sinal específico de "fechou o PiP". Sem isso, o
+  // player nativo não recebia aviso pra parar e o áudio continuava tocando sozinho
+  // depois do PiP sumir. isFinishing só fica true nesse caso (o botão voltar usa
+  // moveTaskToBack, não finish — ver invokeDefaultOnBackPressed).
+  //
+  // finish() sozinho encerra a Activity mas o processo do app pode continuar
+  // residente em segundo plano (cache do Android, à espera do sistema reciclar
+  // sozinho). finishAndRemoveTask() também tira o app da lista de recentes; o
+  // killProcess logo depois garante que não sobra nada rodando — com um delay
+  // curto pro pause do JS (SkaphosPipClosed) ter tempo de rodar antes.
+  override fun onStop() {
+    super.onStop()
+    if (isFinishing) {
+      emitEvent("SkaphosPipClosed", true)
+      finishAndRemoveTask()
+      android.os.Handler(mainLooper).postDelayed({
+        android.os.Process.killProcess(android.os.Process.myPid())
+      }, 300)
+    }
+  }
+
   /** Monta a action de play/pause exibida na janela do PiP. */
   private fun buildPipActions(): ArrayList<RemoteAction> {
     val actions = ArrayList<RemoteAction>()

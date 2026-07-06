@@ -1,4 +1,5 @@
 import './src/utils/webHttp'; // web-only: proxy CORS + Alert polyfill (no-op em nativo)
+import './src/utils/webWheel'; // web-only: roda do mouse rola listas horizontais (no-op em nativo)
 import React, { useEffect, useRef, useState } from 'react';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -10,6 +11,8 @@ import * as Updates from 'expo-updates';
 import { Linking, AppState } from 'react-native';
 import { useStore } from './src/store/useStore';
 import { useWatchProgress } from './src/store/watchProgress';
+import { useUsageStats } from './src/store/usageStats';
+import { initNotifications } from './src/utils/notifications';
 import { useRecentSearches } from './src/store/recentSearches';
 import { useGeistFonts } from './src/hooks/useGeistFonts';
 import HomeScreen from './src/screens/HomeScreen';
@@ -21,9 +24,9 @@ import DetailScreen from './src/screens/DetailScreen';
 import TVEPGScreen from './src/screens/TVEPGScreen';
 import { useThemeStore } from './src/store/useThemeStore';
 import AnimatedSplash from './src/components/AnimatedSplash';
-import VideoSplash from './src/components/VideoSplash';
 import MiniPlayer from './src/components/MiniPlayer';
-import introSource from './src/generated/introSource';
+import AppAlertHost from './src/components/AppAlert';
+import DebugOverlay from './src/components/DebugOverlay';
 import { IS_TV, IS_WEB, IS_NATIVE_TV } from './src/utils/tvDetect';
 import { lockLandscape, unlockOrientation } from './src/utils/orientation';
 import { colors } from './src/utils/theme';
@@ -89,6 +92,8 @@ export default function App() {
     useThemeStore.getState().loadTheme();
     useWatchProgress.getState().load();
     useRecentSearches.getState().load();
+    useUsageStats.getState().load();
+    initNotifications();
 
     KeepAwake.activateKeepAwakeAsync();
 
@@ -192,6 +197,17 @@ export default function App() {
               headerShown: false,
               animationEnabled: true,
               cardStyle: { backgroundColor: colors.bg0 },
+              // headerMode:'float' (não usamos header nativo — headerShown:false já
+              // esconde) é o que faz o @react-navigation/stack manter
+              // pageOverflowEnabled=false no web. Sem isso, o CardSheet interno usa
+              // minHeight:'100%' (pensado pra deixar o <body> rolar em navegador
+              // mobile) em vez de flex:1+overflow:hidden — quebra TODO o scroll
+              // interno da tela: a área do FlatList vira do tamanho do conteúdo
+              // inteiro (ex.: 540.000px numa lista de 15k itens) em vez do viewport,
+              // e o próprio FlatList passa a achar que quase tudo está "visível",
+              // renderizando milhares de cards de uma vez — daí telas travando ao
+              // entrar em Filmes/Séries com catálogos grandes.
+              headerMode: 'float',
             }}
           >
             <Stack.Screen name="Home" component={HomeScreen} />
@@ -212,17 +228,14 @@ export default function App() {
           }}
         />
 
+        {/* Substitui o Alert.alert nativo (cinza, fora do tema) em todo o app */}
+        <AppAlertHost />
+
+        {/* Log em tela pro APK de dev — não existe no build normal */}
+        <DebugOverlay />
+
         {splashVisible && (
-          introSource && !IS_WEB ? (
-            <VideoSplash
-              source={introSource}
-              ready={fontsLoaded}
-              muted={false}
-              onFinish={() => setSplashVisible(false)}
-            />
-          ) : (
-            <AnimatedSplash ready={fontsLoaded} onFinish={() => setSplashVisible(false)} />
-          )
+          <AnimatedSplash ready={fontsLoaded} onFinish={() => setSplashVisible(false)} />
         )}
       </SafeAreaProvider>
     </GestureHandlerRootView>

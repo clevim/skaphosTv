@@ -5,6 +5,11 @@
     <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
     <item name="colorPrimary">@color/colorPrimary</item>
     <item name="android:statusBarColor">#0a0a0f</item>
+    <!-- Sem isso, o tema Light herda janela branca por padrão. MainActivity troca
+         de Theme.App.SplashScreen pra este ANTES do RN montar seu primeiro frame
+         (e de novo a cada mudança de orientação) — sem essa cor aqui, aparece um
+         flash branco nessa janela entre a splash nativa e o conteúdo do app. -->
+    <item name="android:windowBackground">@color/splashscreen_background</item>
   </style>
   <style name="ResetEditText" parent="@android:style/Widget.EditText">
     <item name="android:padding">0dp</item>

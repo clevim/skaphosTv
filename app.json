@@ -7,15 +7,15 @@
       "android",
       "web"
     ],
-    "version": "1.4.0",
-    "orientation": "landscape",
+    "version": "1.4.2",
+    "orientation": "default",
     "updates": {
       "url": "https://u.expo.dev/311cabc0-dbe5-4e90-bab4-5f821106e362",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "1.4.0",
+    "runtimeVersion": "1.4.2",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
@@ -32,7 +32,7 @@
         "backgroundColor": "#0a0810"
       },
       "package": "com.skaphostv.app",
-      "versionCode": 10400,
+      "versionCode": 10402,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
@@ -54,7 +54,7 @@
       [
         "expo-screen-orientation",
         {
-          "initialOrientation": "LANDSCAPE"
+          "initialOrientation": "DEFAULT"
         }
       ],
       "expo-font"
