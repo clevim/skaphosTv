@@ -3,12 +3,20 @@ set -e
 
 # Sincroniza a versão (app.json → build.gradle / strings.xml / package.json)
 node scripts/sync-version.js
-# Detecta vídeo de abertura (assets/intro.mp4) ou cai no logo animado
-node scripts/gen-intro.js
 
 VERSION=$(node -e "console.log(require('./app.json').expo.version)")
 OUT_DIR="storage/apks"
-OUT_FILE="$OUT_DIR/skaphostv-$VERSION.apk"
+# Com EXPO_PUBLIC_DEV_UPDATE_URL setado, o nome sai FIXO (skaphostv-dev.apk,
+# sempre o mesmo, sobrescrevendo o anterior) — o servidor de dev local serve
+# sempre esse arquivo e a tela de Ajustes aponta pra ele via "Forçar
+# atualização" (que reinstala mesmo com versão igual). Isso evita ter que
+# bumpar app.json a cada build de teste. `npm run release` usa o caminho
+# versionado sem sufixo, então nunca pega este arquivo.
+if [ -n "$EXPO_PUBLIC_DEV_UPDATE_URL" ]; then
+  OUT_FILE="$OUT_DIR/skaphostv-dev.apk"
+else
+  OUT_FILE="$OUT_DIR/skaphostv-$VERSION.apk"
+fi
 
 mkdir -p "$OUT_DIR"
 
