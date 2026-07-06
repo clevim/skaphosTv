@@ -3,6 +3,7 @@ import { Channel } from '../types';
 import { ChannelIndex } from '../store/channelIndex';
 import { getSeriesBaseName, isLaunchYear, YEAR_GROUPS, FAVORITES_GROUPS } from '../utils/channelUtils';
 import { IPTVSource, useStore, resolveChannelType } from '../store/useStore';
+import { useUsageStats } from '../store/usageStats';
 
 interface UseChannelFilterProps {
   navKey: string;
@@ -13,6 +14,8 @@ interface UseChannelFilterProps {
   categorySearch: string;
   channelIndex: ChannelIndex | null;
   sources?: IPTVSource[];
+  /** 'default' (ordem do catálogo) | 'az' | 'popular' (mais assistido). */
+  sortMode?: 'default' | 'az' | 'popular';
 }
 
 const EMPTY_MAP = new Map<string, number>();
@@ -26,8 +29,10 @@ export function useChannelFilter({
   categorySearch,
   channelIndex,
   sources,
+  sortMode = 'default',
 }: UseChannelFilterProps) {
   const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
+  const usageBySource = useUsageStats(s => s.bySource);
 
   // O(1) — índice já tem o map pronto
   const episodeCountMap = channelIndex?.episodeCountMap ?? EMPTY_MAP;
@@ -124,8 +129,22 @@ export function useChannelFilter({
       });
     }
 
+    if (sortMode === 'az') {
+      list = [...list].sort((a, b) => {
+        const an = resolveChannelType(a) === 'series' ? getSeriesBaseName(a.name) : a.name;
+        const bn = resolveChannelType(b) === 'series' ? getSeriesBaseName(b.name) : b.name;
+        return an.localeCompare(bn, 'pt-BR');
+      });
+    } else if (sortMode === 'popular') {
+      list = [...list].sort((a, b) => {
+        const ac = (a.sourceId && usageBySource[a.sourceId]?.playCounts[a.id]?.count) || 0;
+        const bc = (b.sourceId && usageBySource[b.sourceId]?.playCounts[b.id]?.count) || 0;
+        return bc - ac;
+      });
+    }
+
     return list;
-  }, [channelIndex, navKey, selectedGroup, favoritesSet, categorySearch, channels, jellyfinServerName, filteredGroups]);
+  }, [channelIndex, navKey, selectedGroup, favoritesSet, categorySearch, channels, jellyfinServerName, filteredGroups, sortMode, usageBySource]);
 
   // O(1) — usa contagens pré-computadas
   const navCount = useCallback((key: string): number => {

@@ -144,6 +144,9 @@ export function usePlayer(
   // Índice da legenda cujo VTT está carregado no textTracks do player.
   // Mudar este valor causa setTextTracks → reloadSource → player reinicia (posição salva via pendingSeekRef).
   const [vttSubtitleIndex, setVttSubtitleIndex] = useState<number | null>(initialSubtitleIndex);
+  // Sincronia da legenda (ms) — positivo adianta, negativo atrasa. Reaproveita o
+  // mesmo reload de troca de legenda (o VTT deslocado é servido como um arquivo novo).
+  const [subtitleOffsetMs, setSubtitleOffsetMs] = useState(0);
   const [audioTracks, setAudioTracks] = useState<JellyfinAudioTrack[]>(initialAudioTracks);
   // Inicializa de forma síncrona: usa initialAudioIndex se fornecido, senão não há faixa selecionada
   const [currentAudioIndex, setCurrentAudioIndex] = useState<number | null>(initialAudioIndex);
@@ -312,6 +315,7 @@ export function usePlayer(
     setRate(1.0); // volta à velocidade normal ao trocar de episódio/canal
     setSubtitleTracks([]);
     setSelectedSubtitleIndex(null);
+    setSubtitleOffsetMs(0); // sincronia é por vídeo — não carrega pro próximo episódio/canal
     setAudioTracks([]);
     setCurrentAudioIndex(null); // será populado em onLoad
     pendingSeekRef.current = null;
@@ -574,6 +578,19 @@ export function usePlayer(
     // index === null (desativar) ou mesma legenda: sem reload, selectedTextTrack lida via DISABLED/LANGUAGE
   }, [vttSubtitleIndex]);
 
+  /**
+   * Ajusta a sincronia da legenda ativa (ms absolutos). O PlayerScreen resolve o
+   * VTT deslocado e muda a uri do textTrack sozinho (efeito reagindo a
+   * subtitleOffsetMs) — aqui só guarda a posição antes do reload que isso causa.
+   * Sem legenda VTT carregada ainda, só guarda o valor pra quando uma for ativada.
+   */
+  const setSubtitleOffset = useCallback((ms: number) => {
+    setSubtitleOffsetMs(ms);
+    if (vttSubtitleIndex !== null) {
+      pendingSeekRef.current = positionRef.current;
+    }
+  }, [vttSubtitleIndex]);
+
   return {
     videoRef, osdAnim, videoKey, paused,
     playingChannel, isPlaying, isBuffering,
@@ -587,7 +604,7 @@ export function usePlayer(
     subtitleTracks, selectedSubtitleIndex, setSelectedSubtitleIndex,
     vttSubtitleIndex,
     audioTracks, currentAudioIndex, audioReady, switchAudioTrack,
-    switchSubtitleTrack,
+    switchSubtitleTrack, subtitleOffsetMs, setSubtitleOffset,
     setVolume, setIsMuted, setShowOSD, setShowSidebar,
     showOSDTemporarily, handleScreenTap,
     togglePlay, playChannel, prevChannel, nextChannel,

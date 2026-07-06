@@ -12,9 +12,21 @@ interface Props {
   selectedIndex: number | null;
   onSelect: (index: number | null) => void;
   onClose: () => void;
+  /** Sincronia da legenda ativa em ms (positivo adianta, negativo atrasa). */
+  offsetMs?: number;
+  onOffsetChange?: (ms: number) => void;
 }
 
-export default function SubtitleSheet({ visible, tracks, selectedIndex, onSelect, onClose }: Props) {
+const OFFSET_STEP_MS = 250;
+
+function formatOffset(ms: number): string {
+  const s = (ms / 1000).toFixed(2).replace(/0$/, '').replace(/\.$/, '.0');
+  return `${ms > 0 ? '+' : ''}${s}s`;
+}
+
+export default function SubtitleSheet({
+  visible, tracks, selectedIndex, onSelect, onClose, offsetMs = 0, onOffsetChange,
+}: Props) {
   const { width, height } = useWindowDimensions();
   const sheetWidth  = Math.min(340, width  - 40);
   const sheetHeight = Math.min(440, height - 80);
@@ -93,6 +105,35 @@ export default function SubtitleSheet({ visible, tracks, selectedIndex, onSelect
           }}
         />
 
+        {/* Sincronia — só faz sentido com uma legenda ativa */}
+        {selectedIndex !== null && onOffsetChange && (
+          <View style={styles.syncRow}>
+            <Text style={styles.syncLabel}>Sincronia</Text>
+            <View style={styles.syncControls}>
+              <TVFocusable
+                onPress={() => onOffsetChange(offsetMs - OFFSET_STEP_MS)}
+                style={styles.syncBtn}
+                borderRadius={16}
+              >
+                <Ionicons name="remove" size={16} color={colors.white} />
+              </TVFocusable>
+              <Text style={styles.syncValue}>{formatOffset(offsetMs)}</Text>
+              <TVFocusable
+                onPress={() => onOffsetChange(offsetMs + OFFSET_STEP_MS)}
+                style={styles.syncBtn}
+                borderRadius={16}
+              >
+                <Ionicons name="add" size={16} color={colors.white} />
+              </TVFocusable>
+              {offsetMs !== 0 && (
+                <TVFocusable onPress={() => onOffsetChange(0)} style={styles.syncReset} borderRadius={6}>
+                  <Text style={styles.syncResetText}>Zerar</Text>
+                </TVFocusable>
+              )}
+            </View>
+          </View>
+        )}
+
         <View style={styles.actions}>
           <TVFocusable
             ref={closeRef}
@@ -154,6 +195,24 @@ const styles = StyleSheet.create({
   trackTitle: { fontSize: 13, fontWeight: '500', color: colors.text2 },
   trackTitleActive: { color: colors.text1, fontWeight: '600' },
   sub: { fontSize: 10, color: colors.text3, marginTop: 2 },
+  syncRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 14,
+    borderTopWidth: 1, borderTopColor: colors.borderSoft,
+  },
+  syncLabel: { fontSize: 13, fontWeight: '500', color: colors.text2 },
+  syncControls: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  syncBtn: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  syncValue: { fontSize: 13, fontWeight: '600', color: colors.text1, minWidth: 48, textAlign: 'center' },
+  syncReset: {
+    paddingHorizontal: 10, paddingVertical: 6,
+    backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
+  },
+  syncResetText: { fontSize: 11, fontWeight: '500', color: colors.text2 },
   actions: { padding: 14, borderTopWidth: 1, borderTopColor: colors.borderSoft },
   closeBtn: {
     height: 40, borderRadius: radius.md,

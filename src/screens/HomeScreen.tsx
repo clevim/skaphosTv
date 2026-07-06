@@ -35,6 +35,15 @@ import { lockLandscape } from '../utils/orientation';
 // Barra de abas inferior: layout de smartphone (TV e web usam a top bar).
 const HAS_BOTTOM_NAV = IS_MOBILE;
 
+// Ordenação das grades — cicla nesta ordem ao tocar o botão de ordenar.
+const SORT_CYCLE = ['default', 'az', 'popular'] as const;
+const SORT_ICON: Record<typeof SORT_CYCLE[number], string> = {
+  default: 'swap-vertical-outline', az: 'text-outline', popular: 'flame-outline',
+};
+const SORT_LABEL: Record<typeof SORT_CYCLE[number], string> = {
+  default: 'Padrão', az: 'A-Z', popular: 'Mais assistido',
+};
+
 // ── FlatItem ─────────────────────────────────────────────────────────────────
 // Componente intermediário com React.memo + useCallback por item.
 // Sem isso, inline arrows no renderCard criam novas refs para todos os 2288 itens
@@ -106,6 +115,8 @@ export default function HomeScreen() {
   const currentChannel = useStore(s => s.currentChannel);
   const watchEntries   = useWatchProgress(s => s.entries);
   const channelIndex   = useStore(s => s.channelIndex);
+  const sortMode       = useStore(s => s.settings.sortMode);
+  const updateSettings = useStore(s => s.updateSettings);
   const setSelectedGroup      = useStore(s => s.setSelectedGroup);
   const setLoading            = useStore(s => s.setLoading);
   const setLoadError          = useStore(s => s.setLoadError);
@@ -334,7 +345,7 @@ export default function HomeScreen() {
     filteredChannels,
     favoritesSet,
     episodeCountMap,
-  } = useChannelFilter({ navKey, selectedGroup, channels, groups, favorites, categorySearch, channelIndex, sources });
+  } = useChannelFilter({ navKey, selectedGroup, channels, groups, favorites, categorySearch, channelIndex, sources, sortMode });
 
   const fadeAnim      = useRef(new Animated.Value(1)).current;
   const isFirstMount  = useRef(true);
@@ -474,6 +485,12 @@ export default function HomeScreen() {
     const pick = filteredChannels[Math.floor(Math.random() * filteredChannels.length)];
     handleChannelPress(pick);
   }, [filteredChannels, handleChannelPress]);
+
+  // Ordenação das grades — cicla Padrão → A-Z → Mais assistido → Padrão.
+  const handleCycleSort = useCallback(() => {
+    const idx = SORT_CYCLE.indexOf(sortMode);
+    updateSettings({ sortMode: SORT_CYCLE[(idx + 1) % SORT_CYCLE.length] });
+  }, [sortMode, updateSettings]);
 
   // Responsive card grid — formato portrait (poster 2:3)
   const CARD_MARGIN = IS_TV ? 6 : 4;
@@ -672,6 +689,9 @@ export default function HomeScreen() {
           onGroupSelect={setSelectedGroup}
           onReload={handleRefresh}
           onRandom={handleRandomPick}
+          onSort={handleCycleSort}
+          sortLabel={sortMode !== 'default' ? SORT_LABEL[sortMode] : undefined}
+          sortIcon={SORT_ICON[sortMode]}
         >
           <Animated.View style={{ flex: 1, minHeight: 0, opacity: fadeAnim }}>
             <FlatList
@@ -708,8 +728,12 @@ export default function HomeScreen() {
             <Text style={styles.sectionTitle}>{sectionTitle}</Text>
             <Text style={styles.sectionCount}>
               {filteredChannels.length} item{filteredChannels.length !== 1 ? 's' : ''}
+              {sortMode !== 'default' ? ` · ${SORT_LABEL[sortMode]}` : ''}
             </Text>
           </View>
+          <TVFocusable onPress={handleCycleSort} style={[styles.topbarIconBtn, { marginRight: 8 }]}>
+            <Ionicons name={SORT_ICON[sortMode] as any} size={18} color={colors.accent} />
+          </TVFocusable>
           <TVFocusable onPress={handleRandomPick} style={[styles.topbarIconBtn, { marginRight: 8 }]}>
             <Ionicons name="dice-outline" size={18} color={colors.accent} />
           </TVFocusable>

@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Channel } from '../types';
+import { resolveChannelType } from './useStore';
 
 // ─── Progresso de reprodução LOCAL (por dispositivo) ─────────────────────────
 // Guarda, por id de mídia (filme/episódio), a posição em que o usuário parou e se
@@ -127,6 +129,42 @@ export function resumePositionFor(entry: WatchEntry | undefined): number {
 export function progressFractionFor(entry: WatchEntry | undefined): number {
   if (!entry || entry.durationSec <= 0) return 0;
   return Math.max(0, Math.min(1, entry.positionSec / entry.durationSec));
+}
+
+export interface ContinueWatchingItem {
+  channel: Channel;
+  progress: number;
+  entry?: WatchEntry;
+}
+
+/**
+ * "Continue assistindo": itens em curso primeiro (mais recentes antes), depois
+ * os demais recentes na ordem original. Compartilhado entre HomeContent (fileira
+ * da Home) e o sync do widget de tela inicial (Android) — mesma regra nos dois.
+ */
+export function computeContinueWatching(
+  recentChannels: Channel[],
+  watchEntries: Record<string, WatchEntry>,
+  max = 20,
+): ContinueWatchingItem[] {
+  const inProgress: Array<{ channel: Channel; progress: number; entry: WatchEntry }> = [];
+  const rest: Channel[] = [];
+  for (const ch of recentChannels) {
+    const entry = watchEntries[ch.id];
+    // Ao vivo nunca entra como "em curso" (entradas antigas podem existir de quando
+    // streams live com duração reportada gravavam progresso indevidamente)
+    const isLiveCh = resolveChannelType(ch) === 'live';
+    if (!isLiveCh && entry && !entry.watched && resumePositionFor(entry) > 0) {
+      inProgress.push({ channel: ch, progress: progressFractionFor(entry), entry });
+    } else {
+      rest.push(ch);
+    }
+  }
+  inProgress.sort((a, b) => b.entry.updatedAt - a.entry.updatedAt);
+  return [
+    ...inProgress,
+    ...rest.map(channel => ({ channel, progress: 0, entry: undefined as WatchEntry | undefined })),
+  ].slice(0, max);
 }
 
 /** Status pra badge de card: "assistido" (check) OU "assistindo" (barra), nunca os dois. */

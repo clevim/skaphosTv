@@ -10,9 +10,10 @@ import * as KeepAwake from 'expo-keep-awake';
 import * as Updates from 'expo-updates';
 import { Linking, AppState } from 'react-native';
 import { useStore } from './src/store/useStore';
-import { useWatchProgress } from './src/store/watchProgress';
+import { useWatchProgress, computeContinueWatching } from './src/store/watchProgress';
 import { useUsageStats } from './src/store/usageStats';
 import { initNotifications } from './src/utils/notifications';
+import { syncContinueWatchingWidget } from './src/utils/widgetSync';
 import { useRecentSearches } from './src/store/recentSearches';
 import { useGeistFonts } from './src/hooks/useGeistFonts';
 import HomeScreen from './src/screens/HomeScreen';
@@ -163,6 +164,29 @@ export default function App() {
       KeepAwake.deactivateKeepAwake();
       sub.remove();
       appStateSub.remove();
+    };
+  }, []);
+
+  // Widget de tela inicial "Continuar assistindo" (Android) — mantém sincronizado
+  // com o que muda em recentChannels/watchProgress. Debounce curto: as duas stores
+  // podem disparar em sequência (troca de canal + primeiro record() de progresso).
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const sync = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const { recentChannels } = useStore.getState();
+        const { entries } = useWatchProgress.getState();
+        syncContinueWatchingWidget(computeContinueWatching(recentChannels, entries, 3));
+      }, 1500);
+    };
+    sync();
+    const unsubStore = useStore.subscribe(sync);
+    const unsubProgress = useWatchProgress.subscribe(sync);
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsubStore();
+      unsubProgress();
     };
   }, []);
 

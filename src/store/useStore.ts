@@ -70,6 +70,8 @@ interface AppState {
     notifyChannelOffline: boolean;
     notifyCatalogUpdate: boolean;
     notifySourceExpiring: boolean;
+    /** Ordenação das grades (Ao Vivo/Filmes/Séries/Favoritos/Ano) — 'default' é a ordem do catálogo. */
+    sortMode: 'default' | 'az' | 'popular';
   };
 
   addSource: (source: IPTVSource) => void;
@@ -320,6 +322,7 @@ export const useStore = create<AppState>((set, get) => ({
     notifyChannelOffline: true,
     notifyCatalogUpdate: true,
     notifySourceExpiring: true,
+    sortMode: 'default',
   },
 
   addSource: (source) => {

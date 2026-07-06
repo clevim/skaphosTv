@@ -17,6 +17,7 @@ import SubtitleSheet from '@/components/SubtitleSheet';
 import AudioTrackSheet from '@/components/AudioTrackSheet';
 import SleepTimerSheet from '@/components/SleepTimerSheet';
 import { fixStreamUrl } from '../utils/m3uParser';
+import { resolveSubtitleUri } from '../utils/subtitleSync';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import { setPipEnabled, setPipPlaying } from '../utils/pip';
 import { useMiniPlayer } from '../store/miniPlayer';
@@ -80,7 +81,7 @@ export default function PlayerScreen() {
     showOSD, showSidebar,
     isLive, hasPlaylist, currentIndex, totalSiblings,
     subtitleTracks, selectedSubtitleIndex,
-    vttSubtitleIndex, switchSubtitleTrack,
+    vttSubtitleIndex, switchSubtitleTrack, subtitleOffsetMs, setSubtitleOffset,
     audioTracks, currentAudioIndex, audioReady, switchAudioTrack,
     setVolume, setIsMuted, setShowSidebar,
     handleScreenTap, showOSDTemporarily,
@@ -190,17 +191,30 @@ export default function PlayerScreen() {
   //  • 1 VTT pequeno (SRT típico: 10–100 KB) não afeta o seek.
   //
   // Seleção: LANGUAGE com ID único jf-sub-{index} — matching exato no Java (.equals()).
-  const activeVttTrack = useMemo(() => {
-    if (vttSubtitleIndex === null) return [];
+  // Sincronia (subtitleOffsetMs): resolve a URI (original ou VTT deslocado, servido
+  // de um arquivo local) de forma assíncrona — buildando o textTracks só quando
+  // pronto, pra nunca aplicar a legenda errada por trás.
+  const [resolvedVttUri, setResolvedVttUri] = useState<string | null>(null);
+  useEffect(() => {
+    if (vttSubtitleIndex === null) { setResolvedVttUri(null); return; }
     const track = subtitleTracks.find(t => t.index === vttSubtitleIndex);
-    if (!track?.vttUrl) return [];
+    if (!track?.vttUrl) { setResolvedVttUri(null); return; }
+    let alive = true;
+    resolveSubtitleUri(track.vttUrl, subtitleOffsetMs).then(uri => { if (alive) setResolvedVttUri(uri); });
+    return () => { alive = false; };
+  }, [vttSubtitleIndex, subtitleTracks, subtitleOffsetMs]);
+
+  const activeVttTrack = useMemo(() => {
+    if (vttSubtitleIndex === null || !resolvedVttUri) return [];
+    const track = subtitleTracks.find(t => t.index === vttSubtitleIndex);
+    if (!track) return [];
     return [{
       title:    track.displayTitle,
       language: `jf-sub-${track.index}` as ISO639_1,
-      uri:      track.vttUrl,
+      uri:      resolvedVttUri,
       type:     TextTracksType.VTT,
     }];
-  }, [vttSubtitleIndex, subtitleTracks]);
+  }, [vttSubtitleIndex, subtitleTracks, resolvedVttUri]);
 
   const selectedTextTrack = useMemo(() => {
     if (!audioReady || selectedSubtitleIndex === null) return { type: SelectedTrackType.DISABLED };
@@ -494,6 +508,8 @@ export default function PlayerScreen() {
           selectedIndex={selectedSubtitleIndex}
           onSelect={switchSubtitleTrack}
           onClose={() => setShowSubtitleSheet(false)}
+          offsetMs={subtitleOffsetMs}
+          onOffsetChange={setSubtitleOffset}
         />
         <AudioTrackSheet
           visible={showAudioSheet}

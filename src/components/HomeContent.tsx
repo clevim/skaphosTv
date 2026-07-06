@@ -12,7 +12,7 @@ import PulsingDot from './PulsingDot';
 import { colors, spacing, fontSize, radius, fontFamily } from '../utils/theme';
 import { getSeriesBaseName, isLaunchYear, LAUNCH_YEAR, cleanGroupName } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
-import { useWatchProgress, progressFractionFor, resumePositionFor, watchStatusFor, WatchEntry } from '../store/watchProgress';
+import { useWatchProgress, progressFractionFor, resumePositionFor, watchStatusFor, computeContinueWatching, WatchEntry } from '../store/watchProgress';
 import { useNowNext } from '../store/epgStore';
 import { useStore, resolveChannelType } from '../store/useStore';
 
@@ -393,26 +393,10 @@ export default function HomeContent({
   // "Continue assistindo" com progresso REAL: itens em curso primeiro (mais
   // recentes antes), depois os demais recentes na ordem original. Séries usam
   // o progresso espelhado no id da série (gravado pelo player junto do episódio).
-  const continueItems = useMemo(() => {
-    const inProgress: Array<{ channel: Channel; progress: number; entry: WatchEntry }> = [];
-    const rest: Channel[] = [];
-    for (const ch of recentChannels) {
-      const entry = watchEntries[ch.id];
-      // Ao vivo nunca entra como "em curso" (entradas antigas podem existir de quando
-      // streams live com duração reportada gravavam progresso indevidamente)
-      const isLiveCh = resolveChannelType(ch) === 'live';
-      if (!isLiveCh && entry && !entry.watched && resumePositionFor(entry) > 0) {
-        inProgress.push({ channel: ch, progress: progressFractionFor(entry), entry });
-      } else {
-        rest.push(ch);
-      }
-    }
-    inProgress.sort((a, b) => b.entry.updatedAt - a.entry.updatedAt);
-    return [
-      ...inProgress,
-      ...rest.map(channel => ({ channel, progress: 0, entry: undefined as WatchEntry | undefined })),
-    ].slice(0, MAX);
-  }, [recentChannels, watchEntries]);
+  const continueItems = useMemo(
+    () => computeContinueWatching(recentChannels, watchEntries, MAX),
+    [recentChannels, watchEntries],
+  );
 
   const handlePress = (ch: Channel) => {
     if (onChannelPress) {

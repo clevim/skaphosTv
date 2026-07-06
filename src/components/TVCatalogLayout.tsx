@@ -15,11 +15,16 @@ interface Props {
   onReload?: () => void;
   /** "Estou com sorte": abre uma mídia aleatória da subcategoria atual. */
   onRandom?: () => void;
+  /** Cicla o modo de ordenação (Padrão → A-Z → Mais assistido). */
+  onSort?: () => void;
+  sortIcon?: string;
+  /** Some quando a ordenação é a padrão — só aparece quando A-Z/Mais assistido está ativo. */
+  sortLabel?: string;
   children: React.ReactNode;
 }
 
 export default function TVCatalogLayout({
-  title, count, groups, selectedGroup, onGroupSelect, onReload, onRandom, children,
+  title, count, groups, selectedGroup, onGroupSelect, onReload, onRandom, onSort, sortIcon, sortLabel, children,
 }: Props) {
   return (
     <View style={styles.root}>
@@ -28,9 +33,16 @@ export default function TVCatalogLayout({
         <View style={styles.sidebarHeader}>
           <View style={{ flex: 1 }}>
             <Text style={styles.sidebarTitle}>{title}</Text>
-            <Text style={styles.sidebarCount}>{count} itens</Text>
+            <Text style={styles.sidebarCount}>
+              {count} itens{sortLabel ? ` · ${sortLabel}` : ''}
+            </Text>
           </View>
           <View style={styles.headerActions}>
+            {onSort && (
+              <TVFocusable onPress={onSort} style={styles.reloadBtn} borderRadius={8}>
+                <Ionicons name={(sortIcon ?? 'swap-vertical-outline') as any} size={16} color={colors.accent} />
+              </TVFocusable>
+            )}
             {onRandom && (
               <TVFocusable onPress={onRandom} style={styles.reloadBtn} borderRadius={8}>
                 <Ionicons name="dice-outline" size={16} color={colors.accent} />

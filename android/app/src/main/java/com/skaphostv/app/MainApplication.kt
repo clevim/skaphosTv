@@ -24,6 +24,8 @@ class MainApplication : Application(), ReactApplication {
             val packages = PackageList(this).packages
             // Módulo nativo do Picture-in-Picture (não autolinkável)
             packages.add(PipPackage())
+            // Ponte pro widget de tela inicial "Continue assistindo" (não autolinkável)
+            packages.add(WidgetPackage())
             return packages
           }
 
