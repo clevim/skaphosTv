@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, Image, StyleSheet, View, Easing, useWindowDimensions } from 'react-native';
 import { colors } from '../utils/theme';
 
-const MIN_VISIBLE_MS = 1600;
+const MIN_VISIBLE_MS = 2400;
 
 // ── Canvas animation (ported from design/entrance-animation.html) ──────────
 
@@ -350,8 +350,9 @@ export default function AnimatedSplash({ ready, onFinish }: { ready: boolean; on
     <View
       ref={containerRef}
       style={[StyleSheet.absoluteFill, styles.root]}
+      // Engole os toques enquanto a intro roda — nada atrás pode ser clicado.
       // @ts-ignore pointerEvents on web
-      pointerEvents="none"
+      pointerEvents="auto"
     >
       {/* canvas is injected here via useEffect, behind React children */}
       <Animated.View style={[StyleSheet.absoluteFill, styles.center, { opacity: rootOpacity }]}>

@@ -467,11 +467,25 @@ export default function HomeScreen() {
     handleChannelPress(channel);
   }, [searchQuery, handleChannelPress]);
 
+  // Categoria (Ao Vivo/Filmes/Séries) aberta VAZIA com fontes ativas → o catálogo
+  // provavelmente ficou incompleto (carga interrompida no meio das fases do Xtream).
+  // Recarrega as fontes da rede pra não deixar o usuário abrir um catálogo pela
+  // metade. No máximo 1 tentativa por categoria por sessão (Set), pra não
+  // martelar a rede quando a fonte realmente não tem aquele tipo de conteúdo.
+  const emptyReloadTriedRef = useRef(new Set<string>());
   const handleNavPress = useCallback((key: string) => {
     // Guia de programação é uma TELA (não uma seção da Home)
     if (key === 'epg') {
       navigation.navigate('EPG');
       return;
+    }
+    if (key === 'live' || key === 'movies' || key === 'series') {
+      const state = useStore.getState();
+      const count = state.channelIndex?.counts[key] ?? 0;
+      if (count === 0 && state.sources.length > 0 && !emptyReloadTriedRef.current.has(key)) {
+        emptyReloadTriedRef.current.add(key);
+        loadSomeSources(state.sources);
+      }
     }
     setNavKey(key);
     setSelectedGroup(null);

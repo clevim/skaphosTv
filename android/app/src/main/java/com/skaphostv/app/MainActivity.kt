@@ -118,26 +118,26 @@ class MainActivity : ReactActivity() {
     enterPipNow()
   }
 
-  // O botão "X" da janela do PiP do sistema chama finish() na Activity — igual a
-  // sair do app normalmente, sem sinal específico de "fechou o PiP". Sem isso, o
-  // player nativo não recebia aviso pra parar e o áudio continuava tocando sozinho
-  // depois do PiP sumir. isFinishing só fica true nesse caso (o botão voltar usa
-  // moveTaskToBack, não finish — ver invokeDefaultOnBackPressed).
-  //
-  // finish() sozinho encerra a Activity mas o processo do app pode continuar
-  // residente em segundo plano (cache do Android, à espera do sistema reciclar
-  // sozinho). finishAndRemoveTask() também tira o app da lista de recentes; o
-  // killProcess logo depois garante que não sobra nada rodando — com um delay
-  // curto pro pause do JS (SkaphosPipClosed) ter tempo de rodar antes.
+  // Em alguns aparelhos o "X" do PiP chama finish() na Activity; nesses casos
+  // isFinishing fica true no onStop e encerramos por aqui. (O botão voltar usa
+  // moveTaskToBack, não finish — ver invokeDefaultOnBackPressed.)
+  // Na MAIORIA dos aparelhos, porém, o X só descarta a janela e PARA a Activity
+  // sem finish() — esse caso é detectado em onPictureInPictureModeChanged pelo
+  // estado do lifecycle (ver closePipApp).
   override fun onStop() {
     super.onStop()
-    if (isFinishing) {
-      emitEvent("SkaphosPipClosed", true)
-      finishAndRemoveTask()
-      android.os.Handler(mainLooper).postDelayed({
-        android.os.Process.killProcess(android.os.Process.myPid())
-      }, 300)
-    }
+    if (isFinishing) closePipApp()
+  }
+
+  /** Encerra o app de verdade após o X do PiP: avisa o JS pra pausar o player
+   *  (SkaphosPipClosed), remove a task dos recentes e mata o processo — o delay
+   *  curto dá tempo do pause do JS rodar antes do killProcess. */
+  private fun closePipApp() {
+    emitEvent("SkaphosPipClosed", true)
+    finishAndRemoveTask()
+    android.os.Handler(mainLooper).postDelayed({
+      android.os.Process.killProcess(android.os.Process.myPid())
+    }, 300)
   }
 
   /** Monta a action de play/pause exibida na janela do PiP. */
@@ -186,6 +186,13 @@ class MainActivity : ReactActivity() {
   override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
     super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
     emitEvent("SkaphosPipChanged", isInPictureInPictureMode)
+    // Saiu do PiP com a Activity ainda PARADA (onStop rodou antes deste callback)
+    // → o usuário fechou pelo "X" do sistema. Se ele expandiu de volta pro app,
+    // o lifecycle está STARTED/RESUMED e nada acontece.
+    if (!isInPictureInPictureMode &&
+        lifecycle.currentState == androidx.lifecycle.Lifecycle.State.CREATED) {
+      closePipApp()
+    }
     if (isInPictureInPictureMode) {
       if (pipReceiver == null) {
         pipReceiver = object : BroadcastReceiver() {

@@ -16,7 +16,7 @@ import { Animated, Image, StyleSheet, Easing, View, useWindowDimensions } from '
 import { WebView } from 'react-native-webview';
 import { colors } from '../utils/theme';
 
-const MIN_VISIBLE_MS = 1600;
+const MIN_VISIBLE_MS = 2400;
 
 // ── HTML do canvas animation (tentáculos + nebulosa + estrelas + motes) ──────
 // Template literal — o JS interno NÃO usa backtick/interpolação para evitar conflito.
@@ -307,7 +307,9 @@ export default function AnimatedSplash({ ready, onFinish }: { ready: boolean; on
 
 
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, styles.root, { opacity: rootOpacity }]} pointerEvents="none">
+    // pointerEvents="auto": a splash cobre a tela e ENGOLE os toques — nada
+    // atrás pode ser clicado enquanto a intro roda.
+    <Animated.View style={[StyleSheet.absoluteFill, styles.root, { opacity: rootOpacity }]} pointerEvents="auto">
       {/* Camada 1: canvas animation (tentáculos, nebulosa, estrelas) */}
       <WebView
         source={{ html: CANVAS_HTML }}
