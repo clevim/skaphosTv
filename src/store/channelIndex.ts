@@ -41,6 +41,10 @@ export interface ChannelIndex {
   // Ordenado por quantidade, só gêneros com pelo menos 4 itens.
   topGenres: { genre: string; channels: Channel[] }[];
 
+  // Mapa cru gênero→canais (capado) — só existe pra mergeChannelIndexes poder
+  // recompor o topGenres global a partir dos índices parciais por fonte.
+  genreMap: Map<string, Channel[]>;
+
   // Contagens para badges de navegação
   counts: { live: number; movies: number; series: number; year: number };
 }
@@ -52,6 +56,7 @@ const EMPTY_INDEX: ChannelIndex = {
   episodeCountMap: new Map(),
   yearMovies: [], yearSeries: [],
   topGenres: [],
+  genreMap: new Map(),
   counts: { live: 0, movies: 0, series: 0, year: 0 },
 };
 
@@ -193,11 +198,107 @@ export async function buildChannelIndex(channels: Channel[], sources: IPTVSource
     yearMovies: yearMoviesArr,
     yearSeries,
     topGenres,
+    genreMap,
     counts: {
       live:   live.length,
       movies: movies.length,
       series: series.length,
       year:   yearMoviesArr.length + yearSeries.length,
+    },
+  };
+}
+
+/**
+ * Funde índices PARCIAIS (um por fonte) num índice global.
+ *
+ * É o que torna o índice incremental: recarregar/carregar uma fonte reconstrói
+ * só o parcial dela (buildChannelIndex sobre os canais DAQUELA fonte) e o
+ * global sai deste merge — que é só concat/lookup de referências, sem regex
+ * nem resolveContentType. O dedup global de séries usa getSeriesBaseName, que
+ * é cacheado (channelUtils), então também vira lookup.
+ *
+ * NUNCA muta os parciais: em colisão de chave (grupo presente em 2 fontes),
+ * concat cria um array novo.
+ */
+export function mergeChannelIndexes(parts: ChannelIndex[]): ChannelIndex {
+  if (parts.length === 0) return EMPTY_INDEX;
+  if (parts.length === 1) return parts[0];
+
+  const live: Channel[] = [], movies: Channel[] = [], series: Channel[] = [];
+  const seriesSeen = new Set<string>();
+  const byGroup = new Map<string, Channel[]>();
+  const seriesByGroup = new Map<string, Channel[]>();
+  const episodeCountMap = new Map<string, number>();
+  const yearMovies: Channel[] = [], yearSeries: Channel[] = [];
+  const ySeen = new Set<string>();
+  const liveGroupsSet = new Set<string>(), movieGroupsSet = new Set<string>(), seriesGroupsSet = new Set<string>();
+  const genreMap = new Map<string, Channel[]>();
+
+  for (const p of parts) {
+    for (const c of p.live)   live.push(c);
+    for (const c of p.movies) movies.push(c);
+    for (const c of p.series) {
+      const b = getSeriesBaseName(c.name);
+      if (!seriesSeen.has(b)) { seriesSeen.add(b); series.push(c); }
+    }
+    for (const [g, chans] of p.byGroup) {
+      const prev = byGroup.get(g);
+      byGroup.set(g, prev ? prev.concat(chans) : chans);
+    }
+    for (const [g, chans] of p.seriesByGroup) {
+      const prev = seriesByGroup.get(g);
+      if (!prev) { seriesByGroup.set(g, chans); continue; }
+      const seen = new Set(prev.map(c => getSeriesBaseName(c.name)));
+      seriesByGroup.set(g, prev.concat(chans.filter(c => !seen.has(getSeriesBaseName(c.name)))));
+    }
+    for (const [b, n] of p.episodeCountMap) {
+      episodeCountMap.set(b, (episodeCountMap.get(b) || 0) + n);
+    }
+    for (const c of p.yearMovies) yearMovies.push(c);
+    for (const c of p.yearSeries) {
+      const b = getSeriesBaseName(c.name);
+      if (!ySeen.has(b)) { ySeen.add(b); yearSeries.push(c); }
+    }
+    for (const g of p.liveGroups)   liveGroupsSet.add(g);
+    for (const g of p.movieGroups)  movieGroupsSet.add(g);
+    for (const g of p.seriesGroups) seriesGroupsSet.add(g);
+    for (const [g, chans] of p.genreMap) {
+      const prev = genreMap.get(g);
+      genreMap.set(g, prev ? prev.concat(chans) : chans);
+    }
+  }
+
+  // topGenres global: dedup por id entre fontes + mesmo cap/limiar do build
+  const GENRE_CAP = 30;
+  const topGenres = Array.from(genreMap.entries())
+    .map(([genre, chans]) => {
+      const seen = new Set<string>();
+      const uniq: Channel[] = [];
+      for (const c of chans) {
+        if (uniq.length >= GENRE_CAP) break;
+        if (!seen.has(c.id)) { seen.add(c.id); uniq.push(c); }
+      }
+      return { genre, channels: uniq };
+    })
+    .filter(x => x.channels.length >= 4)
+    .sort((a, b) => b.channels.length - a.channels.length)
+    .slice(0, 8);
+
+  return {
+    live, movies, series,
+    byGroup, seriesByGroup,
+    liveGroups:   Array.from(liveGroupsSet),
+    movieGroups:  Array.from(movieGroupsSet),
+    seriesGroups: Array.from(seriesGroupsSet),
+    episodeCountMap,
+    yearMovies, yearSeries,
+    topGenres,
+    genreMap,
+    counts: {
+      live:   live.length,
+      movies: movies.length,
+      series: series.length,
+      year:   yearMovies.length + yearSeries.length,
     },
   };
 }

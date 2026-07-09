@@ -5,16 +5,45 @@
 import axios from 'axios';
 import { Channel } from '../types';
 import { useStore, IPTVSource } from '../store/useStore';
-import { loadXtreamChannels } from './xtreamLoader';
+import { loadXtreamPhased } from './xtreamPhasedLoader';
 import { loadJellyfinContent } from './jellyfinLoader';
 import { parseM3U } from './m3uParser';
+
+/** Xtream via loader FASEADO (live → filmes → séries, uma fase crua na memória
+ *  por vez), acumulando o resultado no formato { channels, groups } que os
+ *  chamadores esperam. Substitui o antigo xtreamLoader.ts, que baixava os 6
+ *  endpoints em paralelo — os 3 JSONs crus (séries passa de 10 MB) coexistiam
+ *  inteiros na RAM com os Channels mapeados, o pico que travava device fraco. */
+async function loadXtreamAccumulated(
+  host: string,
+  username: string,
+  password: string,
+): Promise<{ channels: Channel[]; groups: string[] }> {
+  const channels: Channel[] = [];
+  const groupSet = new Set<string>();
+  let firstError: string | null = null;
+  await loadXtreamPhased({
+    host, username, password,
+    onPhaseStart: () => {},
+    onProgress: () => {},
+    onPhaseComplete: (r) => {
+      for (const c of r.channels) channels.push(c);
+      for (const g of r.groups) groupSet.add(g);
+    },
+    onError: (_phase, msg) => { firstError = firstError ?? msg; },
+  });
+  // Todas as fases falharam → propaga o erro (o retry do boot depende disso);
+  // falha parcial mantém o que veio (mesma tolerância do loader antigo).
+  if (channels.length === 0 && firstError) throw new Error(firstError);
+  return { channels, groups: Array.from(groupSet).sort() };
+}
 
 export async function loadSourceChannels(
   source: IPTVSource,
 ): Promise<{ channels: Channel[]; groups: string[] }> {
   if (source.type === 'xtream') {
     const host = source.host?.replace(/\/$/, '') || '';
-    return loadXtreamChannels(host, source.username || '', source.password || '');
+    return loadXtreamAccumulated(host, source.username || '', source.password || '');
   }
   if (source.type === 'jellyfin') {
     const host = source.host?.replace(/\/$/, '') || '';

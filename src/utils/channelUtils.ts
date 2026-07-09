@@ -105,13 +105,22 @@ export function cleanGroupName(group: string): string {
   return pipeIdx === -1 ? withoutMarker : withoutMarker.slice(pipeIdx + 1).trim();
 }
 
+// ponytail: cache nome→base. São 4 regex por chamada e o índice/dedup/ordenação/
+// render chamam isto várias vezes pros MESMOS nomes a cada rebuild — o cache
+// transforma tudo em lookup O(1). Cap alto só pra não crescer sem teto.
+const seriesBaseCache = new Map<string, string>();
 export function getSeriesBaseName(name: string): string {
-  return name
+  const hit = seriesBaseCache.get(name);
+  if (hit !== undefined) return hit;
+  const base = name
     .replace(/\s*[-–]?\s*S\d+\s*E\d+.*$/i, '')
     .replace(/\s*[-–]?\s*S\d+\s*$/i, '')
     .replace(/\s*[-–]?\s*T\d+\s*$/i, '')
     .replace(/\s*\(\d{4}\)\s*$/, '')
     .trim();
+  if (seriesBaseCache.size > 120_000) seriesBaseCache.clear();
+  seriesBaseCache.set(name, base);
+  return base;
 }
 
 /**
