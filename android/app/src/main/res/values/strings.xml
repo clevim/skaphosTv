@@ -2,6 +2,6 @@
   <string name="app_name">SkaphosTV</string>
   <string name="expo_splash_screen_resize_mode" translatable="false">cover</string>
   <string name="expo_splash_screen_status_bar_translucent" translatable="false">false</string>
-  <string name="expo_runtime_version">1.4.2</string>
+  <string name="expo_runtime_version">1.4.3</string>
   <string name="widget_description">Continue assistindo onde parou</string>
 </resources>
