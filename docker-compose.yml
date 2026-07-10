@@ -1,5 +1,9 @@
+# Com `image:` + `build:`: no servidor basta `docker compose pull && up -d`
+# (imagens publicadas pelo scripts/docker-release.sh); localmente
+# `docker compose up -d --build` continua buildando do código.
 services:
   proxy:
+    image: ghcr.io/clevim/skaphostv-proxy:latest
     build:
       context: .
       dockerfile: docker/Dockerfile.proxy
@@ -8,6 +12,7 @@ services:
       - "3001"
 
   web:
+    image: ghcr.io/clevim/skaphostv-web:latest
     build:
       context: .
       dockerfile: docker/Dockerfile.web

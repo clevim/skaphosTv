@@ -27,7 +27,7 @@ import RemoteHints from '../components/RemoteHints';
 import TVCatalogLayout from '../components/TVCatalogLayout';
 import TVSearchContent from '../components/TVSearchContent';
 
-import { IS_TV, IS_MOBILE } from '../utils/tvDetect';
+import { IS_TV, IS_MOBILE, IS_WEB } from '../utils/tvDetect';
 import { dlog } from '../utils/debugLog';
 import { checkExpiringSources } from '../utils/xtreamApi';
 import { lockLandscape } from '../utils/orientation';
@@ -524,12 +524,18 @@ export default function HomeScreen() {
   // Full row height: poster + info + card margins (top + bottom)
   const ROW_H = cardHeight + INFO_H + CARD_MARGIN * 2;
 
+  // Mobile: altura REAL do ListHeaderComponent (título + chips). Sem somá-la ao
+  // offset, todos os offsets do getItemLayout ficavam ~110px errados — a
+  // virtualização errava a janela visível e os cards "pulavam" de posição.
+  // Na TV/web não há header na lista (fica 0).
+  const [listHeaderH, setListHeaderH] = useState(0);
+
   const getItemLayout = useCallback(
     (_: any, index: number) => {
       const row = Math.floor(index / numColumns);
-      return { length: ROW_H, offset: gridPadding + ROW_H * row, index };
+      return { length: ROW_H, offset: listHeaderH + gridPadding + ROW_H * row, index };
     },
-    [ROW_H, numColumns, gridPadding]
+    [ROW_H, numColumns, gridPadding, listHeaderH]
   );
 
   const renderCard = useCallback(
@@ -714,7 +720,12 @@ export default function HomeScreen() {
               data={filteredChannels}
               keyExtractor={keyExtractor}
               numColumns={numColumns}
-              key={numColumns}
+              // Web: remonta a lista ao trocar seção/subcategoria — trocar só o `data`
+              // re-renderiza SÍNCRONO toda a janela virtualizada já montada (~200 cards
+              // num desktop com windowSize 9), que era a demora sentida ao filtrar.
+              // Remontar renderiza apenas o lote inicial (~4 linhas). Na TV física o
+              // key fixo fica: remontar destruía o foco do D-pad.
+              key={IS_WEB ? `${numColumns}-${navKey}-${selectedGroup ?? ''}` : numColumns}
               renderItem={renderFlatItem}
               contentContainerStyle={styles.grid}
               showsVerticalScrollIndicator={false}
@@ -723,7 +734,9 @@ export default function HomeScreen() {
               initialNumToRender={numColumns * 4}
               maxToRenderPerBatch={numColumns * 3}
               updateCellsBatchingPeriod={50}
-              windowSize={9}
+              // 5 viewports (~110 cards) em vez de 9 (~200): na TV cada card montado
+              // é um listener de foco e entra no re-render síncrono da troca de filtro
+              windowSize={5}
               removeClippedSubviews={false}
               getItemLayout={getItemLayout}
             />
@@ -735,7 +748,7 @@ export default function HomeScreen() {
     // Mobile: header + chips live inside ListHeaderComponent so FlatList
     // is the sole flex child and fills all remaining space correctly.
     const listHeader = (
-      <>
+      <View onLayout={(e) => setListHeaderH(Math.round(e.nativeEvent.layout.height))}>
         {/* Section header */}
         <View style={styles.sectionHeader}>
           <View style={{ flex: 1 }}>
@@ -792,7 +805,7 @@ export default function HomeScreen() {
             })}
           </ScrollView>
         )}
-      </>
+      </View>
     );
 
     return (
@@ -811,7 +824,7 @@ export default function HomeScreen() {
           initialNumToRender={numColumns * 4}
           maxToRenderPerBatch={numColumns * 3}
           updateCellsBatchingPeriod={50}
-          windowSize={7}
+          windowSize={5}
           removeClippedSubviews
           getItemLayout={getItemLayout}
         />

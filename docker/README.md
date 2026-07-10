@@ -22,6 +22,23 @@ Sobe dois serviços:
 - **web** — bundle `react-native-web` servido por nginx (porta 8080).
 - **proxy** — `proxy-server.js`, reescreve streams em `/proxy?url=...` para contornar CORS.
 
+### Imagens prontas (GHCR)
+
+Publicadas por `bash scripts/docker-release.sh` (ou `release.sh --docker`):
+
+```bash
+# num servidor, sem clonar o repo (só o docker-compose.yml):
+docker compose pull && docker compose up -d
+
+# ou direto:
+docker pull ghcr.io/clevim/skaphostv-web:latest
+docker pull ghcr.io/clevim/skaphostv-proxy:latest
+```
+
+> O push exige `gh auth refresh -s write:packages` (uma vez). A primeira
+> publicação nasce **privada** no GHCR — para `docker pull` anônimo, mude a
+> visibilidade em github.com/users/clevim/packages → Package settings → Public.
+
 A UI e a lógica de D-Pad (setas do teclado = controle) funcionam 100%.
 
 ### Limitação de playback no navegador

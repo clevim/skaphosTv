@@ -1,10 +1,28 @@
+# Compartilhado (build do APK — Dockerfile.android precisa de android/ e da
+# debug.keystore). Web e proxy têm listas próprias mais estritas em
+# docker/Dockerfile.<alvo>.dockerignore (BuildKit usa elas no lugar desta).
 node_modules
-android/app/build
-android/build
-android/.gradle
-ios/build
+ios
+storage
+apks
+docs
+build-output
 dist
 .expo
 .git
+android/app/build
+android/build
+android/.gradle
+android/local.properties
+modules/*/android/build
+
+# Nunca dentro de build: segredos e config local/pessoal
+.env*
+google-services.json
+.claude
+.vscode
+.idea
+
 *.log
-build-output
+*.apk
+*.aab

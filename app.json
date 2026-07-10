@@ -7,7 +7,7 @@
       "android",
       "web"
     ],
-    "version": "1.4.3",
+    "version": "1.4.4",
     "orientation": "default",
     "updates": {
       "url": "https://u.expo.dev/311cabc0-dbe5-4e90-bab4-5f821106e362",
@@ -15,7 +15,7 @@
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "1.4.3",
+    "runtimeVersion": "1.4.4",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
@@ -26,13 +26,17 @@
     "assetBundlePatterns": [
       "**/*"
     ],
+    "web": {
+      "name": "SkaphosTV",
+      "favicon": "./assets/favicon.png"
+    },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0a0810"
       },
       "package": "com.skaphostv.app",
-      "versionCode": 10403,
+      "versionCode": 10404,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",

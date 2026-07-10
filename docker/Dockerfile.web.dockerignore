@@ -1,0 +1,28 @@
+# Contexto do build WEB — substitui o .dockerignore raiz (BuildKit).
+# Só precisa de: src, App.tsx, assets, modules (JS), patches, configs.
+node_modules
+android
+ios
+storage
+apks
+docs
+build-output
+dist
+.expo
+.git
+
+.env*
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+google-services.json
+.claude
+.vscode
+.idea
+
+*.log
+*.apk
+*.aab

@@ -84,7 +84,7 @@ export default function PlayerScreen() {
     vttSubtitleIndex, switchSubtitleTrack, subtitleOffsetMs, setSubtitleOffset,
     audioTracks, currentAudioIndex, audioReady, switchAudioTrack,
     setVolume, setIsMuted, setShowSidebar,
-    handleScreenTap, showOSDTemporarily,
+    handleScreenTap, showOSDTemporarily, setOsdHover,
     togglePlay, playChannel, prevChannel, nextChannel,
     manualRetry, seekBy, seekTo,
     onLoad, onProgress, onBuffer, onError, onEnd,
@@ -349,32 +349,76 @@ export default function PlayerScreen() {
     return () => sub.remove();
   }, [handleKeyDown]);
 
-  // Web: o View não tem onKeyDown, então o teclado vira o "D-pad" reaproveitando
-  // a mesma lógica de seek/aceleração/indicador via um listener de window.
+  // Web: atalhos nativos de player (padrão YouTube) em vez de emular o D-pad de TV —
+  // setas fazem seek/volume direto, espaço pausa, M muta e Esc volta (a cascata do
+  // hardwareBackPress, que não dispara no navegador).
   useEffect(() => {
     if (!IS_WEB) return;
-    const webKeyMap: Record<string, number> = {
-      ArrowRight: KEY.DPAD_RIGHT,
-      ArrowLeft:  KEY.DPAD_LEFT,
-      ArrowUp:    KEY.DPAD_UP,
-      ArrowDown:  KEY.DPAD_DOWN,
-      Enter:      KEY.DPAD_CENTER,
-      ' ':        KEY.MEDIA_PLAY_PAUSE,
+    // Espaço/Enter num botão focado já "clica" o botão — não duplica a ação aqui
+    const buttonFocused = () => {
+      const el = document.activeElement as HTMLElement | null;
+      return !!el && (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button');
     };
     const onKey = (ev: KeyboardEvent) => {
-      const code = webKeyMap[ev.key];
-      if (code == null) return;
-      ev.preventDefault();
-      handleKeyDown({ nativeEvent: { keyCode: code } });
+      // Slider de volume (input range) focado: setas ajustam o volume nativamente
+      if (ev.key.startsWith('Arrow') &&
+          (document.activeElement as HTMLElement | null)?.tagName === 'INPUT') {
+        showOSDTemporarily();
+        return;
+      }
+      switch (ev.key) {
+        case 'ArrowRight': ev.preventDefault(); showOSDTemporarily(); seekBy(10); break;
+        case 'ArrowLeft':  ev.preventDefault(); showOSDTemporarily(); seekBy(-10); break;
+        case 'ArrowUp':
+          ev.preventDefault(); showOSDTemporarily();
+          setIsMuted(false);
+          setVolume((v: number) => Math.min(1, parseFloat((v + 0.1).toFixed(1))));
+          break;
+        case 'ArrowDown':
+          ev.preventDefault(); showOSDTemporarily();
+          setVolume((v: number) => Math.max(0, parseFloat((v - 0.1).toFixed(1))));
+          break;
+        case ' ':
+          if (buttonFocused()) return;
+          ev.preventDefault(); togglePlay();
+          break;
+        case 'm': case 'M':
+          setIsMuted(m => !m); showOSDTemporarily();
+          break;
+        case 'Escape':
+          if (showSubtitleSheet) setShowSubtitleSheet(false);
+          else if (showAudioSheet) setShowAudioSheet(false);
+          else if (showSleepSheet) setShowSleepSheet(false);
+          else if (showSidebar) setShowSidebar(false);
+          else navigation.goBack();
+          break;
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [handleKeyDown]);
+  }, [seekBy, togglePlay, setVolume, setIsMuted, showOSDTemporarily, setShowSidebar,
+      showSubtitleSheet, showAudioSheet, showSleepSheet, showSidebar, navigation]);
+
+  // Web: mover o mouse reexibe o OSD (como nos players de navegador). Throttle leve —
+  // cada chamada re-arma timer + animação, não precisa rodar a cada pixel.
+  const lastMouseMoveRef = useRef(0);
+  useEffect(() => {
+    if (!IS_WEB) return;
+    const onMove = () => {
+      const now = Date.now();
+      if (now - lastMouseMoveRef.current < 250) return;
+      lastMouseMoveRef.current = now;
+      showOSDTemporarily();
+    };
+    window.addEventListener('mousemove', onMove);
+    return () => window.removeEventListener('mousemove', onMove);
+  }, [showOSDTemporarily]);
 
   return (
     // Teclas do controle remoto (Android TV) chegam via DeviceEventEmitter
     // 'SkaphosKeyDown' (ver useEffect acima) — a prop onKeyDown da View não existe em RN.
-    <View style={styles.root}>
+    // Web: esconde o cursor junto com o OSD (mover o mouse traz os dois de volta)
+    <View style={[styles.root, IS_WEB && !showOSD && ({ cursor: 'none' } as any)]}>
       <TouchableOpacity style={styles.videoContainer} onPress={handleScreenTap} activeOpacity={1}>
         <Video
           key={videoKey}
@@ -498,6 +542,7 @@ export default function PlayerScreen() {
             showMinimize={!inPip}
             onMinimize={handleMinimize}
             scrubMode={scrubMode}
+            onControlsHover={IS_WEB ? setOsdHover : undefined}
           />
         )}
 

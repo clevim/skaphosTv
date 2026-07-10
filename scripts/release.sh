@@ -22,6 +22,7 @@ set -euo pipefail
 #   bash scripts/release.sh --notes notas.md# usa um arquivo de notas
 #   bash scripts/release.sh --draft         # cria como rascunho (revisar antes de publicar)
 #   bash scripts/release.sh --allow-dirty   # pula a checagem de árvore limpa / versão no HEAD
+#   bash scripts/release.sh --docker        # também publica as imagens web+proxy no GHCR
 
 cd "$(dirname "$0")/.."
 
@@ -38,6 +39,7 @@ REBUILD=0
 NO_BUILD=0
 DRAFT=0
 ALLOW_DIRTY=0
+DOCKER=0
 NOTES_FILE=""
 
 # ── Args ─────────────────────────────────────────────────────────────────────
@@ -47,6 +49,7 @@ while [ $# -gt 0 ]; do
     --no-build)    NO_BUILD=1 ;;
     --draft)       DRAFT=1 ;;
     --allow-dirty) ALLOW_DIRTY=1 ;;
+    --docker)      DOCKER=1 ;;
     --notes)       NOTES_FILE="${2:-}"; shift ;;
     -h|--help)     sed -n '3,30p' "$0"; exit 0 ;;
     -*)            echo "✗ opção desconhecida: $1"; exit 1 ;;
@@ -148,3 +151,10 @@ echo ""
 echo "✓ Release $TAG publicada com o APK."
 [ "$DRAFT" -eq 1 ] && echo "  (rascunho — revise e publique em github.com/$REPO/releases)"
 echo "  O 'Verificar atualização' no app deve passar a oferecer a v$VERSION."
+
+# ── Imagens Docker (opcional) ────────────────────────────────────────────────
+if [ "$DOCKER" -eq 1 ]; then
+  echo ""
+  echo "▶ Publicando imagens Docker no GHCR…"
+  bash scripts/docker-release.sh "$VERSION"
+fi

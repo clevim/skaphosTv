@@ -31,6 +31,8 @@ interface ChannelCardProps {
 // Formato portrait (poster 2:3) — melhor enquadramento para filmes/séries
 const CARD_W = IS_TV ? 160 : 110;
 const CARD_H = IS_TV ? 224 : 154;
+// Altura da seção de info — deve casar com INFO_H do HomeScreen (getItemLayout)
+const INFO_H = IS_TV ? 72 : 56;
 
 const TYPE_CONFIG = {
   live:   { label: 'AO VIVO', color: colors.red },
@@ -47,7 +49,9 @@ function ChannelCard({
   hasTVPreferredFocus, episodeCount, contentType = 'live', progress, watched,
   cardWidth, cardHeight,
 }: ChannelCardProps) {
-  const { preset } = useThemeStore();
+  // Seletor pontual: sem ele, TODO card montado re-renderizava em qualquer
+  // mudança da theme store (destructure assina a store inteira).
+  const preset = useThemeStore(s => s.preset);
   const name = displayName ?? channel.name;
   const type = TYPE_CONFIG[contentType] ?? TYPE_CONFIG.live;
   const qColor = QUALITY_COLORS[channel.quality || 'HD'] ?? QUALITY_COLORS.HD;
@@ -64,7 +68,10 @@ function ChannelCard({
       accessibilityLabel={channel.name}
       style={[
         styles.card,
-        { width: W },
+        // Altura EXPLÍCITA (box-sizing inclui a borda): sem ela, a borda de 1px
+        // somava 2px à altura real de cada linha e o getItemLayout do grid ia
+        // acumulando o erro — a virtualização errava a janela e os cards "pulavam".
+        { width: W, height: H + INFO_H },
         isPlaying && { borderColor: preset.primary, borderWidth: 2 },
       ]}
     >

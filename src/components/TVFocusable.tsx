@@ -100,9 +100,13 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
 
   useEffect(() => {
     if (!IS_TV) return;
+    // Tag resolvida UMA vez por montagem (collapsable={false} garante a view
+    // nativa). Antes ficava dentro do callback: cada evento de foco do D-pad
+    // rodava findNodeHandle em TODOS os focusables montados (~200 num grid) —
+    // era o engasgo ao navegar entre cards na TV.
+    const myTag = findNodeHandle(pressableRef.current);
+    if (myTag == null) return;
     const sub = addFocusListener((event) => {
-      const myTag = findNodeHandle(pressableRef.current);
-      if (myTag == null) return;
       if (event.newViewTag === myTag) {
         setIsFocused(true);
         onFocusPropRef.current?.();

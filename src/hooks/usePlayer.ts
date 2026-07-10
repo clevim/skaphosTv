@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { Animated } from 'react-native';
 import { useStore, resolveChannelType } from '../store/useStore';
 import { Channel } from '../types';
-import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import { IS_NATIVE_TV, IS_WEB } from '../utils/tvDetect';
 import { lockLandscape, unlockOrientation } from '../utils/orientation';
 import {
   parseJellyfinVideoUrl, markJellyfinWatched, reportJellyfinProgress,
@@ -19,7 +19,8 @@ import { notify } from '../utils/notifications';
  *  indevido, progresso gravado e auto-close no fim do buffer). */
 const channelIsLive = (ch: Channel | null | undefined) =>
   !!ch && resolveChannelType(ch) === 'live';
-const OSD_TIMEOUT = IS_TV ? 6000 : 4000;
+// Web esconde mais rápido: mover o mouse reexibe na hora (mobile/TV dependem de tap/tecla)
+const OSD_TIMEOUT = IS_NATIVE_TV ? 6000 : IS_WEB ? 3000 : 4000;
 
 export const MAX_RETRIES = 5;
 export const RETRY_DELAYS = [2000, 4000, 8000, 15000, 30000];
@@ -229,15 +230,29 @@ export function usePlayer(
     }, 10_000);
   }, []);
 
+  // Web: mouse sobre algum controle do OSD → não esconde (hover-out re-arma o timer)
+  const osdHoverRef = useRef(false);
+
   const showOSDTemporarily = useCallback(() => {
     setShowOSD(true);
     Animated.timing(osdAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
     if (osdTimer.current) clearTimeout(osdTimer.current);
     osdTimer.current = setTimeout(() => {
+      if (osdHoverRef.current) return; // ponteiro em cima dos controles — setOsdHover(false) re-arma
       Animated.timing(osdAnim, { toValue: 0, duration: 400, useNativeDriver: true })
         .start(() => setShowOSD(false));
     }, OSD_TIMEOUT);
   }, [osdAnim]);
+
+  // Chamado pelos containers de controle do PlayerOSD no web (mouse enter/leave)
+  const setOsdHover = useCallback((hovering: boolean) => {
+    osdHoverRef.current = hovering;
+    if (hovering) {
+      if (osdTimer.current) clearTimeout(osdTimer.current);
+    } else {
+      showOSDTemporarily();
+    }
+  }, [showOSDTemporarily]);
 
   const togglePlay = useCallback(() => {
     setPaused(p => { setIsPlaying(!!p); return !p; });
@@ -606,7 +621,7 @@ export function usePlayer(
     audioTracks, currentAudioIndex, audioReady, switchAudioTrack,
     switchSubtitleTrack, subtitleOffsetMs, setSubtitleOffset,
     setVolume, setIsMuted, setShowOSD, setShowSidebar,
-    showOSDTemporarily, handleScreenTap,
+    showOSDTemporarily, setOsdHover, handleScreenTap,
     togglePlay, playChannel, prevChannel, nextChannel,
     manualRetry, seekBy, seekTo,
     onLoad, onProgress, onBuffer, onError, onEnd,

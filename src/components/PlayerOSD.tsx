@@ -10,7 +10,7 @@ import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import PulsingDot from './PulsingDot';
 import { colors, fontSize, radius, spacing } from '@/utils/theme';
-import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import { IS_TV, IS_NATIVE_TV, IS_WEB } from '../utils/tvDetect';
 import { useStore } from '../store/useStore';
 import { useNowNext } from '../store/epgStore';
 
@@ -105,6 +105,26 @@ interface Props {
   /** TV: modo scrubbing ativo (controlado pelo PlayerScreen). Esconde os controles,
    *  realça a barra e mostra a dica. O seek é feito pelo D-pad no PlayerScreen. */
   scrubMode?: boolean;
+  /** Web: avisa quando o mouse entra/sai dos controles — o OSD não se esconde
+   *  enquanto o ponteiro estiver sobre algum botão/barra. */
+  onControlsHover?: (hovering: boolean) => void;
+}
+
+// CSS do slider de volume (web) — à la YouTube: <input type="range"> nativo com
+// preenchimento via --pct e expansão por transição. Pseudo-elementos de range não
+// são estilizáveis inline, então injeta uma vez no <head>.
+if (IS_WEB && typeof document !== 'undefined') {
+  const style = document.createElement('style');
+  style.textContent = `
+.skv-vol-wrap{width:0;opacity:0;overflow:hidden;display:flex;align-items:center;height:38px;transition:width .18s ease,opacity .18s ease}
+.skv-vol-open{width:84px;opacity:1}
+.skv-vol{-webkit-appearance:none;appearance:none;flex:none;width:78px;height:14px;margin:0 6px 0 0;background:transparent;cursor:pointer;outline:none}
+.skv-vol::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:linear-gradient(to right,#fff var(--pct,100%),rgba(255,255,255,.28) var(--pct,100%))}
+.skv-vol::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:#fff;margin-top:-4.5px}
+.skv-vol::-moz-range-track{height:3px;border-radius:2px;background:rgba(255,255,255,.28)}
+.skv-vol::-moz-range-progress{height:3px;border-radius:2px;background:#fff}
+.skv-vol::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:#fff;border:none}`;
+  document.head.appendChild(style);
 }
 
 function formatTime(seconds: number): string {
@@ -129,31 +149,34 @@ export default function PlayerOSD({
   showNextEpisode, onNextEpisode,
   showMinimize, onMinimize,
   scrubMode = false,
+  onControlsHover,
 }: Props) {
   const progressPct = duration > 0 ? Math.min(1, position / duration) : 0;
   const seekBarWidth = useRef(0);
 
+  // PanResponder é criado uma única vez (useRef): lê o callback via ref para não
+  // congelar a primeira versão de onSeekTo — na primeira montagem duration ainda
+  // é 0 e o seekTo capturado não faria nada.
+  const onSeekToRef = useRef(onSeekTo);
+  onSeekToRef.current = onSeekTo;
+
+  // Web: mouse sobre os controles → segura o OSD visível
+  const hoverProps = IS_WEB && onControlsHover ? ({
+    onMouseEnter: () => onControlsHover(true),
+    onMouseLeave: () => onControlsHover(false),
+  } as any) : undefined;
+
   // ── Volume (só web: nativo usa o volume físico do aparelho) ────────────────
-  const volBarWidth = useRef(0);
-  const volPan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (e) => {
-        const pct = Math.max(0, Math.min(1, e.nativeEvent.locationX / (volBarWidth.current || 1)));
-        onVolumeChange(pct);
-      },
-      onPanResponderMove: (e) => {
-        const pct = Math.max(0, Math.min(1, e.nativeEvent.locationX / (volBarWidth.current || 1)));
-        onVolumeChange(pct);
-      },
-    })
-  ).current;
+  // O slider é um <input type="range"> nativo SEMPRE montado (expande via CSS no
+  // hover) — sem montar/desmontar, sem PanResponder: arraste, clique e teclado
+  // vêm do navegador. volDragging mantém aberto se o ponteiro sair do grupo
+  // com o botão pressionado (o range segue o drag por pointer capture).
+  const [volHover, setVolHover] = useState(false);
+  const [volDragging, setVolDragging] = useState(false);
+  const volOpen = volHover || volDragging;
   const volPct = isMuted ? 0 : Math.round(volume * 100);
   const volIcon = isMuted || volume <= 0 ? 'volume-mute'
     : volume < 0.5 ? 'volume-low' : 'volume-high';
-  // Slider só aparece no hover do grupo (ícone) — clique no ícone muta/desmuta
-  const [volHover, setVolHover] = useState(false);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -161,11 +184,11 @@ export default function PlayerOSD({
       onMoveShouldSetPanResponder: () => !isLive && duration > 0,
       onPanResponderGrant: (e) => {
         const pct = Math.max(0, Math.min(1, e.nativeEvent.locationX / seekBarWidth.current));
-        onSeekTo(pct);
+        onSeekToRef.current(pct);
       },
       onPanResponderMove: (e) => {
         const pct = Math.max(0, Math.min(1, e.nativeEvent.locationX / seekBarWidth.current));
-        onSeekTo(pct);
+        onSeekToRef.current(pct);
       },
     })
   ).current;
@@ -175,7 +198,7 @@ export default function PlayerOSD({
 
       {/* Top bar — back + title + actions. Some no modo scrubbing (foco na barra),
           mas continua montado/focável para o foco poder voltar ao sair da barra. */}
-      <View style={[styles.osdTop, scrubMode && styles.scrubHidden]}>
+      <View style={[styles.osdTop, scrubMode && styles.scrubHidden]} {...hoverProps}>
         <TVFocusable onPress={onBack} style={styles.backBtn}>
           <Ionicons name={IS_TV ? 'chevron-back' : 'chevron-down'} size={20} color={colors.white} />
         </TVFocusable>
@@ -196,20 +219,30 @@ export default function PlayerOSD({
               onHoverIn={() => setVolHover(true)}
               onHoverOut={() => setVolHover(false)}
             >
-              {/* Slider à ESQUERDA do ícone: ao aparecer, o grupo cresce para
-                  dentro da tela sem deslocar os outros botões do canto direito */}
-              {volHover && (
-                <View
-                  style={styles.volumeBar}
-                  onLayout={(e) => { volBarWidth.current = e.nativeEvent.layout.width; }}
-                  {...volPan.panHandlers}
-                >
-                  <View style={styles.volumeBg}>
-                    <View style={[styles.volumeFill, { width: `${volPct}%` }]} />
-                  </View>
-                  <View style={[styles.volumeThumb, { left: `${volPct}%` }]} />
-                </View>
-              )}
+              {/* Slider à ESQUERDA do ícone: expande para dentro da tela sem
+                  deslocar os outros botões do canto direito. stopPropagation:
+                  clique no slider não pode virar tap de play/pause na tela. */}
+              <div
+                className={`skv-vol-wrap${volOpen ? ' skv-vol-open' : ''}`}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <input
+                  type="range"
+                  className="skv-vol"
+                  aria-label="Volume"
+                  title="Volume"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={volPct}
+                  style={{ ['--pct' as any]: `${volPct}%` }}
+                  onChange={(e) => onVolumeChange(Number(e.target.value) / 100)}
+                  onPointerDown={() => setVolDragging(true)}
+                  onPointerUp={() => setVolDragging(false)}
+                />
+              </div>
               <TVFocusable onPress={onToggleMute} style={styles.iconBtn}>
                 <Ionicons name={volIcon} size={18} color={colors.white} />
               </TVFocusable>
@@ -255,7 +288,7 @@ export default function PlayerOSD({
 
       {/* Center: play controls. Somem no modo scrubbing (deixa a tela limpa pra arrastar),
           mas seguem montados/focáveis — apertar ↑ na barra devolve o foco ao play. */}
-      <View style={[styles.centerControls, scrubMode && styles.scrubHidden]} pointerEvents="box-none">
+      <View style={[styles.centerControls, scrubMode && styles.scrubHidden]} pointerEvents="box-none" {...hoverProps}>
         {/* disabled durante scrubbing → sem vizinho focável, o D-pad esq/dir borbulha
             para o onKeyDown (seek) em vez de mover o foco para cá.
             Ao vivo não tem como avançar/voltar — some com os botões de seek,
@@ -278,7 +311,7 @@ export default function PlayerOSD({
       </View>
 
       {/* Bottom: progress bar only */}
-      <View style={styles.osdBottom}>
+      <View style={styles.osdBottom} {...hoverProps}>
         {!isLive && duration > 0 ? (
           <View style={styles.progressSection}>
             {IS_TV && scrubMode && (
@@ -288,9 +321,10 @@ export default function PlayerOSD({
                 <Ionicons name="play-forward" size={12} color={colors.accent} />
               </View>
             )}
-            {IS_TV ? (
-              // TV: barra apenas VISUAL (não-focável). O modo scrubbing é estado do
-              // PlayerScreen (liga na ↓); o seek vem do D-pad pelo canal nativo.
+            {IS_NATIVE_TV ? (
+              // TV física: barra apenas VISUAL (não-focável). O modo scrubbing é estado
+              // do PlayerScreen (liga na ↓); o seek vem do D-pad pelo canal nativo.
+              // Web NÃO cai aqui: usa a barra interativa (clique/arraste) abaixo.
               <View style={styles.progressFocusable}>
                 <View
                   style={styles.progressBg}
@@ -409,33 +443,9 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
   },
 
-  // Volume (web)
-  volumeGroup: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  volumeBar: {
-    width: 96,
-    height: 38, // área de clique generosa; a trilha visual é fina
-    justifyContent: 'center',
-  },
-  volumeBg: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    overflow: 'hidden',
-  },
-  volumeFill: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.white,
-  },
-  volumeThumb: {
-    position: 'absolute',
-    top: 13,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginLeft: -6,
-    backgroundColor: colors.white,
-  },
+  // Volume (web) — a barra em si é o <input type="range"> (CSS injetado no topo);
+  // sem gap: o wrap fechado tem largura 0 e o espaçamento vem do margin do slider
+  volumeGroup: { flexDirection: 'row', alignItems: 'center' },
 
   // Center
   centerControls: {

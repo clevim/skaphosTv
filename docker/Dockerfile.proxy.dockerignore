@@ -1,0 +1,3 @@
+# Contexto do proxy: só o proxy-server.js interessa (deps instaladas na imagem)
+*
+!proxy-server.js
