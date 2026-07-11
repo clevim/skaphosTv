@@ -3,7 +3,6 @@ import { Channel } from '../types';
 import { ChannelIndex } from '../store/channelIndex';
 import { getSeriesBaseName, isLaunchYear, YEAR_GROUPS, FAVORITES_GROUPS } from '../utils/channelUtils';
 import { IPTVSource, useStore, resolveChannelType } from '../store/useStore';
-import { useUsageStats } from '../store/usageStats';
 
 interface UseChannelFilterProps {
   navKey: string;
@@ -14,8 +13,8 @@ interface UseChannelFilterProps {
   categorySearch: string;
   channelIndex: ChannelIndex | null;
   sources?: IPTVSource[];
-  /** 'default' (ordem do catálogo) | 'az' | 'popular' (mais assistido). */
-  sortMode?: 'default' | 'az' | 'popular';
+  /** 'default' (ordem do catálogo) | 'az' | 'rating' (nota do painel, desc). */
+  sortMode?: 'default' | 'az' | 'rating';
 }
 
 const EMPTY_MAP = new Map<string, number>();
@@ -32,7 +31,6 @@ export function useChannelFilter({
   sortMode = 'default',
 }: UseChannelFilterProps) {
   const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
-  const usageBySource = useUsageStats(s => s.bySource);
 
   // O(1) — índice já tem o map pronto
   const episodeCountMap = channelIndex?.episodeCountMap ?? EMPTY_MAP;
@@ -135,16 +133,17 @@ export function useChannelFilter({
         const bn = resolveChannelType(b) === 'series' ? getSeriesBaseName(b.name) : b.name;
         return an.localeCompare(bn, 'pt-BR');
       });
-    } else if (sortMode === 'popular') {
+    } else if (sortMode === 'rating') {
+      // Nota do painel Xtream/Jellyfin (ex.: "7.8"). Sem nota → vai pro fim.
       list = [...list].sort((a, b) => {
-        const ac = (a.sourceId && usageBySource[a.sourceId]?.playCounts[a.id]?.count) || 0;
-        const bc = (b.sourceId && usageBySource[b.sourceId]?.playCounts[b.id]?.count) || 0;
-        return bc - ac;
+        const an = parseFloat(a.rating ?? '');
+        const bn = parseFloat(b.rating ?? '');
+        return (Number.isNaN(bn) ? -1 : bn) - (Number.isNaN(an) ? -1 : an);
       });
     }
 
     return list;
-  }, [channelIndex, navKey, selectedGroup, favoritesSet, categorySearch, channels, jellyfinServerName, filteredGroups, sortMode, usageBySource]);
+  }, [channelIndex, navKey, selectedGroup, favoritesSet, categorySearch, channels, jellyfinServerName, filteredGroups, sortMode]);
 
   // O(1) — usa contagens pré-computadas
   const navCount = useCallback((key: string): number => {

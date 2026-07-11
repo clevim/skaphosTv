@@ -41,12 +41,15 @@ docker pull ghcr.io/clevim/skaphostv-proxy:latest
 
 A UI e a lógica de D-Pad (setas do teclado = controle) funcionam 100%.
 
-### Limitação de playback no navegador
-O player web usa `<video>` puro. Isso significa:
-- **MP4 / Direct Play (Jellyfin)** → toca.
-- **HLS (`.m3u8`) e MPEG-TS (`.ts`, IPTV live)** → **não tocam** sem `hls.js`/`mpegts.js`.
+### Playback no navegador
+O `Video.web.tsx` roteia cada formato pelo player certo, sempre via `/proxy`:
+- **MP4 / Direct Play (Jellyfin)** → `<video>` nativo.
+- **HLS (`.m3u8`)** → `hls.js`.
+- **MPEG-TS (`.ts` / live sem extensão)** → `mpegts.js`.
 
-Ou seja: o webapp é ótimo pra navegar e validar a interface, mas para playback **real de IPTV** o APK no FireStick é o alvo fiel. Dá pra fechar esse gap adicionando `hls.js` ao `Video.web.tsx` + roteando os streams pelo `/proxy` — peça que a gente implementa.
+Ou seja: IPTV ao vivo, filmes e séries tocam no navegador. O que o codec do
+navegador não decodificar (ex.: áudio AC3/EAC3 em alguns containers) continua
+sendo caso para o APK.
 
 ---
 

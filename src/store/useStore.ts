@@ -71,7 +71,7 @@ interface AppState {
     notifyCatalogUpdate: boolean;
     notifySourceExpiring: boolean;
     /** Ordenação das grades (Ao Vivo/Filmes/Séries/Favoritos/Ano) — 'default' é a ordem do catálogo. */
-    sortMode: 'default' | 'az' | 'popular';
+    sortMode: 'default' | 'az' | 'rating';
   };
 
   addSource: (source: IPTVSource) => void;
@@ -628,6 +628,8 @@ export const useStore = create<AppState>((set, get) => ({
       const mergedSettings = settingsRaw ? { ...get().settings, ...JSON.parse(settingsRaw) } : get().settings;
       // Migração: bufferSize antigo era 3000 (sem efeito); agora é o maxBuffer real em ms
       if (!mergedSettings.bufferSize || mergedSettings.bufferSize < 15000) mergedSettings.bufferSize = 30000;
+      // Migração: 'popular' (mais assistido) foi substituído por 'rating' (melhor avaliados)
+      if (!['default', 'az', 'rating'].includes(mergedSettings.sortMode)) mergedSettings.sortMode = 'default';
       set({
         sources,
         favorites: favRaw ? JSON.parse(favRaw) : [],

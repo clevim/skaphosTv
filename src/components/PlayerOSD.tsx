@@ -102,6 +102,8 @@ interface Props {
   /** Mini-player: botão de minimizar (PiP dentro do app). */
   showMinimize?: boolean;
   onMinimize?: () => void;
+  /** Web: PiP nativo do navegador — janela flutuante fora da aba. */
+  onBrowserPip?: () => void;
   /** TV: modo scrubbing ativo (controlado pelo PlayerScreen). Esconde os controles,
    *  realça a barra e mostra a dica. O seek é feito pelo D-pad no PlayerScreen. */
   scrubMode?: boolean;
@@ -116,7 +118,7 @@ interface Props {
 if (IS_WEB && typeof document !== 'undefined') {
   const style = document.createElement('style');
   style.textContent = `
-.skv-vol-wrap{width:0;opacity:0;overflow:hidden;display:flex;align-items:center;height:38px;transition:width .18s ease,opacity .18s ease}
+.skv-vol-wrap{width:0;min-width:0;opacity:0;overflow:hidden;display:flex;align-items:center;height:38px;transition:width .18s ease,opacity .18s ease}
 .skv-vol-open{width:84px;opacity:1}
 .skv-vol{-webkit-appearance:none;appearance:none;flex:none;width:78px;height:14px;margin:0 6px 0 0;background:transparent;cursor:pointer;outline:none}
 .skv-vol::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:linear-gradient(to right,#fff var(--pct,100%),rgba(255,255,255,.28) var(--pct,100%))}
@@ -147,7 +149,7 @@ export default function PlayerOSD({
   hasAudio, onToggleAudio,
   sleepTimerActive, onToggleSleepTimer, sleepTimerEndAt, sleepTimerTotalMinutes,
   showNextEpisode, onNextEpisode,
-  showMinimize, onMinimize,
+  showMinimize, onMinimize, onBrowserPip,
   scrubMode = false,
   onControlsHover,
 }: Props) {
@@ -218,6 +220,11 @@ export default function PlayerOSD({
               style={styles.volumeGroup}
               onHoverIn={() => setVolHover(true)}
               onHoverOut={() => setVolHover(false)}
+              // onPress no-op DE PROPÓSITO: reivindica o responder do RN-web
+              // (o mais profundo vence). Sem isso, cliques no <input> nativo —
+              // que não participa do sistema de responder — eram reivindicados
+              // pelo TouchableOpacity de tela inteira e viravam play/pause.
+              onPress={() => {}}
             >
               {/* Slider à ESQUERDA do ícone: expande para dentro da tela sem
                   deslocar os outros botões do canto direito. stopPropagation:
@@ -247,6 +254,11 @@ export default function PlayerOSD({
                 <Ionicons name={volIcon} size={18} color={colors.white} />
               </TVFocusable>
             </Pressable>
+          )}
+          {IS_WEB && onBrowserPip && (
+            <TVFocusable onPress={onBrowserPip} style={styles.iconBtn}>
+              <Ionicons name="browsers-outline" size={18} color={colors.white} />
+            </TVFocusable>
           )}
           {showMinimize && onMinimize && (
             <TVFocusable onPress={onMinimize} style={styles.iconBtn}>

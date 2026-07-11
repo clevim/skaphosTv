@@ -36,12 +36,12 @@ import { lockLandscape } from '../utils/orientation';
 const HAS_BOTTOM_NAV = IS_MOBILE;
 
 // Ordenação das grades — cicla nesta ordem ao tocar o botão de ordenar.
-const SORT_CYCLE = ['default', 'az', 'popular'] as const;
+const SORT_CYCLE = ['default', 'az', 'rating'] as const;
 const SORT_ICON: Record<typeof SORT_CYCLE[number], string> = {
-  default: 'swap-vertical-outline', az: 'text-outline', popular: 'flame-outline',
+  default: 'swap-vertical-outline', az: 'text-outline', rating: 'star-outline',
 };
 const SORT_LABEL: Record<typeof SORT_CYCLE[number], string> = {
-  default: 'Padrão', az: 'A-Z', popular: 'Mais assistido',
+  default: 'Padrão', az: 'A-Z', rating: 'Melhor avaliados',
 };
 
 // ── FlatItem ─────────────────────────────────────────────────────────────────

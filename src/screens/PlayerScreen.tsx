@@ -119,6 +119,19 @@ export default function PlayerScreen() {
     useMiniPlayer.getState().close();
   }, []);
 
+  // Web: PiP nativo do navegador — o <video> vira uma janelinha flutuante do
+  // sistema (fora da aba). Diferente do mini-player interno (handleMinimize).
+  const handleBrowserPip = useCallback(() => {
+    if (!IS_WEB) return;
+    const el = document.querySelector('video') as HTMLVideoElement | null;
+    if (!el || !(document as any).pictureInPictureEnabled) return;
+    if ((document as any).pictureInPictureElement) {
+      (document as any).exitPictureInPicture?.().catch?.(() => {});
+    } else {
+      el.requestPictureInPicture?.().catch(() => {});
+    }
+  }, []);
+
   // Minimiza para o mini-player flutuante e volta à tela anterior (o mini segue tocando).
   const handleMinimize = useCallback(() => {
     useMiniPlayer.getState().open(playingChannel, position);
@@ -541,6 +554,7 @@ export default function PlayerScreen() {
             onNextEpisode={nextChannel}
             showMinimize={!inPip}
             onMinimize={handleMinimize}
+            onBrowserPip={IS_WEB ? handleBrowserPip : undefined}
             scrubMode={scrubMode}
             onControlsHover={IS_WEB ? setOsdHover : undefined}
           />

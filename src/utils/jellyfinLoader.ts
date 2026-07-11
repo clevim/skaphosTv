@@ -214,6 +214,8 @@ export async function fetchJellyfinEpisodes(
       streamType:  'series' as const,
       tvgId:       ep.Id,
       plot:        ep.Overview,
+      epTitle:     ep.Name || undefined,
+      durationSecs: ep.RunTimeTicks ? Math.round(ep.RunTimeTicks / 10_000_000) : undefined,
       releaseDate: ep.PremiereDate?.slice(0, 10),
       quality:     'HD',
       isFavorite:  false,

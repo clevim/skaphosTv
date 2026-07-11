@@ -17,7 +17,7 @@ import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import { showAlert } from '../components/AppAlert';
 import { IS_DEV_BUILD, dlog } from '../utils/debugLog';
-import { shareBackup, downloadBackupWeb, copyBackupToClipboard, pasteFromClipboard, importBackup } from '../utils/backup';
+import { shareBackup, downloadBackupWeb, copyBackupToClipboard, pasteFromClipboard, pickBackupFileWeb, importBackup } from '../utils/backup';
 import { useThemeStore } from '../store/useThemeStore';
 import { useUsageStats, topChannelFor, formatWatchTime, computeWrapped, WrappedSummary } from '../store/usageStats';
 import WrappedModal from '../components/WrappedModal';
@@ -564,6 +564,17 @@ function BackupRows() {
               <Ionicons name="clipboard-outline" size={14} color={colors.text2} />
               <Text style={backupStyles.pasteBtnText}>Colar da área de transferência</Text>
             </TVFocusable>
+            {IS_WEB && (
+              <TVFocusable
+                onPress={async () => {
+                  try { setImportText((await pickBackupFileWeb()).trim()); } catch { /* cancelou */ }
+                }}
+                style={backupStyles.pasteBtn}
+              >
+                <Ionicons name="folder-open-outline" size={14} color={colors.text2} />
+                <Text style={backupStyles.pasteBtnText}>Escolher arquivo .json</Text>
+              </TVFocusable>
+            )}
             <View style={backupStyles.actions}>
               <TVFocusable onPress={() => setShowImport(false)} style={backupStyles.btnCancel}>
                 <Text style={backupStyles.btnCancelText}>Cancelar</Text>

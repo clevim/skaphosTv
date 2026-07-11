@@ -167,6 +167,32 @@ export default function App() {
     };
   }, []);
 
+  // Web: robustez do estado local + botão Voltar do navegador.
+  useEffect(() => {
+    if (!IS_WEB) return;
+
+    // Armazenamento persistente: sem isto o navegador pode DESCARTAR o
+    // localStorage (fontes, favoritos, progresso) sob pressão de disco.
+    // Chamada idempotente; se negado, segue como está (best-effort).
+    try { (navigator as any).storage?.persist?.(); } catch { /* noop */ }
+
+    // Back do navegador volta UMA TELA em vez de sair do site: cada navegação
+    // que aprofunda a pilha empurra uma entrada no history; popstate → goBack.
+    // Sem linking/URLs (params carregam objetos Channel) — só history.state.
+    let lastDepth = 1;
+    const onNavState = () => {
+      const depth = navigationRef.getRootState()?.routes?.length ?? 1;
+      if (depth > lastDepth) window.history.pushState({ skDepth: depth }, '');
+      lastDepth = depth;
+    };
+    const onPop = () => {
+      if (navigationRef.isReady() && navigationRef.canGoBack()) navigationRef.goBack();
+    };
+    const unsub = navigationRef.addListener('state', onNavState);
+    window.addEventListener('popstate', onPop);
+    return () => { unsub(); window.removeEventListener('popstate', onPop); };
+  }, []);
+
   // Widget de tela inicial "Continuar assistindo" (Android) — mantém sincronizado
   // com o que muda em recentChannels/watchProgress. Debounce curto: as duas stores
   // podem disparar em sequência (troca de canal + primeiro record() de progresso).

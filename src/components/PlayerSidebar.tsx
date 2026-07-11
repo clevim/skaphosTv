@@ -58,7 +58,8 @@ export default function PlayerSidebar({
               )}
               <View style={styles.meta}>
                 <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-                <Text style={styles.group} numberOfLines={1}>{item.group}</Text>
+                {/* Episódio: título real ("Pilot") vale mais que repetir o grupo */}
+                <Text style={styles.group} numberOfLines={1}>{item.epTitle || item.group}</Text>
               </View>
               {isActive && <View style={styles.activeDot} />}
             </TVFocusable>

@@ -19,6 +19,10 @@ export interface Channel {
   rating?: string;
   releaseDate?: string;
   backdrop?: string;
+  /** Episódios: título humano ("Pilot") — o `name` fica padronizado como "Série SxxEyy" */
+  epTitle?: string;
+  /** Episódios: duração real em segundos (Xtream duration_secs / Jellyfin RunTimeTicks) */
+  durationSecs?: number;
   // Jellyfin: posição de retomada em ticks de 100ns (dividir por 10_000_000 para segundos)
   resumePositionTicks?: number;
   /**

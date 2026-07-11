@@ -1,0 +1,90 @@
+# SkaphosTV — app para CasaOS (importar em: CasaOS → App Store → Custom Install
+# → Import via Docker Compose, colando este arquivo).
+#
+# Sobe a versão web (nginx) + o proxy CORS, com as imagens publicadas no GHCR
+# pelo scripts/docker-release.sh. Os pacotes precisam estar PÚBLICOS no GHCR
+# para o CasaOS conseguir puxar sem login.
+#
+# ATENÇÃO: o serviço do relay deve se chamar "proxy" — o nginx da imagem web
+# encaminha /proxy?url=... para http://proxy:3001 (resolvido por DNS da rede).
+name: skaphostv
+services:
+  web:
+    image: ghcr.io/clevim/skaphostv-web:latest
+    container_name: skaphostv-web
+    cpu_shares: 90
+    restart: unless-stopped
+    ports:
+      - target: 80
+        published: "8080"
+        protocol: tcp
+    depends_on:
+      - proxy
+    networks:
+      - skaphostv
+    deploy:
+      resources:
+        reservations:
+          memory: "67108864"
+
+  proxy:
+    image: ghcr.io/clevim/skaphostv-proxy:latest
+    container_name: skaphostv-proxy
+    cpu_shares: 90
+    restart: unless-stopped
+    environment:
+      # Allowlist opcional de hosts de destino (defesa extra se o app for
+      # exposto à internet, ex. via cloudflared). Vazio = qualquer host
+      # público (IPs privados são sempre bloqueados pelo anti-SSRF).
+      # Ex.: PROXY_ALLOWED_HOSTS=iptv.exemplo.com,jelly.exemplo.com
+      - PROXY_ALLOWED_HOSTS=
+    expose:
+      - "3001"
+    networks:
+      - skaphostv
+
+networks:
+  skaphostv:
+    name: skaphostv
+
+x-casaos:
+  # arm64 vale a partir da primeira publicação multi-arch (docker-release.sh + buildx)
+  architectures:
+    - amd64
+    - arm64
+  main: web
+  port_map: "8080"
+  scheme: http
+  index: /
+  author: clevim
+  developer: clevim
+  category: Media
+  hostname: ""
+  icon: https://raw.githubusercontent.com/clevim/skaphosTv/master/assets/favicon.png
+  store_app_id: skaphostv
+  title:
+    custom: ""
+    en_us: SkaphosTV
+    pt_br: SkaphosTV
+  tagline:
+    en_us: IPTV / Jellyfin player in the browser
+    pt_br: Player de IPTV / Jellyfin no navegador
+  description:
+    en_us: >
+      SkaphosTV web — browse and play your IPTV (M3U/Xtream) and Jellyfin
+      libraries from the browser. Ships with the same-origin CORS proxy
+      required for playback (the "proxy" service).
+    pt_br: >
+      Versão web do SkaphosTV — navegue e reproduza suas fontes IPTV
+      (M3U/Xtream) e Jellyfin pelo navegador. Já inclui o proxy CORS
+      same-origin necessário para o playback (serviço "proxy").
+  tips:
+    before_install:
+      en_us: >
+        Stateless app — sources and settings live in the browser
+        (localStorage). No volumes needed. To update, pull the ":latest"
+        images again.
+      pt_br: >
+        App sem estado — fontes e configurações ficam no navegador
+        (localStorage). Não precisa de volumes. Para atualizar, basta puxar
+        as imagens ":latest" de novo.

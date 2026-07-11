@@ -63,6 +63,21 @@ export async function shareBackup(): Promise<void> {
   });
 }
 
+/** Abre o seletor de arquivos do navegador e devolve o texto do .json (só web). */
+export function pickBackupFileWeb(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return reject(new Error('Nenhum arquivo selecionado'));
+      file.text().then(resolve, reject);
+    };
+    input.click();
+  });
+}
+
 /** Copia o backup pro clipboard — alternativa garantida ao intent/download. */
 export async function copyBackupToClipboard(): Promise<void> {
   await Clipboard.setStringAsync(buildBackupJson());

@@ -50,22 +50,21 @@ if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   exit 1
 fi
 
-# BuildKit quando disponível: respeita docker/Dockerfile.*.dockerignore (contexto
-# mínimo por alvo). Sem buildx, o builder legado usa só o .dockerignore raiz —
-# funciona igual (segredos já bloqueados lá), apenas sobe um contexto maior.
-if docker buildx version >/dev/null 2>&1; then
-  export DOCKER_BUILDKIT=1
-else
-  echo "ℹ docker-buildx ausente — builder legado (contexto maior). Arch: sudo pacman -S docker-buildx"
-fi
-
-echo "▶ Build $WEB_IMG:$VERSION"
-docker build -f docker/Dockerfile.web -t "$WEB_IMG:$VERSION" -t "$WEB_IMG:latest" .
-
-echo "▶ Build $PROXY_IMG:$VERSION"
-docker build -f docker/Dockerfile.proxy -t "$PROXY_IMG:$VERSION" -t "$PROXY_IMG:latest" .
+# ── Build & push ─────────────────────────────────────────────────────────────
+# Com buildx (BuildKit): publica MULTI-ARCH (amd64 + arm64 — CasaOS em
+# Raspberry Pi etc.) e respeita os docker/Dockerfile.*.dockerignore.
+# Sem buildx: builder legado, só a arquitetura local.
+#
+# arm64 numa máquina x86 exige o emulador binfmt (uma vez):
+#   docker run --privileged --rm tonistiigi/binfmt --install arm64
+# (o build web sob emulação demora bem mais — npm install + expo export via qemu)
+PLATFORMS="linux/amd64,linux/arm64"
 
 if [ "$NO_PUSH" -eq 1 ]; then
+  echo "▶ Build local (--no-push, só arquitetura local)"
+  docker buildx version >/dev/null 2>&1 && export DOCKER_BUILDKIT=1
+  docker build -f docker/Dockerfile.web  -t "$WEB_IMG:$VERSION"  -t "$WEB_IMG:latest" .
+  docker build -f docker/Dockerfile.proxy -t "$PROXY_IMG:$VERSION" -t "$PROXY_IMG:latest" .
   echo "✓ Imagens buildadas (push pulado: --no-push)."
   exit 0
 fi
@@ -76,10 +75,29 @@ if ! gh auth token | docker login "$REGISTRY" -u "$OWNER" --password-stdin; then
   exit 1
 fi
 
-docker push "$WEB_IMG:$VERSION"
-docker push "$WEB_IMG:latest"
-docker push "$PROXY_IMG:$VERSION"
-docker push "$PROXY_IMG:latest"
+if docker buildx version >/dev/null 2>&1; then
+  echo "▶ Build+push multi-arch ($PLATFORMS) via buildx"
+  # Builder dedicado: o driver "docker" padrão não faz multi-arch sem containerd
+  docker buildx inspect skaphostv >/dev/null 2>&1 || docker buildx create --name skaphostv >/dev/null
+  build_multiarch() {
+    docker buildx build --builder skaphostv --platform "$PLATFORMS" --push "$@" .
+  }
+  if ! build_multiarch -f docker/Dockerfile.web  -t "$WEB_IMG:$VERSION"  -t "$WEB_IMG:latest" ||
+     ! build_multiarch -f docker/Dockerfile.proxy -t "$PROXY_IMG:$VERSION" -t "$PROXY_IMG:latest"; then
+    echo "✗ buildx falhou. Se o erro for de plataforma arm64, instale o emulador:"
+    echo "    docker run --privileged --rm tonistiigi/binfmt --install arm64"
+    exit 1
+  fi
+else
+  echo "ℹ docker-buildx ausente — publicando só a arquitetura local (sem arm64)."
+  echo "  Arch: sudo pacman -S docker-buildx"
+  docker build -f docker/Dockerfile.web  -t "$WEB_IMG:$VERSION"  -t "$WEB_IMG:latest" .
+  docker build -f docker/Dockerfile.proxy -t "$PROXY_IMG:$VERSION" -t "$PROXY_IMG:latest" .
+  docker push "$WEB_IMG:$VERSION"
+  docker push "$WEB_IMG:latest"
+  docker push "$PROXY_IMG:$VERSION"
+  docker push "$PROXY_IMG:latest"
+fi
 
 echo ""
 echo "✓ Publicado. No servidor:"

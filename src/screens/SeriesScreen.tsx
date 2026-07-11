@@ -59,6 +59,37 @@ function seasonLabel(n: number) {
   return n === 0 ? 'Especiais' : `Temporada ${n}`;
 }
 
+/** Duração legível do episódio: usa a real (durationSecs) e só cai no chute
+ *  "min no nome / ~50min" quando a fonte não informa (M3U agrupado). */
+function epDurationLabel(ch: Channel): string {
+  if (ch.durationSecs && ch.durationSecs > 0) {
+    const min = Math.max(1, Math.round(ch.durationSecs / 60));
+    return min >= 60 ? `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}` : `${min}min`;
+  }
+  return ch.name.match(/\d+\s*min/)?.[0] || '~50min';
+}
+
+/** "00:47:12" → segundos (painéis Xtream sem duration_secs mandam só o hh:mm:ss). */
+function parseHmsToSecs(hms?: string): number | undefined {
+  if (!hms) return undefined;
+  const parts = hms.split(':').map(Number);
+  if (parts.some(Number.isNaN) || parts.length === 0) return undefined;
+  const secs = parts.reduce((acc, p) => acc * 60 + p, 0);
+  return secs > 0 ? secs : undefined;
+}
+
+/** Título humano do episódio a partir do `title` do painel — remove o nome da
+ *  série e o código SxxEyy que muitos painéis embutem ("Serie S01E01 - Pilot" → "Pilot"). */
+function cleanEpTitle(raw: string | undefined, seriesName: string): string | undefined {
+  if (!raw) return undefined;
+  const cleaned = raw
+    .replace(seriesName, '')
+    .replace(/[Ss]\d+\s*[Ee]\d+/, '')
+    .replace(/^[\s\-–—:.]+|[\s\-–—:.]+$/g, '')
+    .trim();
+  return cleaned || undefined;
+}
+
 /** Mantém um valor responsivo dentro de limites legíveis (evita fontes minúsculas/gigantes). */
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, Math.round(v)));
 
@@ -228,6 +259,8 @@ export default function SeriesScreen() {
               quality: seriesChannel.quality || 'HD',
               streamType: 'series',
               plot: ep.info?.plot,
+              epTitle: cleanEpTitle(ep.title, seriesName),
+              durationSecs: ep.info?.duration_secs || parseHmsToSecs(ep.info?.duration),
               releaseDate: ep.info?.releasedate,
               isFavorite: false,
               // seriesRef → "continuar assistindo" guarda a série, não o episódio solto.
@@ -651,7 +684,7 @@ export default function SeriesScreen() {
                 const entry = watchEntries[item.id];
                 const epWatched = !!entry?.watched;
                 const epFrac = epWatched ? 0 : progressFractionFor(entry);
-                const epName = item.name
+                const epName = item.epTitle || item.name
                   .replace(/\s*[-–]?\s*S\d+\s*E\d+.*$/i, '')
                   .replace(baseName, '')
                   .trim() || item.name;
@@ -713,7 +746,7 @@ export default function SeriesScreen() {
                       </Text>
                     ) : null}
                     <Text style={[tvStyles.epDur, { fontSize: fEpDur }]}>
-                      {item.quality ? `${item.quality} · ` : ''}{item.name.match(/\d+\s*min/)?.[0] || '~50min'}
+                      {item.quality ? `${item.quality} · ` : ''}{epDurationLabel(item)}
                     </Text>
                   </TVFocusable>
                 );
@@ -883,7 +916,7 @@ export default function SeriesScreen() {
         <View style={styles.episodeList}>
           {episodes.map((item, index) => {
             const label = epLabel(item.name, index);
-            const epName = item.name
+            const epName = item.epTitle || item.name
               .replace(/\s*[-–]?\s*S\d+\s*E\d+.*$/i, '')
               .replace(baseName, '')
               .trim() || item.name;
@@ -927,7 +960,7 @@ export default function SeriesScreen() {
                     <Text style={styles.epPlot} numberOfLines={2}>{item.plot}</Text>
                   ) : null}
                   <Text style={styles.epDur}>
-                    {item.releaseDate ? `${item.releaseDate} · ` : ''}{item.name.match(/\d+\s*min/)?.[0] || '~50min'}
+                    {item.releaseDate ? `${item.releaseDate} · ` : ''}{epDurationLabel(item)}
                   </Text>
                 </View>
               </TVFocusable>

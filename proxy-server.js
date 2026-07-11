@@ -69,6 +69,9 @@ const STRIP_RES_HEADERS = new Set([
   'access-control-allow-origin', 'access-control-allow-credentials',
 ]);
 
+// Healthcheck do container (Dockerfile.proxy) — vivo = 200, sem tocar em rede externa
+app.get('/healthz', (_req, res) => res.json({ ok: true }));
+
 // ─── Relay manual via fetch ────────────────────────────────────────────────────
 // Substitui http-proxy-middleware: o jeito que ele montava a requisição (com
 // changeOrigin + reescrita de path) fazia certos servidores Xtream atrás de

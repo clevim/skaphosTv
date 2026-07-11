@@ -10,4 +10,5 @@ RUN npm install --no-audit --no-fund \
       cors@^2
 COPY proxy-server.js ./
 EXPOSE 3001
+HEALTHCHECK CMD wget -q -O /dev/null http://127.0.0.1:3001/healthz || exit 1
 CMD ["node", "proxy-server.js"]
