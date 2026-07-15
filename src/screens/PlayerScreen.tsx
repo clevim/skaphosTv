@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Pressable, Platform, BackHandler, DeviceEventEmitter } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { StatusBar } from 'expo-status-bar';
 import Video, { ResizeMode, SelectedTrackType, TextTracksType } from 'react-native-video';
 import type { ISO639_1 } from 'react-native-video/src/types/language';
 // ^^ ISO639_1 usado como cast de tipo no externalTextTracks — TS precisa do import explícito
@@ -432,6 +433,8 @@ export default function PlayerScreen() {
     // 'SkaphosKeyDown' (ver useEffect acima) — a prop onKeyDown da View não existe em RN.
     // Web: esconde o cursor junto com o OSD (mover o mouse traz os dois de volta)
     <View style={[styles.root, IS_WEB && !showOSD && ({ cursor: 'none' } as any)]}>
+      {/* Player é a única superfície imersiva no mobile — some ao desmontar */}
+      <StatusBar hidden />
       <TouchableOpacity style={styles.videoContainer} onPress={handleScreenTap} activeOpacity={1}>
         <Video
           key={videoKey}

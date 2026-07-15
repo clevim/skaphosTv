@@ -48,6 +48,7 @@ function FilterChipsRow({ options, value, onChange }: {
             key={opt}
             onPress={() => onChange(active ? null : opt)}
             style={[styles.filterChip, active && styles.filterChipActive]}
+            focusStyle={active ? styles.filterChipFocused : undefined}
             focusScale={1}
           >
             <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{opt}</Text>
@@ -148,6 +149,7 @@ export default function TVSearchContent({
                 key={f.key}
                 onPress={() => onSearchTypeChange(f.key)}
                 style={[styles.filterChip, active && styles.filterChipActive]}
+            focusStyle={active ? styles.filterChipFocused : undefined}
                 focusScale={1}
               >
                 <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{f.label}</Text>
@@ -289,6 +291,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border,
   },
   filterChipActive: { backgroundColor: colors.text1, borderColor: colors.text1 },
+  // Foco CLAREIA o controle claro/ativo — o FOCUS_BG translúcido padrão o escurecia
+  filterChipFocused: { backgroundColor: colors.accent2, borderColor: colors.accent2 },
   filterChipText: { fontSize: fontSize.sm, fontWeight: '500', color: colors.text1 },
   filterChipTextActive: { color: colors.textInverse, fontWeight: '600' },
   recentHeaderRow: {

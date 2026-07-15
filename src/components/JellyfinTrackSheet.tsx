@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable, { TVFocusableHandle } from './TVFocusable';
-import { colors, radius, fontFamily } from '../utils/theme';
+import { colors, radius, fontFamily, shadow } from '../utils/theme';
 import {
   getJellyfinAudioTracks, JellyfinAudioTrack,
   getJellyfinSubtitleTracks, JellyfinSubtitleTrack,
@@ -302,6 +302,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
             ref={playRef}
             onPress={handlePlay}
             style={styles.playBtn}
+            focusStyle={styles.playBtnFocused}
             nextFocusDown={topTag ?? undefined}
             nextFocusRight={cancelTag ?? undefined}
           >
@@ -324,6 +325,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.7)',
   },
   sheet: {
+    ...shadow.floating,
     width: 360,
     maxHeight: 520,
     backgroundColor: colors.bg1,
@@ -397,6 +399,8 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   cancelText: { fontSize: 13, fontWeight: '500', color: colors.text2 },
+  // Foco CLAREIA o controle claro/ativo — o FOCUS_BG translúcido padrão o escurecia
+  playBtnFocused: { backgroundColor: colors.accent2 },
   playBtn: {
     flex: 2, height: 42, borderRadius: radius.md,
     backgroundColor: colors.text1,

@@ -63,8 +63,8 @@ export default function PlayerError({
         )}
 
         <View style={styles.actions}>
-          <TVFocusable onPress={onRetryNow} style={styles.retryBtn} hasTVPreferredFocus>
-            <Ionicons name="reload" size={18} color={colors.white} />
+          <TVFocusable onPress={onRetryNow} style={styles.retryBtn} focusStyle={styles.retryBtnFocused} hasTVPreferredFocus>
+            <Ionicons name="reload" size={18} color={colors.textInverse} />
             <Text style={styles.retryText}>Tentar Agora</Text>
           </TVFocusable>
 
@@ -146,8 +146,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 10,
   },
+  // Foco CLAREIA o botão accent — o FOCUS_BG translúcido padrão o escurecia
+  retryBtnFocused: { backgroundColor: colors.accent2 },
   retryText: {
-    color: colors.white,
+    color: colors.textInverse,
     fontWeight: '700',
     fontSize: fontSize.sm,
   },

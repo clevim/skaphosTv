@@ -11,7 +11,7 @@ import { View, Text, StyleSheet, Modal, ActivityIndicator } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
-import { colors, fontSize, radius, spacing, fontFamily } from '../utils/theme';
+import { colors, fontSize, radius, spacing, fontFamily, shadow } from '../utils/theme';
 import { startPairingServer, PairingPayload, PairingServer } from '../utils/pairingServer';
 
 interface Props {
@@ -127,6 +127,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   box: {
+    ...shadow.floating,
     width: 400,
     maxWidth: '90%',
     backgroundColor: colors.bg1,

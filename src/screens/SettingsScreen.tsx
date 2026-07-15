@@ -134,6 +134,8 @@ function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle
           onValueChange={onToggle}
           trackColor={{ true: colors.accent, false: colors.border }}
           thumbColor={colors.white}
+          // RNW: sem isto o thumb ligado usa o verde default da lib no web
+          {...({ activeThumbColor: colors.white } as any)}
         />
       ) : value ? (
         <View style={styles.rowValueWrap}>
@@ -967,7 +969,7 @@ function CategoryPanel({
         <BackupRows />
       </SettingsGroup>
       <SettingsGroup title="Sistema">
-        <SettingsRow icon="language-outline"           label="Idioma"   value={settings.language || 'pt-BR'} />
+        <SettingsRow icon="language-outline"           label="Idioma"   value="Português (Brasil)" />
         <SeasonalThemeRow />
         <DevUpdateUrlRow />
         <UpdateCheckRow />
@@ -1032,7 +1034,7 @@ export default function SettingsScreen() {
 
           <View style={tvStyles.sidebarFooter}>
             <Text style={tvStyles.madeBy}>made by clevs · v{APP_VERSION}</Text>
-            <TVFocusable onPress={() => navigation.goBack()} style={tvStyles.backBtn}>
+            <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={tvStyles.backBtn}>
               <Ionicons name="chevron-back" size={14} color={colors.text2} />
               <Text style={tvStyles.backBtnText}>Voltar</Text>
             </TVFocusable>
@@ -1067,7 +1069,7 @@ export default function SettingsScreen() {
   return (
     <View style={styles.root}>
       <View style={styles.header}>
-        <TVFocusable onPress={() => navigation.goBack()} style={styles.back}>
+        <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.back}>
           <Ionicons name="chevron-back" size={20} color={colors.text2} />
         </TVFocusable>
         <Text style={styles.title}>Ajustes</Text>

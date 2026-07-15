@@ -53,6 +53,7 @@ function FilterChipsRow({ options, value, onChange }: {
             key={opt}
             onPress={() => onChange(active ? null : opt)}
             style={[styles.filterChip, active && styles.filterChipActive]}
+            focusStyle={active ? styles.filterChipFocused : undefined}
           >
             <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{opt}</Text>
           </TVFocusable>
@@ -150,7 +151,7 @@ function BestMatch({ channel, onPress }: { channel: Channel; onPress: () => void
           <Text style={[bmStyles.name, { fontSize: 15 * scale }]} numberOfLines={2}>{displayName}</Text>
           <Text style={[bmStyles.meta, { fontSize: 11 * scale }]}>{TYPE_LABEL[type] ?? 'ITEM'} · {groupClean || channel.quality || 'HD'}</Text>
           <View style={bmStyles.playBtn}>
-            <Ionicons name="play" size={11} color={colors.white} />
+            <Ionicons name="play" size={11} color={colors.textInverse} />
             <Text style={bmStyles.playText}>Assistir</Text>
           </View>
         </View>
@@ -190,7 +191,7 @@ const bmStyles = StyleSheet.create({
     backgroundColor: colors.accent, borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 6,
   },
-  playText: { fontSize: 11, fontWeight: '600', color: colors.white },
+  playText: { fontSize: 11, fontWeight: '600', color: colors.textInverse },
 });
 
 export default function SearchContent({
@@ -216,7 +217,7 @@ export default function SearchContent({
           autoFocus
         />
         {query.length > 0 && (
-          <TVFocusable onPress={() => onQueryChange('')}>
+          <TVFocusable accessibilityLabel="Limpar busca" onPress={() => onQueryChange('')} hitSlop={14}>
             <Ionicons name="close-circle" size={20} color={colors.text3} />
           </TVFocusable>
         )}
@@ -237,6 +238,7 @@ export default function SearchContent({
               key={f.key}
               onPress={() => onSearchTypeChange(f.key)}
               style={[styles.filterChip, active && styles.filterChipActive]}
+            focusStyle={active ? styles.filterChipFocused : undefined}
             >
               <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{f.label}</Text>
             </TVFocusable>
@@ -341,6 +343,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border,
   },
   filterChipActive: { backgroundColor: colors.text1, borderColor: colors.text1 },
+  // Foco CLAREIA o controle claro/ativo — o FOCUS_BG translúcido padrão o escurecia
+  filterChipFocused: { backgroundColor: colors.accent2, borderColor: colors.accent2 },
   filterChipText: { fontSize: 12, fontWeight: '500', color: colors.text1 },
   filterChipTextActive: { color: colors.textInverse, fontWeight: '600' },
   recentHeader: {

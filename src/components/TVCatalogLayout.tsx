@@ -39,17 +39,17 @@ export default function TVCatalogLayout({
           </View>
           <View style={styles.headerActions}>
             {onSort && (
-              <TVFocusable onPress={onSort} style={styles.reloadBtn} borderRadius={8}>
+              <TVFocusable accessibilityLabel="Ordenar" onPress={onSort} style={styles.reloadBtn} borderRadius={8}>
                 <Ionicons name={(sortIcon ?? 'swap-vertical-outline') as any} size={16} color={colors.accent} />
               </TVFocusable>
             )}
             {onRandom && (
-              <TVFocusable onPress={onRandom} style={styles.reloadBtn} borderRadius={8}>
+              <TVFocusable accessibilityLabel="Item aleatório" onPress={onRandom} style={styles.reloadBtn} borderRadius={8}>
                 <Ionicons name="dice-outline" size={16} color={colors.accent} />
               </TVFocusable>
             )}
             {onReload && (
-              <TVFocusable onPress={onReload} style={styles.reloadBtn} borderRadius={8}>
+              <TVFocusable accessibilityLabel="Recarregar" onPress={onReload} style={styles.reloadBtn} borderRadius={8}>
                 <Ionicons name="refresh-outline" size={16} color={colors.text2} />
               </TVFocusable>
             )}

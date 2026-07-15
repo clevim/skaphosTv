@@ -5,7 +5,7 @@ import { View, Text, StyleSheet, PanResponder, GestureResponderEvent, ScrollView
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
-import { colors, radius, fontFamily } from '../utils/theme';
+import { colors, radius, fontFamily, shadow } from '../utils/theme';
 
 interface Props {
   visible: boolean;
@@ -124,18 +124,19 @@ export default function SleepTimerSheet({ visible, selectedMinutes, onSelect, on
           </View>
 
           <View style={styles.stepRow}>
-            <TVFocusable onPress={() => step(-1)} style={styles.stepBtn} borderRadius={20}>
+            <TVFocusable accessibilityLabel="Diminuir tempo" onPress={() => step(-1)} style={styles.stepBtn} borderRadius={20}>
               <Ionicons name="remove" size={20} color={colors.white} />
             </TVFocusable>
             <TVFocusable
               onPress={() => { onSelect(draft); onClose(); }}
               style={styles.confirmBtn}
+              focusStyle={styles.confirmBtnFocused}
               hasTVPreferredFocus
               borderRadius={radius.md}
             >
               <Text style={styles.confirmText}>{active ? 'Atualizar' : 'Ativar'}</Text>
             </TVFocusable>
-            <TVFocusable onPress={() => step(1)} style={styles.stepBtn} borderRadius={20}>
+            <TVFocusable accessibilityLabel="Aumentar tempo" onPress={() => step(1)} style={styles.stepBtn} borderRadius={20}>
               <Ionicons name="add" size={20} color={colors.white} />
             </TVFocusable>
           </View>
@@ -166,6 +167,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.7)',
   },
   sheet: {
+    ...shadow.floating,
     backgroundColor: colors.bg1,
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -201,6 +203,8 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 16,
   },
+  // Foco CLAREIA o botão accent — o FOCUS_BG translúcido padrão o escurecia
+  confirmBtnFocused: { backgroundColor: colors.accent2 },
   confirmText: { fontSize: 13, fontWeight: '700', color: colors.textInverse },
   actions: { flexDirection: 'row', gap: 10, padding: 16, alignSelf: 'stretch' },
   disableBtn: {

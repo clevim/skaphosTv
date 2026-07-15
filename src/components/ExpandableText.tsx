@@ -53,7 +53,7 @@ export default function ExpandableText({ text, style, collapsedLines = 4, toggle
               <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
                 <Text style={[style, s.fullText]}>{text}</Text>
               </ScrollView>
-              <TVFocusable onPress={() => setModal(false)} hasTVPreferredFocus style={s.closeBtn} borderRadius={10}>
+              <TVFocusable onPress={() => setModal(false)} hasTVPreferredFocus style={s.closeBtn} focusStyle={s.closeBtnFocused} borderRadius={10}>
                 <Text style={s.closeText}>Fechar</Text>
               </TVFocusable>
             </View>
@@ -91,5 +91,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 28, paddingVertical: 12, borderRadius: 10,
     backgroundColor: colors.accent,
   },
-  closeText: { color: colors.white, fontSize: 15, fontWeight: '700' },
+  // Foco CLAREIA o botão accent — o FOCUS_BG translúcido padrão o escurecia
+  closeBtnFocused: { backgroundColor: colors.accent2 },
+  closeText: { color: colors.textInverse, fontSize: 15, fontWeight: '700' },
 });

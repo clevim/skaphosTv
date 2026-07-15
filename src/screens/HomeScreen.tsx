@@ -136,7 +136,6 @@ export default function HomeScreen() {
   const recentQueries = useRecentSearches(s => s.queries);
   const clearRecentSearches = useRecentSearches(s => s.clear);
   const [categorySearch, setCategorySearch] = useState('');
-  const [clock, setClock]           = useState('');
   const { mainContentH } = useAppLayout();
 
   // Grid: volta ao topo ao trocar seção/categoria (a lista NÃO é mais remontada
@@ -161,15 +160,6 @@ export default function HomeScreen() {
     chipScrollRef.current?.scrollTo({ x: Math.max(0, targetX), animated: true });
   }, [selectedGroup]);
 
-  useEffect(() => {
-    // Relógio só existe na top bar da TV/web — no celular não há onde exibi-lo
-    if (!IS_TV) return;
-    const tick = () =>
-      setClock(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
-    tick();
-    const interval = setInterval(tick, 30000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -613,7 +603,7 @@ export default function HomeScreen() {
           <Ionicons name="warning" size={48} color={colors.red} />
           <Text style={styles.errorText}>{loadError}</Text>
           {/* Foco preferido: sem ele o D-pad fica órfão quando o grid some */}
-          <TVFocusable onPress={() => navigation.navigate('Setup')} style={styles.retryBtn} hasTVPreferredFocus={IS_TV}>
+          <TVFocusable onPress={() => navigation.navigate('Setup')} style={styles.retryBtn} focusStyle={styles.retryBtnFocused} hasTVPreferredFocus={IS_TV}>
             <Text style={styles.retryBtnText}>Configurar Fonte</Text>
           </TVFocusable>
         </View>
@@ -685,13 +675,23 @@ export default function HomeScreen() {
       );
     }
     if (filteredChannels.length === 0) {
+      // Favoritos vazio não é "nada encontrado" — é a chance de ensinar como favoritar
+      const isEmptyFavorites = navKey === 'favorites';
       return (
         <View style={styles.center}>
-          <Ionicons name="tv-outline" size={64} color={colors.text3} />
-          <Text style={styles.emptyTitle}>Nenhum item encontrado</Text>
-          <Text style={styles.emptySubtitle}>Tente outro filtro ou categoria</Text>
+          <Ionicons name={isEmptyFavorites ? 'star-outline' : 'tv-outline'} size={64} color={colors.text3} />
+          <Text style={styles.emptyTitle}>
+            {isEmptyFavorites ? 'Sua lista está vazia' : 'Nenhum item encontrado'}
+          </Text>
+          <Text style={styles.emptySubtitle}>
+            {isEmptyFavorites
+              ? (IS_TV
+                ? 'Segure OK em qualquer canal, filme ou série para guardar aqui'
+                : 'Toque e segure um item — ou toque na ★ — para guardar aqui')
+              : 'Tente outro filtro ou categoria'}
+          </Text>
           {navKey.startsWith('jf-') && (
-            <TVFocusable onPress={handleRefresh} style={styles.retryBtn} hasTVPreferredFocus={IS_TV}>
+            <TVFocusable onPress={handleRefresh} style={styles.retryBtn} focusStyle={styles.retryBtnFocused} hasTVPreferredFocus={IS_TV}>
               <Text style={styles.retryBtnText}>Recarregar</Text>
             </TVFocusable>
           )}
@@ -758,13 +758,13 @@ export default function HomeScreen() {
               {sortMode !== 'default' ? ` · ${SORT_LABEL[sortMode]}` : ''}
             </Text>
           </View>
-          <TVFocusable onPress={handleCycleSort} style={[styles.topbarIconBtn, { marginRight: 8 }]}>
+          <TVFocusable accessibilityLabel="Ordenar" onPress={handleCycleSort} style={[styles.topbarIconBtn, { marginRight: 8 }]}>
             <Ionicons name={SORT_ICON[sortMode] as any} size={18} color={colors.accent} />
           </TVFocusable>
-          <TVFocusable onPress={handleRandomPick} style={[styles.topbarIconBtn, { marginRight: 8 }]}>
+          <TVFocusable accessibilityLabel="Item aleatório" onPress={handleRandomPick} style={[styles.topbarIconBtn, { marginRight: 8 }]}>
             <Ionicons name="dice-outline" size={18} color={colors.accent} />
           </TVFocusable>
-          <TVFocusable onPress={handleRefresh} style={styles.topbarIconBtn}>
+          <TVFocusable accessibilityLabel="Recarregar" onPress={handleRefresh} style={styles.topbarIconBtn}>
             <Ionicons name="refresh-outline" size={18} color={colors.text2} />
           </TVFocusable>
         </View>
@@ -795,6 +795,7 @@ export default function HomeScreen() {
                   <TVFocusable
                     onPress={() => setSelectedGroup(selectedGroup === g ? null : g)}
                     style={[styles.chip, isActive && styles.chipActive]}
+                    focusStyle={isActive ? styles.chipFocused : undefined}
                   >
                     <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
                       {cleanName}
@@ -850,7 +851,6 @@ export default function HomeScreen() {
       {IS_TV && (
         <TVTopBar
           active={navKey}
-          clock={clock}
           onNavPress={handleNavPress}
           onSettingsPress={() => navigation.navigate('Settings')}
           jellyfinSources={jellyfinSources}
@@ -931,6 +931,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  // Foco CLAREIA o controle claro/ativo — o FOCUS_BG translúcido padrão o escurecia
+  chipFocused: { backgroundColor: colors.accent2 },
   chipActive: {
     backgroundColor: colors.text1,
     borderColor: colors.text1,
@@ -981,7 +983,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 10,
   },
-  retryBtnText: { color: colors.white, fontWeight: '600' },
+  // Foco CLAREIA o botão accent (The Texto Inverso Rule / Salto de Foco — DESIGN.md)
+  retryBtnFocused: { backgroundColor: colors.accent2 },
+  retryBtnText: { color: colors.textInverse, fontWeight: '600' },
   emptyTitle: {
     fontSize: fontSize.lg,
     fontWeight: '700',

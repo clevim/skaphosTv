@@ -18,7 +18,8 @@ export const colors = {
 
   text1: '#f4f4f5',
   text2: '#a1a1aa',
-  text3: '#5b5b63',
+  // 4.6:1 sobre bg0 (era #5b5b63, 2.9:1 — ilegível a 3m da TV)
+  text3: '#7a7a85',
   // Texto/ícone escuro sobre superfícies claras (botões brancos, chips ativos)
   textInverse: '#0a0a0b',
 
@@ -36,12 +37,20 @@ export const colors = {
   // Estrela de favorito (mais clara que o yellow de status)
   favorite: '#facc15',
 
-  // Fundo das splash screens (Animated/Video) — mais profundo que bg0
-  splashBg: '#06030d',
 
   overlay: 'rgba(0,0,0,0.7)',
-  overlayDark: 'rgba(0,0,0,0.9)',
 };
+
+// Vocabulário de elevação (DESIGN.md §4): tonal em repouso, relevo nas
+// superfícies flutuantes, sombra máxima só no item focado (Salto de Foco).
+export const shadow = {
+  /** Exclusiva do elemento focado no D-pad (TVFocusable). */
+  focus: { shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 8 },
+  /** Sheets, modais e popovers em repouso. */
+  floating: { shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 16 },
+  /** Cards de destaque (hero, MiniPlayer) em repouso. */
+  ambient: { shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 6 },
+} as const;
 
 export const spacing = {
   xs: 4,

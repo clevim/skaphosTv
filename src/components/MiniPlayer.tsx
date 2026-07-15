@@ -10,7 +10,7 @@ import { useWatchProgress } from '../store/watchProgress';
 import { resolveChannelType } from '../store/useStore';
 import { fixStreamUrl } from '../utils/m3uParser';
 import { Channel } from '../types';
-import { colors } from '../utils/theme';
+import { colors, shadow } from '../utils/theme';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
 
 const WIN_W = IS_TV ? 340 : IS_WEB ? 300 : 176;
@@ -152,11 +152,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.black,
     borderWidth: 1,
     borderColor: colors.border,
-    elevation: 12,
-    shadowColor: colors.black,
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
+    ...shadow.floating,
   },
   windowTV: {
     marginTop: 52,

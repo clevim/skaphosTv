@@ -115,6 +115,7 @@ export default function DetailScreen() {
               key={tab}
               onPress={() => setActiveTab(tab)}
               style={[tvStyles.tabPill, on && tvStyles.tabPillActive]}
+              focusStyle={on ? tvStyles.tabPillFocused : undefined}
               borderRadius={99}
             >
               <Text style={[tvStyles.tabText, on && tvStyles.tabTextActive]}>{tab}</Text>
@@ -255,7 +256,7 @@ export default function DetailScreen() {
           />
 
           {/* Back button */}
-          <TVFocusable onPress={() => navigation.goBack()} style={tvStyles.backBtn}>
+          <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={tvStyles.backBtn}>
             <Ionicons name="chevron-back" size={18} color={colors.text1} />
           </TVFocusable>
 
@@ -290,7 +291,7 @@ export default function DetailScreen() {
           </View>
 
           {/* Play button */}
-          <TVFocusable onPress={handlePlay} style={tvStyles.playBtn} hasTVPreferredFocus>
+          <TVFocusable onPress={handlePlay} style={tvStyles.playBtn} focusStyle={tvStyles.playBtnFocused} hasTVPreferredFocus>
             <Ionicons name="play" size={18} color={colors.textInverse} />
             <Text style={tvStyles.playText}>Assistir agora</Text>
           </TVFocusable>
@@ -349,7 +350,7 @@ export default function DetailScreen() {
             style={styles.heroGradient}
           />
 
-          <TVFocusable onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Ionicons name="chevron-back" size={18} color={colors.text1} />
           </TVFocusable>
 
@@ -376,7 +377,7 @@ export default function DetailScreen() {
 
         {/* Actions */}
         <View style={styles.actions}>
-          <TVFocusable onPress={handlePlay} style={styles.playBtn}>
+          <TVFocusable onPress={handlePlay} style={styles.playBtn} focusStyle={styles.playBtnFocused}>
             <Ionicons name="play" size={16} color={colors.textInverse} />
             <Text style={styles.playText}>Assistir agora</Text>
           </TVFocusable>
@@ -524,6 +525,8 @@ const tvStyles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
+  // Foco CLAREIA o botão branco (o FOCUS_BG translúcido o escurecia e apagava o texto)
+  playBtnFocused: { backgroundColor: colors.accent2 },
   playText: {
     fontSize: 15,
     fontWeight: '600',
@@ -547,6 +550,8 @@ const tvStyles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: 'transparent',
   },
+  // Foco CLAREIA o controle claro/ativo — o FOCUS_BG translúcido padrão o escurecia
+  tabPillFocused: { backgroundColor: colors.accent2 },
   tabPillActive: {
     backgroundColor: colors.text1,
     borderColor: colors.text1,
@@ -625,6 +630,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.text1,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
+  playBtnFocused: { backgroundColor: colors.accent2 },
   playText: { fontSize: 15, fontWeight: '600', color: colors.textInverse },
   secondaryActions: { flexDirection: 'row', gap: 8 },
 

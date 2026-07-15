@@ -29,6 +29,16 @@ import MiniPlayer from './src/components/MiniPlayer';
 import AppAlertHost from './src/components/AppAlert';
 import DebugOverlay from './src/components/DebugOverlay';
 import { IS_TV, IS_WEB, IS_NATIVE_TV } from './src/utils/tvDetect';
+
+// Easter egg do console (web): quem abre o DevTools merece um aceno do abismo.
+if (IS_WEB && typeof console !== 'undefined') {
+  console.log(
+    '%cSKAPHOS·TV%c  o abismo também retribui o olhar.\n' +
+    'Código aberto: https://github.com/clevim/skaphosTv',
+    'color:#a78bfa;font-weight:700;font-size:16px;letter-spacing:2px',
+    'color:#a1a1aa;font-size:12px',
+  );
+}
 import { lockLandscape, unlockOrientation } from './src/utils/orientation';
 import { colors } from './src/utils/theme';
 import { activate as activateTvFocus } from './modules/tv-focus';
@@ -219,7 +229,8 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar style="light" hidden />
+        {/* Mobile mostra a status bar (relógio/bateria); imersivo é só no player, que esconde a dele */}
+        <StatusBar style="light" hidden={IS_TV} />
         {/* Navegação monta sempre (a splash cobre o boot/FOUT; nunca fica em branco) */}
         <NavigationContainer
           ref={navigationRef}

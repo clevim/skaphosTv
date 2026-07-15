@@ -1,5 +1,5 @@
 // TVTopBar.tsx — TV horizontal top nav with proper D-pad focus
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
@@ -23,7 +23,6 @@ const TV_NAV_STATIC_AFTER = [
 
 interface Props {
   active: string;
-  clock: string;
   onNavPress: (key: string) => void;
   onSettingsPress?: () => void;
   jellyfinSources?: Array<{ id: string; serverName?: string; name: string }>;
@@ -65,7 +64,18 @@ function NavItem({
   );
 }
 
-export default function TVTopBar({ active, clock, onNavPress, onSettingsPress, jellyfinSources }: Props) {
+export default function TVTopBar({ active, onNavPress, onSettingsPress, jellyfinSources }: Props) {
+  // Relógio local: antes vivia no HomeScreen e cada mudança de minuto
+  // re-renderizava a tela inteira (hero + ~120 focusables) só pra este <Text>.
+  const [clock, setClock] = useState('');
+  useEffect(() => {
+    const tick = () =>
+      setClock(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+    tick();
+    const interval = setInterval(tick, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   const showClock = useStore(s => s.settings.showClock);
   const showEpg   = useStore(s => s.settings.showEpg);
   const navItems = [
@@ -106,7 +116,7 @@ export default function TVTopBar({ active, clock, onNavPress, onSettingsPress, j
             <View style={styles.separator} />
           </>
         )}
-        <TVFocusable
+        <TVFocusable accessibilityLabel="Ajustes"
           onPress={onSettingsPress || (() => {})}
           style={styles.settingsBtn}
           borderRadius={radius.full}

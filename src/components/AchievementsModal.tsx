@@ -4,7 +4,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Modal, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
-import { colors, spacing, fontSize, radius } from '../utils/theme';
+import { colors, spacing, fontSize, radius, shadow } from '../utils/theme';
 import { Achievement } from '../utils/achievements';
 
 interface Props {
@@ -55,6 +55,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', padding: spacing.xl,
   },
   box: {
+    ...shadow.floating,
     width: '100%', maxWidth: 420, maxHeight: '80%',
     backgroundColor: colors.bg1, borderRadius: radius.xl,
     borderWidth: 1, borderColor: colors.border,

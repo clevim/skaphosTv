@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable, { TVFocusableHandle } from './TVFocusable';
-import { colors, radius, fontFamily } from '../utils/theme';
+import { colors, radius, fontFamily, shadow } from '../utils/theme';
 import { JellyfinSubtitleTrack } from '../utils/jellyfinLoader';
 import { IS_TV } from '../utils/tvDetect';
 
@@ -110,7 +110,7 @@ export default function SubtitleSheet({
           <View style={styles.syncRow}>
             <Text style={styles.syncLabel}>Sincronia</Text>
             <View style={styles.syncControls}>
-              <TVFocusable
+              <TVFocusable accessibilityLabel="Atrasar legenda"
                 onPress={() => onOffsetChange(offsetMs - OFFSET_STEP_MS)}
                 style={styles.syncBtn}
                 borderRadius={16}
@@ -118,7 +118,7 @@ export default function SubtitleSheet({
                 <Ionicons name="remove" size={16} color={colors.white} />
               </TVFocusable>
               <Text style={styles.syncValue}>{formatOffset(offsetMs)}</Text>
-              <TVFocusable
+              <TVFocusable accessibilityLabel="Adiantar legenda"
                 onPress={() => onOffsetChange(offsetMs + OFFSET_STEP_MS)}
                 style={styles.syncBtn}
                 borderRadius={16}
@@ -159,6 +159,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.7)',
   },
   sheet: {
+    ...shadow.floating,
     backgroundColor: colors.bg1,
     borderRadius: radius.lg,
     borderWidth: 1,

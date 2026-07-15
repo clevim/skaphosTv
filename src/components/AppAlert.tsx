@@ -14,7 +14,7 @@ import { View, Text, StyleSheet, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { create } from 'zustand';
 import TVFocusable from './TVFocusable';
-import { colors, spacing, fontSize, radius } from '../utils/theme';
+import { colors, spacing, fontSize, radius, shadow } from '../utils/theme';
 
 export interface AlertButton {
   text: string;
@@ -113,6 +113,7 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
   },
   box: {
+    ...shadow.floating,
     width: '100%',
     maxWidth: 420,
     backgroundColor: colors.bg1,

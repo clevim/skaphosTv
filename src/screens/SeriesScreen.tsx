@@ -478,8 +478,8 @@ export default function SeriesScreen() {
         <StatusBar hidden />
         <Ionicons name="warning-outline" size={48} color={colors.red} />
         <Text style={loadStyles.errorText}>{fetchError}</Text>
-        <TVFocusable onPress={doFetchEpisodes} style={loadStyles.retryBtn} hasTVPreferredFocus>
-          <Ionicons name="refresh-outline" size={16} color={colors.white} />
+        <TVFocusable onPress={doFetchEpisodes} style={loadStyles.retryBtn} focusStyle={loadStyles.retryBtnFocused} hasTVPreferredFocus>
+          <Ionicons name="refresh-outline" size={16} color={colors.textInverse} />
           <Text style={loadStyles.retryBtnText}>Tentar novamente</Text>
         </TVFocusable>
         <TVFocusable onPress={() => navigation.goBack()} style={loadStyles.backBtn}>
@@ -496,8 +496,8 @@ export default function SeriesScreen() {
         <Ionicons name="tv-outline" size={48} color={colors.text3} />
         <Text style={loadStyles.errorText}>Nenhum episódio disponível</Text>
         <Text style={loadStyles.sub}>{baseName}</Text>
-        <TVFocusable onPress={doFetchEpisodes} style={loadStyles.retryBtn} hasTVPreferredFocus>
-          <Ionicons name="refresh-outline" size={16} color={colors.white} />
+        <TVFocusable onPress={doFetchEpisodes} style={loadStyles.retryBtn} focusStyle={loadStyles.retryBtnFocused} hasTVPreferredFocus>
+          <Ionicons name="refresh-outline" size={16} color={colors.textInverse} />
           <Text style={loadStyles.retryBtnText}>Recarregar</Text>
         </TVFocusable>
         <TVFocusable onPress={() => navigation.goBack()} style={loadStyles.backBtn}>
@@ -586,7 +586,7 @@ export default function SeriesScreen() {
           style={tvStyles.gradH}
         />
 
-        <TVFocusable
+        <TVFocusable accessibilityLabel="Voltar"
           onPress={() => navigation.goBack()}
           style={[tvStyles.backBtn, { top: Math.round(sh * 0.04), left: pH }]}
           hasTVPreferredFocus
@@ -790,10 +790,10 @@ export default function SeriesScreen() {
           />
 
           <View style={styles.heroNav}>
-            <TVFocusable onPress={() => navigation.goBack()} style={styles.heroNavBtn}>
+            <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.heroNavBtn}>
               <Ionicons name="chevron-back" size={14} color={colors.text1} />
             </TVFocusable>
-            <TVFocusable onPress={handleShare} style={styles.heroNavBtn}>
+            <TVFocusable accessibilityLabel="Compartilhar" onPress={handleShare} style={styles.heroNavBtn}>
               <Ionicons name="share-outline" size={16} color={colors.text1} />
             </TVFocusable>
           </View>
@@ -824,6 +824,7 @@ export default function SeriesScreen() {
           <TVFocusable
             onPress={() => currentEp && handlePlay(currentEp)}
             style={styles.continueBtn}
+            focusStyle={styles.continueBtnFocused}
           >
             <View style={styles.continueBtnLeft}>
               <Ionicons name="play" size={16} color={colors.textInverse} />
@@ -987,7 +988,8 @@ const loadStyles = StyleSheet.create({
     backgroundColor: colors.accent,
     borderRadius: radius.md,
   },
-  retryBtnText: { fontSize: 14, fontWeight: '600', color: colors.white },
+  retryBtnFocused: { backgroundColor: colors.accent2 },
+  retryBtnText: { fontSize: 14, fontWeight: '600', color: colors.textInverse },
   backBtn: {
     marginTop: 8,
     paddingHorizontal: 24, paddingVertical: 10,
@@ -1242,6 +1244,8 @@ const styles = StyleSheet.create({
   ratingText: { fontSize: 10, color: colors.text2 },
 
   actionWrap: { paddingHorizontal: 22, marginTop: -8 },
+  // Foco CLAREIA o controle claro/ativo — o FOCUS_BG translúcido padrão o escurecia
+  continueBtnFocused: { backgroundColor: colors.accent2 },
   continueBtn: {
     height: 50, borderRadius: 12, backgroundColor: colors.text1,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

@@ -3,6 +3,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable from './TVFocusable';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius } from '../utils/theme';
 
 interface Props {
@@ -30,8 +31,10 @@ function Tentacles() {
 }
 
 export default function TopHeader({ onSettingsPress, onAddPress }: Props) {
+  // Status bar agora é visível no mobile — o header precisa descer o inset dela
+  const insets = useSafeAreaInsets();
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: 8 + insets.top }]}>
       {/* Logo / Wordmark */}
       <View style={styles.wordmark}>
         {/* Icon + tentacles stacked */}
@@ -53,12 +56,12 @@ export default function TopHeader({ onSettingsPress, onAddPress }: Props) {
       {/* Right actions */}
       <View style={styles.actions}>
         {/* Add / manage lists */}
-        <TVFocusable onPress={onAddPress || (() => {})} style={styles.addBtn}>
-          <Ionicons name="add" size={17} color={colors.white} />
+        <TVFocusable accessibilityLabel="Adicionar lista" onPress={onAddPress || (() => {})} style={styles.addBtn} hitSlop={9}>
+          <Ionicons name="add" size={17} color={colors.textInverse} />
         </TVFocusable>
 
         {/* Settings */}
-        <TVFocusable onPress={onSettingsPress || (() => {})} style={styles.iconBtn}>
+        <TVFocusable accessibilityLabel="Ajustes" onPress={onSettingsPress || (() => {})} style={styles.iconBtn} hitSlop={9}>
           <Ionicons name="settings-outline" size={19} color={colors.text2} />
         </TVFocusable>
 
@@ -73,7 +76,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 22,
-    paddingTop: 8,
     paddingBottom: 12,
   },
 

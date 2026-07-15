@@ -38,6 +38,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { HERO_LIMBS, BG_LIMBS, TentacleAnim, HeroGeo, BgGeo } from '../generated/tentaclePaths';
 import { IS_NATIVE_TV } from '../utils/tvDetect';
+import { isReducedMotion } from '../utils/reducedMotion';
 
 const MIN_VISIBLE_MS = 2400;
 
@@ -233,7 +234,31 @@ function arcPath(cx: number, cy: number, r: number, a0: number, a1: number): str
 }
 
 // ── Splash ───────────────────────────────────────────────────────────────────
-export default function AnimatedSplash({ ready, onFinish }: { ready: boolean; onFinish: () => void }) {
+/** Variante estática para "Remover animações": logo parado, saída em fade curto. */
+function StaticSplash({ ready, onFinish }: { ready: boolean; onFinish: () => void }) {
+  const { width: w, height: h } = useWindowDimensions();
+  const vmin = Math.min(w, h);
+  const rootOpacity = useRef(new RNAnimated.Value(1)).current;
+  useEffect(() => {
+    if (!ready) return;
+    RNAnimated.timing(rootOpacity, { toValue: 0, duration: 200, useNativeDriver: true })
+      .start(() => onFinish());
+  }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <RNAnimated.View style={[StyleSheet.absoluteFill, { backgroundColor: '#06030d', alignItems: 'center', justifyContent: 'center', opacity: rootOpacity }]}>
+      <Image source={require('../../assets/adaptive-icon.png')} style={{ width: vmin * 0.34, height: vmin * 0.34 }} resizeMode="contain" />
+    </RNAnimated.View>
+  );
+}
+
+export default function AnimatedSplash(props: { ready: boolean; onFinish: () => void }) {
+  // Preferência lida uma vez por montagem — trocar de variante no meio da
+  // splash (remount) é pior que respeitar a leitura do boot.
+  const reduced = useRef(isReducedMotion()).current;
+  return reduced ? <StaticSplash {...props} /> : <FullAnimatedSplash {...props} />;
+}
+
+function FullAnimatedSplash({ ready, onFinish }: { ready: boolean; onFinish: () => void }) {
   const { width: w, height: h } = useWindowDimensions();
   const vmin = Math.min(w, h);
   const mountTs = useRef(Date.now());

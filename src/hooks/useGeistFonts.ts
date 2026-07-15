@@ -13,10 +13,3 @@ export function useGeistFonts() {
   return { fontsLoaded: loaded, fontError: error };
 }
 
-// Constantes de fontFamily para uso nos StyleSheets
-export const font = {
-  regular:  'Geist-Regular',
-  medium:   'Geist-Medium',
-  semiBold: 'Geist-SemiBold',
-  bold:     'Geist-Bold',
-} as const;

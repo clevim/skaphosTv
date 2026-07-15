@@ -35,16 +35,27 @@ function matchesAny(haystack: string, needles: string[]): boolean {
   return needles.some(n => haystack.includes(n));
 }
 
+/** Menor índice em que qualquer needle aparece na string, ou -1. */
+function indexOfAny(haystack: string, needles: string[]): number {
+  let min = -1;
+  for (const n of needles) {
+    const i = haystack.indexOf(n);
+    if (i !== -1 && (min === -1 || i < min)) min = i;
+  }
+  return min;
+}
+
 /**
  * Detecta o tipo do conteúdo pela group-title (e opcionalmente URL) do M3U,
  * em cadeia de sinais — do mais confiável ao mais fraco:
  *  1. Nome com S##E## → série, sempre (antes só valia com o marcador ♦).
  *  2. Marcador ♦️/◆ no grupo (injetado internamente p/ fontes Xtream) → filme.
- *  3. Palavra-chave de série no group-title → série.
- *  4. Palavra-chave de filme no group-title → filme.
- *  5. Extensão de VOD na URL (.mp4/.mkv/.avi) → filme — sinal mais fraco,
+ *  3. Palavra-chave de série/filme no group-title — a que aparece PRIMEIRO na
+ *     string ganha: em "Filmes | Drama" o prefixo de categoria ("filmes")
+ *     decide e "drama" fica como gênero; "Séries | Drama" segue série.
+ *  4. Extensão de VOD na URL (.mp4/.mkv/.avi) → filme — sinal mais fraco,
  *     só usado se nada acima decidiu.
- *  6. Default → ao vivo (comportamento anterior preservado).
+ *  5. Default → ao vivo (comportamento anterior preservado).
  */
 export function detectType(group: string, name?: string, url?: string): 'live' | 'movies' | 'series' {
   const isSeriesName = !!name && /S\d+\s*E\d+/i.test(name);
@@ -52,8 +63,10 @@ export function detectType(group: string, name?: string, url?: string): 'live' |
 
   const clean = group.replace(/\uFE0F/g, '').toLowerCase(); // normaliza ♦️ → ♦
   if (clean.includes('♦') || clean.includes('◆')) return 'movies';
-  if (matchesAny(clean, SERIES_KEYWORDS)) return 'series';
-  if (matchesAny(clean, MOVIE_KEYWORDS)) return 'movies';
+  const sIdx = indexOfAny(clean, SERIES_KEYWORDS);
+  const mIdx = indexOfAny(clean, MOVIE_KEYWORDS);
+  if (sIdx !== -1 && (mIdx === -1 || sIdx <= mIdx)) return 'series';
+  if (mIdx !== -1) return 'movies';
   if (url && matchesAny(url.toLowerCase(), MOVIE_EXTENSIONS)) return 'movies';
   return 'live';
 }

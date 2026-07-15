@@ -14,8 +14,9 @@ import {
   StyleProp,
   findNodeHandle,
 } from 'react-native';
-import { IS_TV } from '../utils/tvDetect';
-import { colors } from '../utils/theme';
+import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import { shadow } from '../utils/theme';
+import { useReducedMotion } from '../utils/reducedMotion';
 import { addFocusListener } from '../../modules/tv-focus';
 
 const FOCUS_SCALE = IS_TV ? 1.05 : 1;
@@ -44,6 +45,8 @@ export interface TVFocusableProps {
   focusScale?: number;
   onFocus?: () => void;
   onBlur?: () => void;
+  /** Expande a área de toque sem mudar o visual (alvo mínimo de 48dp no mobile). */
+  hitSlop?: number;
   /** IDs nativos para redirecionar D-pad — usados para focus trapping em overlays. */
   nextFocusLeft?:  number;
   nextFocusRight?: number;
@@ -69,6 +72,7 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
   nextFocusRight,
   nextFocusUp,
   nextFocusDown,
+  hitSlop,
 }, ref) {
   const pressableRef = useRef<any>(null);
   // Já inicia destacado se for o foco preferido — assim o highlight aparece ao
@@ -78,15 +82,21 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
   const targetScale = focusScale ?? FOCUS_SCALE;
   const zooming     = targetScale > 1;
 
+  const reducedMotion = useReducedMotion();
   const scaleAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
+    // Remover animações: o destaque continua (bg/sombra/escala), só sem o spring.
+    if (reducedMotion) {
+      scaleAnim.setValue(isFocused ? targetScale : 1);
+      return;
+    }
     Animated.spring(scaleAnim, {
       toValue: isFocused ? targetScale : 1,
       useNativeDriver: true,
       speed: 30,
       bounciness: 4,
     }).start();
-  }, [isFocused]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isFocused, reducedMotion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onFocusPropRef = useRef(onFocusProp);
   const onBlurPropRef  = useRef(onBlurProp);
@@ -97,6 +107,14 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
     focus:  () => { (pressableRef.current as any)?.focus?.(); },
     getTag: () => findNodeHandle(pressableRef.current),
   }));
+
+  // No web hasTVPreferredFocus não move o foco DOM de verdade: sem isto o
+  // highlight fica "aceso" sem foco real (Enter morto até o primeiro Tab).
+  useEffect(() => {
+    if (IS_WEB && hasTVPreferredFocus && !disabled) {
+      (pressableRef.current as any)?.focus?.();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!IS_TV) return;
@@ -143,12 +161,14 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
         isFocused && { backgroundColor: FOCUS_BG },
         isFocused && focusStyle,
         isFocused && (zooming
-          ? { zIndex: 20, elevation: 8, shadowColor: colors.black, shadowOpacity: 0.45, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }
+          ? { zIndex: 20, ...shadow.focus }
           : { zIndex: 20 }),
         { transform: [{ scale: scaleAnim }] },
       ]}
       accessible={accessible}
+      accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
+      hitSlop={hitSlop}
       {...({
         focusable:           !disabled,
         hasTVPreferredFocus: hasTVPreferredFocus && !disabled,

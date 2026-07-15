@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TVFocusable, { TVFocusableHandle } from './TVFocusable';
-import { colors, radius, fontFamily } from '../utils/theme';
+import { colors, radius, fontFamily, shadow } from '../utils/theme';
 import { JellyfinAudioTrack } from '../utils/jellyfinLoader';
 import { IS_TV } from '../utils/tvDetect';
 
@@ -114,6 +114,7 @@ const styles = StyleSheet.create({
   sheet: {
     width: 340,
     maxHeight: 440,
+    ...shadow.floating,
     backgroundColor: colors.bg1,
     borderRadius: radius.lg,
     borderWidth: 1,

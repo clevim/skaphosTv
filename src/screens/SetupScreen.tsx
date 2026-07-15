@@ -242,6 +242,8 @@ export default function SetupScreen() {
         channelCount: result.channels.length,
         epgUrl: result.tvgUrl,
       };
+      // Primeira fonte = momento de ativação; a celebração aparece uma única vez
+      const isFirstSource = !editingId && useStore.getState().sources.length === 0;
       if (editingId) updateSource(sourceId, source); else addSource(source);
       setEditingSourceId(null);
       replaceSourceChannels(sourceId, result.channels, result.groups);
@@ -252,9 +254,13 @@ export default function SetupScreen() {
           useStore.getState().replaceSourceChannels(sourceId, updated, useStore.getState().groups);
         },
       });
-      showAlert('Sucesso!', `${result.channels.length} canais carregados`, [
-        { text: 'OK', onPress: () => navigation.goBack() }
-      ]);
+      showAlert(
+        isFirstSource ? 'Tudo pronto!' : 'Sucesso!',
+        isFirstSource
+          ? `${result.channels.length} canais te esperando. Bom mergulho.`
+          : `${result.channels.length} canais carregados`,
+        [{ text: 'OK', onPress: () => navigation.goBack() }],
+      );
     } catch (e: any) {
       setConnectionResult(null);
       showAlert('Erro ao carregar lista', e.message || 'Verifique a URL e tente novamente');
@@ -268,6 +274,7 @@ export default function SetupScreen() {
     const rawUser = override?.user ?? xUser;
     const rawPass = override?.pass ?? xPass;
     const editingId = override ? null : editingSourceId;
+    const isFirstSource = !editingId && useStore.getState().sources.length === 0;
     if (!rawHost.trim() || !rawUser.trim() || !rawPass.trim()) {
       showAlert('Erro', 'Preencha todos os campos');
       return;
@@ -383,8 +390,10 @@ export default function SetupScreen() {
       setEditingSourceId(null);
       setConnectionResult({ success: true, channels: totalLoaded, vod: 0, latency: 0 });
       showAlert(
-        'Pronto!',
-        `${totalLoaded} itens carregados em 3 fases.`,
+        isFirstSource ? 'Tudo pronto!' : 'Pronto!',
+        isFirstSource
+          ? `${totalLoaded} itens te esperando. Bom mergulho.`
+          : `${totalLoaded} itens carregados em 3 fases.`,
         [{ text: 'OK', onPress: () => navigation.goBack() }],
       );
     }
@@ -545,7 +554,7 @@ export default function SetupScreen() {
       {IS_TV ? (
         // TV: stack fields vertically with more space
         <>
-          <FormField label="USUARIO" value={xUser} onChangeText={setXUser} placeholder="seu_usuario" returnKeyType="next"
+          <FormField label="USUÁRIO" value={xUser} onChangeText={setXUser} placeholder="seu_usuario" returnKeyType="next"
             inputRef={xUserRef} onSubmitEditing={() => xPassRef.current?.focus()} />
           <FormField
             label="SENHA"
@@ -569,7 +578,7 @@ export default function SetupScreen() {
         <>
           <View style={styles.formRow}>
             <View style={{ flex: 1 }}>
-              <FormField label="USUARIO" value={xUser} onChangeText={setXUser} placeholder="seu_usuario" returnKeyType="next" />
+              <FormField label="USUÁRIO" value={xUser} onChangeText={setXUser} placeholder="seu_usuario" returnKeyType="next" />
             </View>
             <View style={{ flex: 1 }}>
               <FormField
@@ -604,7 +613,7 @@ export default function SetupScreen() {
             <Ionicons name="checkmark" size={14} color={colors.green} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.successTitle}>Conexao verificada</Text>
+            <Text style={styles.successTitle}>Conexão verificada</Text>
             <Text style={styles.successMeta}>
               {connectionResult.channels} CANAIS · {connectionResult.latency}ms
             </Text>
@@ -616,17 +625,18 @@ export default function SetupScreen() {
         ref={xSubmitRef}
         onPress={isLoading ? undefined : loadXtream}
         style={[IS_TV ? tvStyles.submitBtn : styles.submitBtn, isLoading && styles.submitBtnDisabled]}
+        focusStyle={styles.submitBtnFocused}
         hasTVPreferredFocus={false}
         borderRadius={IS_TV ? 12 : 14}
       >
         {isLoading ? (
-          <ActivityIndicator color={colors.white} />
+          <ActivityIndicator color={colors.textInverse} />
         ) : (
           <>
             <Text style={[styles.submitText, IS_TV && tvStyles.submitText]}>
               {editingSourceId ? 'Atualizar' : 'Continuar'}
             </Text>
-            <Ionicons name="chevron-forward" size={IS_TV ? 20 : 16} color={colors.white} />
+            <Ionicons name="chevron-forward" size={IS_TV ? 20 : 16} color={colors.textInverse} />
           </>
         )}
       </TVFocusable>
@@ -675,14 +685,15 @@ export default function SetupScreen() {
         ref={jSubmitRef}
         onPress={isLoading ? undefined : startQuickConnect}
         style={[IS_TV ? tvStyles.submitBtn : styles.submitBtn, isLoading && styles.submitBtnDisabled]}
+        focusStyle={styles.submitBtnFocused}
         hasTVPreferredFocus={false}
         borderRadius={IS_TV ? 12 : 14}
       >
         {isLoading ? (
-          <ActivityIndicator color={colors.white} />
+          <ActivityIndicator color={colors.textInverse} />
         ) : (
           <>
-            <Ionicons name="phone-portrait-outline" size={IS_TV ? 20 : 16} color={colors.white} />
+            <Ionicons name="phone-portrait-outline" size={IS_TV ? 20 : 16} color={colors.textInverse} />
             <Text style={[styles.submitText, IS_TV && tvStyles.submitText]}>
               {editingSourceId ? 'Reconectar com Quick Connect' : 'Conectar com Quick Connect'}
             </Text>
@@ -724,7 +735,7 @@ export default function SetupScreen() {
             <Ionicons name="checkmark" size={14} color={colors.green} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.successTitle}>Conexao verificada</Text>
+            <Text style={styles.successTitle}>Conexão verificada</Text>
             <Text style={styles.successMeta}>
               {connectionResult.channels} CANAIS · {connectionResult.latency}ms
             </Text>
@@ -736,17 +747,18 @@ export default function SetupScreen() {
         ref={m3uSubmitRef}
         onPress={isLoading ? undefined : loadAndSaveM3U}
         style={[IS_TV ? tvStyles.submitBtn : styles.submitBtn, isLoading && styles.submitBtnDisabled]}
+        focusStyle={styles.submitBtnFocused}
         hasTVPreferredFocus={false}
         borderRadius={IS_TV ? 12 : 14}
       >
         {isLoading ? (
-          <ActivityIndicator color={colors.white} />
+          <ActivityIndicator color={colors.textInverse} />
         ) : (
           <>
             <Text style={[styles.submitText, IS_TV && tvStyles.submitText]}>
               {editingSourceId ? 'Atualizar' : 'Continuar'}
             </Text>
-            <Ionicons name="chevron-forward" size={IS_TV ? 20 : 16} color={colors.white} />
+            <Ionicons name="chevron-forward" size={IS_TV ? 20 : 16} color={colors.textInverse} />
           </>
         )}
       </TVFocusable>
@@ -760,7 +772,7 @@ export default function SetupScreen() {
       <View style={tvStyles.root}>
         {/* Header bar */}
         <View style={[tvStyles.header, { paddingHorizontal: padH }]}>
-          <TVFocusable
+          <TVFocusable accessibilityLabel="Voltar"
             onPress={() => navigation.goBack()}
             style={tvStyles.backBtn}
             hasTVPreferredFocus
@@ -854,6 +866,7 @@ export default function SetupScreen() {
                         </Text>
                       </View>
                       <TVFocusable
+                        accessibilityLabel="Recarregar fonte"
                         onPress={() => reloadSource(source)}
                         style={tvStyles.editBtn}
                         borderRadius={8}
@@ -863,6 +876,7 @@ export default function SetupScreen() {
                           : <Ionicons name="refresh-outline" size={20} color={colors.text2} />}
                       </TVFocusable>
                       <TVFocusable
+                        accessibilityLabel="Categorias da fonte"
                         onPress={() => setCategoryTarget(source)}
                         style={tvStyles.editBtn}
                         borderRadius={8}
@@ -870,6 +884,7 @@ export default function SetupScreen() {
                         <Ionicons name="pricetags-outline" size={20} color={colors.text2} />
                       </TVFocusable>
                       <TVFocusable
+                        accessibilityLabel="Editar fonte"
                         onPress={() => startEdit(source)}
                         style={tvStyles.editBtn}
                         borderRadius={8}
@@ -877,6 +892,7 @@ export default function SetupScreen() {
                         <Ionicons name="pencil-outline" size={20} color={colors.accent} />
                       </TVFocusable>
                       <TVFocusable
+                        accessibilityLabel="Excluir fonte"
                         onPress={() => deleteSource(source.id, source.name)}
                         style={tvStyles.deleteBtn}
                         borderRadius={8}
@@ -961,7 +977,7 @@ export default function SetupScreen() {
 
         {/* Header */}
         <View style={styles.headerRow}>
-          <TVFocusable onPress={() => navigation.goBack()} style={styles.backBtn} borderRadius={999}>
+          <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.backBtn} borderRadius={999}>
             <Ionicons name="chevron-back" size={20} color={colors.text2} />
           </TVFocusable>
           <View style={{ flex: 1 }} />
@@ -1028,6 +1044,9 @@ export default function SetupScreen() {
                   </Text>
                 </View>
                 <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Recarregar fonte"
+                  hitSlop={5}
                   onPress={() => reloadSource(source)}
                   style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.6 }]}
                 >
@@ -1036,18 +1055,27 @@ export default function SetupScreen() {
                     : <Ionicons name="refresh-outline" size={18} color={colors.text2} />}
                 </Pressable>
                 <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Categorias da fonte"
+                  hitSlop={5}
                   onPress={() => setCategoryTarget(source)}
                   style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.6 }]}
                 >
                   <Ionicons name="pricetags-outline" size={18} color={colors.text2} />
                 </Pressable>
                 <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Editar fonte"
+                  hitSlop={5}
                   onPress={() => startEdit(source)}
                   style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.6 }]}
                 >
                   <Ionicons name="pencil-outline" size={18} color={colors.accent} />
                 </Pressable>
                 <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Excluir fonte"
+                  hitSlop={5}
                   onPress={() => deleteSource(source.id, source.name)}
                   style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.6 }]}
                 >
@@ -1264,6 +1292,7 @@ function CategoryOverrideModal({ source, channelIndex, onClose, onChange }: {
                       key={opt.key}
                       onPress={() => onChange(source, group, opt.key === type && overridden ? null : opt.key)}
                       style={[coStyles.optionBtn, type === opt.key && coStyles.optionBtnActive]}
+                      focusStyle={type === opt.key ? coStyles.optionBtnActiveFocused : undefined}
                       borderRadius={6}
                     >
                       <Text style={[coStyles.optionText, type === opt.key && coStyles.optionTextActive]}>
@@ -1272,7 +1301,7 @@ function CategoryOverrideModal({ source, channelIndex, onClose, onChange }: {
                     </TVFocusable>
                   ))}
                   {overridden && (
-                    <TVFocusable onPress={() => onChange(source, group, null)} style={coStyles.resetBtn} borderRadius={6}>
+                    <TVFocusable accessibilityLabel="Restaurar categoria" onPress={() => onChange(source, group, null)} style={coStyles.resetBtn} hitSlop={11} borderRadius={6}>
                       <Ionicons name="refresh-outline" size={14} color={colors.text3} />
                     </TVFocusable>
                   )}
@@ -1314,8 +1343,10 @@ const coStyles = StyleSheet.create({
     borderColor: colors.border,
   },
   optionBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  // Foco CLAREIA o chip ativo — o FOCUS_BG translúcido padrão o escurecia
+  optionBtnActiveFocused: { backgroundColor: colors.accent2, borderColor: colors.accent2 },
   optionText: { fontSize: 11, color: colors.text3, fontWeight: '600' },
-  optionTextActive: { color: colors.white },
+  optionTextActive: { color: colors.textInverse },
   resetBtn: {
     width: 26, height: 26, alignItems: 'center', justifyContent: 'center',
     backgroundColor: colors.bg2, borderRadius: radius.sm,
@@ -1480,7 +1511,9 @@ const styles = StyleSheet.create({
 
   submitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.accent, borderRadius: radius.lg, height: 50, marginTop: spacing.sm },
   submitBtnDisabled: { opacity: 0.6 },
-  submitText: { color: colors.white, fontSize: fontSize.md, fontWeight: '600', letterSpacing: -0.2 },
+  // Foco CLAREIA o botão accent — o FOCUS_BG translúcido padrão o escurecia
+  submitBtnFocused: { backgroundColor: colors.accent2 },
+  submitText: { color: colors.textInverse, fontSize: fontSize.md, fontWeight: '600', letterSpacing: -0.2 },
 
   securityNote: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   securityText: { fontSize: 11, color: colors.text3 },
@@ -1489,7 +1522,7 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 10, fontWeight: '600', color: colors.text3, letterSpacing: 0.6 },
   sourceCard: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: colors.bg1, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.md },
   sourceIcon: { width: 40, height: 40, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
-  sourceIconM3U: { backgroundColor: colors.accent },
+  sourceIconM3U: { backgroundColor: colors.accent3 },
   sourceIconXtream: { backgroundColor: '#059669' },
   sourceIconJellyfin: { backgroundColor: '#00a4dc' },
   sourceMeta: { flex: 1 },
@@ -1625,7 +1658,7 @@ const tvStyles = StyleSheet.create({
     gap: 8, backgroundColor: colors.accent,
     borderRadius: 12, height: 48, marginTop: 6,
   },
-  submitText: { color: colors.white, fontSize: 15, fontWeight: '700', letterSpacing: -0.3 },
+  submitText: { color: colors.textInverse, fontSize: 15, fontWeight: '700', letterSpacing: -0.3 },
 
   // Options — TV
   optionsBox: {

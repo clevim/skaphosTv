@@ -201,7 +201,7 @@ export default function PlayerOSD({
       {/* Top bar — back + title + actions. Some no modo scrubbing (foco na barra),
           mas continua montado/focável para o foco poder voltar ao sair da barra. */}
       <View style={[styles.osdTop, scrubMode && styles.scrubHidden]} {...hoverProps}>
-        <TVFocusable onPress={onBack} style={styles.backBtn}>
+        <TVFocusable accessibilityLabel={IS_TV ? 'Voltar' : 'Fechar player'} onPress={onBack} style={styles.backBtn} hitSlop={5}>
           <Ionicons name={IS_TV ? 'chevron-back' : 'chevron-down'} size={20} color={colors.white} />
         </TVFocusable>
 
@@ -250,33 +250,33 @@ export default function PlayerOSD({
                   onPointerUp={() => setVolDragging(false)}
                 />
               </div>
-              <TVFocusable onPress={onToggleMute} style={styles.iconBtn}>
+              <TVFocusable accessibilityLabel={isMuted || volume <= 0 ? 'Ativar som' : 'Silenciar'} onPress={onToggleMute} style={styles.iconBtn} hitSlop={5}>
                 <Ionicons name={volIcon} size={18} color={colors.white} />
               </TVFocusable>
             </Pressable>
           )}
           {IS_WEB && onBrowserPip && (
-            <TVFocusable onPress={onBrowserPip} style={styles.iconBtn}>
+            <TVFocusable accessibilityLabel="Picture-in-Picture do navegador" onPress={onBrowserPip} style={styles.iconBtn} hitSlop={5}>
               <Ionicons name="browsers-outline" size={18} color={colors.white} />
             </TVFocusable>
           )}
           {showMinimize && onMinimize && (
-            <TVFocusable onPress={onMinimize} style={styles.iconBtn}>
+            <TVFocusable accessibilityLabel="Minimizar player" onPress={onMinimize} style={styles.iconBtn} hitSlop={5}>
               <Ionicons name="contract-outline" size={18} color={colors.white} />
             </TVFocusable>
           )}
           {hasAudio && onToggleAudio && (
-            <TVFocusable onPress={onToggleAudio} style={styles.iconBtn}>
+            <TVFocusable accessibilityLabel="Faixas de áudio" onPress={onToggleAudio} style={styles.iconBtn} hitSlop={5}>
               <Ionicons name="musical-notes-outline" size={18} color={colors.white} />
             </TVFocusable>
           )}
           {hasSubtitles && onToggleSubtitles && (
-            <TVFocusable onPress={onToggleSubtitles} style={[styles.iconBtn, subtitleActive && styles.iconBtnActive]}>
+            <TVFocusable accessibilityLabel="Legendas" onPress={onToggleSubtitles} style={[styles.iconBtn, subtitleActive && styles.iconBtnActive]} hitSlop={5}>
               <Ionicons name="chatbox-ellipses-outline" size={18} color={subtitleActive ? colors.accent : colors.white} />
             </TVFocusable>
           )}
           {onToggleSleepTimer && (
-            <TVFocusable onPress={onToggleSleepTimer} style={styles.iconBtn}>
+            <TVFocusable accessibilityLabel="Timer de desligamento" onPress={onToggleSleepTimer} style={styles.iconBtn} hitSlop={5}>
               <Ionicons name="moon-outline" size={18} color={sleepTimerActive ? colors.accent : colors.white} />
               {/* Enquanto roda, o estado "ativo" é só o anel regredindo — sem também
                   pintar o botão, que duplicava a indicação (círculo cheio + anel). */}
@@ -286,12 +286,12 @@ export default function PlayerOSD({
             </TVFocusable>
           )}
           {showSidebarButton && (
-            <TVFocusable onPress={onToggleSidebar} style={styles.iconBtn}>
+            <TVFocusable accessibilityLabel="Lista de canais" onPress={onToggleSidebar} style={styles.iconBtn} hitSlop={5}>
               <Ionicons name="scan-outline" size={18} color={colors.white} />
             </TVFocusable>
           )}
           {showNextEpisode && onNextEpisode && (
-            <TVFocusable onPress={onNextEpisode} style={styles.iconBtn}>
+            <TVFocusable accessibilityLabel="Próximo episódio" onPress={onNextEpisode} style={styles.iconBtn} hitSlop={5}>
               <Ionicons name="play-skip-forward" size={18} color={colors.white} />
             </TVFocusable>
           )}
@@ -306,17 +306,17 @@ export default function PlayerOSD({
             Ao vivo não tem como avançar/voltar — some com os botões de seek,
             deixando só o play/pause pra limpar a tela. */}
         {!isLive && (
-          <TVFocusable onPress={() => onSeekBy(-10)} style={styles.seekBtn} disabled={scrubMode}>
+          <TVFocusable accessibilityLabel="Voltar 10 segundos" onPress={() => onSeekBy(-10)} style={styles.seekBtn} disabled={scrubMode}>
             <Ionicons name="play-back" size={IS_TV ? 32 : 28} color="rgba(255,255,255,0.85)" />
           </TVFocusable>
         )}
 
-        <TVFocusable onPress={onTogglePlay} style={styles.playBtn} hasTVPreferredFocus>
+        <TVFocusable accessibilityLabel={isPlaying ? 'Pausar' : 'Reproduzir'} onPress={onTogglePlay} style={styles.playBtn} hasTVPreferredFocus>
           <Ionicons name={isPlaying ? 'pause' : 'play'} size={IS_TV ? 28 : 24} color={colors.textInverse} />
         </TVFocusable>
 
         {!isLive && (
-          <TVFocusable onPress={() => onSeekBy(10)} style={styles.seekBtn} disabled={scrubMode}>
+          <TVFocusable accessibilityLabel="Avançar 10 segundos" onPress={() => onSeekBy(10)} style={styles.seekBtn} disabled={scrubMode}>
             <Ionicons name="play-forward" size={IS_TV ? 32 : 28} color="rgba(255,255,255,0.85)" />
           </TVFocusable>
         )}
@@ -375,13 +375,13 @@ export default function PlayerOSD({
         {/* Channel nav — only show for non-live with no progress */}
         {!isLive && duration === 0 && (
           <View style={styles.bottomRow}>
-            <TVFocusable onPress={onPrevChannel} style={styles.navBtn} disabled={currentIndex === 0}>
+            <TVFocusable accessibilityLabel="Canal anterior" onPress={onPrevChannel} style={styles.navBtn} hitSlop={4} disabled={currentIndex === 0}>
               <Ionicons name="play-skip-back" size={18} color={currentIndex === 0 ? 'rgba(255,255,255,0.3)' : colors.white} />
             </TVFocusable>
             <Text style={styles.channelCounter}>
               CH {currentIndex + 1}/{totalChannels}
             </Text>
-            <TVFocusable onPress={onNextChannel} style={styles.navBtn} disabled={currentIndex === totalChannels - 1}>
+            <TVFocusable accessibilityLabel="Próximo canal" onPress={onNextChannel} style={styles.navBtn} hitSlop={4} disabled={currentIndex === totalChannels - 1}>
               <Ionicons name="play-skip-forward" size={18} color={currentIndex === totalChannels - 1 ? 'rgba(255,255,255,0.3)' : colors.white} />
             </TVFocusable>
           </View>

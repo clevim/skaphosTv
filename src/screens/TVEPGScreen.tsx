@@ -178,7 +178,7 @@ export default function TVEPGScreen() {
     return (
       <View style={styles.root}>
         <View style={mStyles.header}>
-          <TVFocusable onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Ionicons name="chevron-back" size={18} color={colors.text1} />
           </TVFocusable>
           <Text style={styles.headerTitle}>Guia</Text>
@@ -186,7 +186,7 @@ export default function TVEPGScreen() {
           {epgLoading ? (
             <ActivityIndicator size="small" color={colors.accent} />
           ) : (
-            <TVFocusable onPress={() => loadEpg(true)} style={styles.nowBtn}>
+            <TVFocusable accessibilityLabel="Atualizar guia" onPress={() => loadEpg(true)} style={styles.nowBtn}>
               <Ionicons name="refresh-outline" size={14} color={colors.text2} />
             </TVFocusable>
           )}
@@ -245,7 +245,7 @@ export default function TVEPGScreen() {
     <View style={styles.root}>
       {/* Header */}
       <View style={styles.header}>
-        <TVFocusable onPress={() => navigation.goBack()} style={styles.backBtn} hasTVPreferredFocus>
+        <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.backBtn} hasTVPreferredFocus>
           <Ionicons name="chevron-back" size={18} color={colors.text1} />
         </TVFocusable>
         <Text style={styles.headerTitle}>Guia de Programação</Text>

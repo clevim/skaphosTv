@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import PulsingDot from './PulsingDot';
-import { colors, spacing, fontSize, radius, fontFamily } from '../utils/theme';
+import { colors, spacing, fontSize, radius, fontFamily, shadow } from '../utils/theme';
 import { getSeriesBaseName, isLaunchYear, LAUNCH_YEAR, cleanGroupName } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
 import { useWatchProgress, progressFractionFor, resumePositionFor, watchStatusFor, computeContinueWatching, WatchEntry } from '../store/watchProgress';
@@ -159,6 +159,9 @@ function LiveCard({ channel, onPress, nowPlaying }: {
   nowPlaying?: string;
 }) {
   const isJellyfin = channel.id?.startsWith('jf-');
+  // A fileira "Ao vivo" pode cair no fallback (catálogo sem canais tipados como
+  // live) — nesse caso o card recebe filme/série e o selo LIVE mentiria.
+  const isLive = !isJellyfin && resolveChannelType(channel) === 'live';
   return (
     <TVFocusable onPress={onPress} style={lStyles.card}>
       <View style={lStyles.poster}>
@@ -174,7 +177,7 @@ function LiveCard({ channel, onPress, nowPlaying }: {
             <View style={lStyles.jellyDot} />
             <Text style={lStyles.badgeText}>JELLY</Text>
           </View>
-        ) : (
+        ) : isLive && (
           <View style={lStyles.badge}>
             <PulsingDot size={6} color={colors.live} />
             <Text style={lStyles.badgeText}>LIVE</Text>
@@ -497,14 +500,15 @@ export default function HomeContent({
         </View>
         <Text style={styles.emptyTitle}>Bem-vindo ao SkaphosTV</Text>
         <Text style={styles.emptySubtitle}>
-          Adicione uma lista IPTV para comecar a assistir
+          Adicione uma lista IPTV para começar a assistir
         </Text>
         <TVFocusable
           onPress={() => (navigation as any).navigate('Setup')}
           style={styles.addBtn}
+          focusStyle={styles.addBtnFocused}
           hasTVPreferredFocus
         >
-          <Ionicons name="add-circle-outline" size={18} color={colors.white} />
+          <Ionicons name="add-circle-outline" size={18} color={colors.textInverse} />
           <Text style={styles.addBtnText}>Adicionar Lista IPTV</Text>
         </TVFocusable>
       </View>
@@ -764,6 +768,7 @@ const styles = StyleSheet.create({
   },
   hero: {
     position: 'relative',
+    ...shadow.ambient,
     borderRadius: 18,
     overflow: 'hidden',
     height: 380,
@@ -895,7 +900,9 @@ const styles = StyleSheet.create({
     paddingVertical: IS_TV ? 14 : 10,
     marginTop: spacing.sm,
   },
+  // Foco CLAREIA o botão accent — o FOCUS_BG translúcido padrão o escurecia
+  addBtnFocused: { backgroundColor: colors.accent2 },
   addBtnText: {
-    color: colors.white, fontSize: IS_TV ? fontSize.md : fontSize.sm, fontWeight: '600',
+    color: colors.textInverse, fontSize: IS_TV ? fontSize.md : fontSize.sm, fontWeight: '600',
   },
 });

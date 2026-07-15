@@ -48,7 +48,6 @@ interface AppState {
     bufferSize: number;
     /** Relógio na top bar da TV. */
     showClock: boolean;
-    language: string;
     /** Ativa legendas automaticamente quando o conteúdo tiver (Jellyfin). */
     subtitleEnabled: boolean;
     subtitleSize: 'small' | 'medium' | 'large';
@@ -430,7 +429,6 @@ export const useStore = create<AppState>((set, get) => ({
     autoPlay: true,
     bufferSize: 30000,
     showClock: true,
-    language: 'pt-BR',
     subtitleEnabled: false,
     subtitleSize: 'medium',
     showEpg: true,
