@@ -57,3 +57,5 @@ Thumbs.db
 
 # Local docs/notes (not tracked)
 docs/
+.impeccable
+.agents
