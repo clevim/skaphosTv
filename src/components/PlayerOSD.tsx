@@ -102,8 +102,6 @@ interface Props {
   /** Mini-player: botão de minimizar (PiP dentro do app). */
   showMinimize?: boolean;
   onMinimize?: () => void;
-  /** Web: PiP nativo do navegador — janela flutuante fora da aba. */
-  onBrowserPip?: () => void;
   /** TV: modo scrubbing ativo (controlado pelo PlayerScreen). Esconde os controles,
    *  realça a barra e mostra a dica. O seek é feito pelo D-pad no PlayerScreen. */
   scrubMode?: boolean;
@@ -149,7 +147,7 @@ export default function PlayerOSD({
   hasAudio, onToggleAudio,
   sleepTimerActive, onToggleSleepTimer, sleepTimerEndAt, sleepTimerTotalMinutes,
   showNextEpisode, onNextEpisode,
-  showMinimize, onMinimize, onBrowserPip,
+  showMinimize, onMinimize,
   scrubMode = false,
   onControlsHover,
 }: Props) {
@@ -218,8 +216,14 @@ export default function PlayerOSD({
           {IS_WEB && (
             <Pressable
               style={styles.volumeGroup}
-              onHoverIn={() => setVolHover(true)}
-              onHoverOut={() => setVolHover(false)}
+              // onMouseEnter/Leave DOM direto (como os hoverProps do OSD): o
+              // onHoverIn do Pressable não disparava sobre o ícone. mouseenter
+              // no grupo cobre qualquer filho (ícone incluso) e mouseleave só
+              // dispara ao sair do grupo inteiro.
+              {...({
+                onMouseEnter: () => setVolHover(true),
+                onMouseLeave: () => setVolHover(false),
+              } as any)}
               // onPress no-op DE PROPÓSITO: reivindica o responder do RN-web
               // (o mais profundo vence). Sem isso, cliques no <input> nativo —
               // que não participa do sistema de responder — eram reivindicados
@@ -254,11 +258,6 @@ export default function PlayerOSD({
                 <Ionicons name={volIcon} size={18} color={colors.white} />
               </TVFocusable>
             </Pressable>
-          )}
-          {IS_WEB && onBrowserPip && (
-            <TVFocusable accessibilityLabel="Picture-in-Picture do navegador" onPress={onBrowserPip} style={styles.iconBtn} hitSlop={5}>
-              <Ionicons name="browsers-outline" size={18} color={colors.white} />
-            </TVFocusable>
           )}
           {showMinimize && onMinimize && (
             <TVFocusable accessibilityLabel="Minimizar player" onPress={onMinimize} style={styles.iconBtn} hitSlop={5}>

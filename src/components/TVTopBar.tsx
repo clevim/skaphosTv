@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, radius, fontFamily } from '../utils/theme';
 import { LAUNCH_YEAR } from '../utils/channelUtils';
@@ -89,7 +90,8 @@ export default function TVTopBar({ active, onNavPress, onSettingsPress, jellyfin
       {/* Wordmark */}
       <View style={styles.wordmark}>
         <View style={styles.logoIcon}>
-          <Ionicons name="tv" size={14} color={colors.accent} />
+          {/* Logo oficial com zoom-crop — a arte tem ~15% de margem interna */}
+          <Image source={require('../../assets/icon.png')} style={styles.logoImg} contentFit="cover" />
         </View>
         <Text style={styles.logoText}>
           Skaphos<Text style={styles.logoDot}>·</Text>TV
@@ -148,13 +150,15 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   logoIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: 6,
-    backgroundColor: 'rgba(167,139,250,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(167,139,250,0.25)',
+    backgroundColor: colors.bg0,
   },
+  logoImg: { width: 40, height: 40, marginTop: -7, marginLeft: -7 },
   logoText: {
     fontSize: 15,
     fontFamily: fontFamily.semiBold,

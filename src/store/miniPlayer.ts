@@ -14,9 +14,12 @@ interface MiniPlayerState {
   channel: Channel | null;
   /** Segundos para retomar quando o mini-player montar o vídeo. */
   startPosition: number;
+  /** Playlist da série — viaja no handoff para o "próximo episódio" sobreviver
+   *  ao minimizar/expandir (o Player remonta com os params da navegação). */
+  playlist: Channel[];
   visible: boolean;
-  /** Abre o mini-player com um canal e a posição atual (em segundos). */
-  open: (channel: Channel, position: number) => void;
+  /** Abre o mini-player com um canal, a posição atual (em segundos) e a playlist. */
+  open: (channel: Channel, position: number, playlist?: Channel[]) => void;
   /** Fecha o mini-player (para a reprodução). */
   close: () => void;
 }
@@ -24,8 +27,9 @@ interface MiniPlayerState {
 export const useMiniPlayer = create<MiniPlayerState>((set) => ({
   channel: null,
   startPosition: 0,
+  playlist: [],
   visible: false,
-  open: (channel, position) =>
-    set({ channel, startPosition: Math.max(0, position || 0), visible: true }),
-  close: () => set({ channel: null, startPosition: 0, visible: false }),
+  open: (channel, position, playlist = []) =>
+    set({ channel, startPosition: Math.max(0, position || 0), playlist, visible: true }),
+  close: () => set({ channel: null, startPosition: 0, playlist: [], visible: false }),
 }));

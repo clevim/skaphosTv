@@ -2,6 +2,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import TVFocusable from './TVFocusable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius } from '../utils/theme';
@@ -11,25 +12,6 @@ interface Props {
   onAddPress?: () => void;
 }
 
-/** Small tentacle cluster below the logo icon */
-function Tentacles() {
-  // 5 tentacles with alternating heights and slight radius at bottom
-  const heights = [5, 8, 6, 9, 5];
-  return (
-    <View style={styles.tentaclesRow}>
-      {heights.map((h, i) => (
-        <View
-          key={i}
-          style={[
-            styles.tentacle,
-            { height: h, opacity: 0.55 - i * 0.03 },
-          ]}
-        />
-      ))}
-    </View>
-  );
-}
-
 export default function TopHeader({ onSettingsPress, onAddPress }: Props) {
   // Status bar agora é visível no mobile — o header precisa descer o inset dela
   const insets = useSafeAreaInsets();
@@ -37,12 +19,11 @@ export default function TopHeader({ onSettingsPress, onAddPress }: Props) {
     <View style={[styles.container, { paddingTop: 8 + insets.top }]}>
       {/* Logo / Wordmark */}
       <View style={styles.wordmark}>
-        {/* Icon + tentacles stacked */}
-        <View style={styles.logoCreature}>
-          <View style={styles.logoIcon}>
-            <Ionicons name="tv" size={11} color={colors.accent} />
-          </View>
-          <Tentacles />
+        {/* Logo oficial (escafandro). A arte tem ~15% de margem interna — o
+            zoom-crop (imagem maior que o quadro, overflow hidden) preenche o
+            selo sem redesenhar o asset. */}
+        <View style={styles.logoIcon}>
+          <Image source={require('../../assets/icon.png')} style={styles.logoImg} contentFit="cover" />
         </View>
 
         <View>
@@ -85,30 +66,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 9,
   },
-  logoCreature: {
-    alignItems: 'center',
-  },
   logoIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    backgroundColor: 'rgba(167,139,250,0.15)',
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(167,139,250,0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: colors.bg0,
   },
-  tentaclesRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 2,
-    marginTop: 2,
-  },
-  tentacle: {
-    width: 2.5,
-    borderRadius: 99,
-    backgroundColor: colors.accent,
-  },
+  // 145% do quadro, centralizado — recorta a margem interna da arte
+  logoImg: { width: 42, height: 42, marginTop: -7, marginLeft: -7 },
 
   logoText: {
     fontSize: 12,

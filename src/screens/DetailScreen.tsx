@@ -12,6 +12,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore, resolveChannelType } from '../store/useStore';
+import { useWatchProgress, progressFractionFor, resumePositionFor } from '../store/watchProgress';
 import TVFocusable from '../components/TVFocusable';
 import PulsingDot from '../components/PulsingDot';
 import GlassButton from '../components/GlassButton';
@@ -76,6 +77,21 @@ export default function DetailScreen() {
   const displayDir    = channel.director || vod?.director;
 
   const isJellyfin = !!parseJellyfinVideoUrl(channel.url);
+
+  // "Assistido" manual (só VOD — ao vivo não tem noção de assistido).
+  const watchEntry = useWatchProgress(s => s.entries[channel.id]);
+  const isWatched = !!watchEntry?.watched;
+  const toggleWatched = () => {
+    const wp = useWatchProgress.getState();
+    isWatched ? wp.clear(channel.id) : wp.markWatched(channel.id);
+  };
+
+  // Retomada: com progresso salvo o CTA vira "Retomar" com barra + tempo restante.
+  const resumeFrac = type !== 'live' && !isWatched && resumePositionFor(watchEntry) > 0
+    ? progressFractionFor(watchEntry) : 0;
+  const remainMin = watchEntry && resumeFrac > 0
+    ? Math.max(1, Math.round((watchEntry.durationSec - watchEntry.positionSec) / 60)) : 0;
+  const playLabel = resumeFrac > 0 ? 'Retomar' : 'Assistir agora';
 
   const handlePlay = () => {
     if (isJellyfin) {
@@ -293,8 +309,16 @@ export default function DetailScreen() {
           {/* Play button */}
           <TVFocusable onPress={handlePlay} style={tvStyles.playBtn} focusStyle={tvStyles.playBtnFocused} hasTVPreferredFocus>
             <Ionicons name="play" size={18} color={colors.textInverse} />
-            <Text style={tvStyles.playText}>Assistir agora</Text>
+            <Text style={tvStyles.playText}>{playLabel}</Text>
           </TVFocusable>
+          {resumeFrac > 0 && (
+            <View style={shared.resumeRow}>
+              <View style={shared.resumeTrack}>
+                <View style={[shared.resumeFill, { width: `${Math.round(resumeFrac * 100)}%` }]} />
+              </View>
+              <Text style={shared.resumeLabel}>Restam {remainMin} min</Text>
+            </View>
+          )}
 
           {/* Secondary actions */}
           <View style={tvStyles.secondaryRow}>
@@ -303,6 +327,13 @@ export default function DetailScreen() {
               label="Minha lista"
               onPress={() => toggleFavorite(channel.id)}
             />
+            {type !== 'live' && (
+              <GlassButton
+                icon={isWatched ? 'checkmark-circle' : 'checkmark-circle-outline'}
+                label={isWatched ? 'Assistido' : 'Marcar assistido'}
+                onPress={toggleWatched}
+              />
+            )}
           </View>
 
           {/* Tabs + content */}
@@ -379,14 +410,29 @@ export default function DetailScreen() {
         <View style={styles.actions}>
           <TVFocusable onPress={handlePlay} style={styles.playBtn} focusStyle={styles.playBtnFocused}>
             <Ionicons name="play" size={16} color={colors.textInverse} />
-            <Text style={styles.playText}>Assistir agora</Text>
+            <Text style={styles.playText}>{playLabel}</Text>
           </TVFocusable>
+          {resumeFrac > 0 && (
+            <View style={shared.resumeRow}>
+              <View style={shared.resumeTrack}>
+                <View style={[shared.resumeFill, { width: `${Math.round(resumeFrac * 100)}%` }]} />
+              </View>
+              <Text style={shared.resumeLabel}>Restam {remainMin} min</Text>
+            </View>
+          )}
           <View style={styles.secondaryActions}>
             <GlassButton
               icon={isFav ? 'heart' : 'heart-outline'}
               label="Minha lista"
               onPress={() => toggleFavorite(channel.id)}
             />
+            {type !== 'live' && (
+              <GlassButton
+                icon={isWatched ? 'checkmark-circle' : 'checkmark-circle-outline'}
+                label={isWatched ? 'Assistido' : 'Marcar assistido'}
+                onPress={toggleWatched}
+              />
+            )}
           </View>
         </View>
 
@@ -396,6 +442,21 @@ export default function DetailScreen() {
     </View>
   );
 }
+
+// ── Shared (TV + mobile): barra de retomada sob o CTA ────────────────────────
+const shared = StyleSheet.create({
+  resumeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginTop: 10,
+  },
+  resumeTrack: {
+    flex: 1, height: 3, borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    overflow: 'hidden',
+  },
+  resumeFill: { height: '100%', backgroundColor: colors.accent },
+  resumeLabel: { fontSize: 11, color: colors.text2, flexShrink: 0 },
+});
 
 // ── TV Styles ────────────────────────────────────────────────────────────────
 const tvStyles = StyleSheet.create({

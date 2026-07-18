@@ -30,6 +30,8 @@ interface WatchProgressState {
   /** Registra progresso; marca watched ao passar de WATCHED_RATIO. */
   record: (id: string, positionSec: number, durationSec: number) => void;
   markWatched: (id: string) => void;
+  /** Marca vários de uma vez (ex.: "este e todos os anteriores") — um único set/save. */
+  markManyWatched: (ids: string[]) => void;
   clear: (id: string) => void;
   get: (id: string) => WatchEntry | undefined;
 }
@@ -99,6 +101,26 @@ export const useWatchProgress = create<WatchProgressState>((set, get) => ({
           updatedAt: Date.now(),
         },
       };
+      scheduleSave(entries);
+      return { entries };
+    });
+  },
+
+  markManyWatched: (ids) => {
+    if (ids.length === 0) return;
+    set(state => {
+      const now = Date.now();
+      const entries = { ...state.entries };
+      for (const id of ids) {
+        if (!id) continue;
+        const prev = entries[id];
+        entries[id] = {
+          positionSec: prev?.positionSec ?? 0,
+          durationSec: prev?.durationSec ?? 0,
+          watched: true,
+          updatedAt: now,
+        };
+      }
       scheduleSave(entries);
       return { entries };
     });

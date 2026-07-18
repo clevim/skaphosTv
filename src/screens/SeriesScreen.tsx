@@ -21,7 +21,8 @@ import { Channel, RootStackParamList } from '../types';
 import { getSeriesBaseName, cleanGroupName } from '../utils/channelUtils';
 import { fetchSeriesInfo, parseSeriesCredentials } from '../utils/xtreamApi';
 import { parseJellyfinSeriesUrl, fetchJellyfinEpisodes, parseJellyfinVideoUrl } from '../utils/jellyfinLoader';
-import { IS_TV } from '../utils/tvDetect';
+import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import { showAlert, AlertButton } from '../components/AppAlert';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import JellyfinTrackSheet from '../components/JellyfinTrackSheet';
 import ExpandableText from '../components/ExpandableText';
@@ -361,6 +362,34 @@ export default function SeriesScreen() {
 
   const episodes = seasons.get(selectedSeason) || [];
 
+  // Menu "marcar assistido" — segurar (toque/OK da TV) ou botão direito (web).
+  // "Este e os anteriores" atravessa temporadas: marcar S2E4 marca S2E1–E3 e
+  // toda a S1 (usa a ordem achatada do mapa de temporadas, já ordenado).
+  const handleEpisodeMark = useCallback((item: Channel) => {
+    const wp = useWatchProgress.getState();
+    const watched = !!wp.entries[item.id]?.watched;
+    const ordered = [...seasons.values()].flat();
+    const idx = ordered.findIndex(c => c.id === item.id);
+    const buttons: AlertButton[] = [
+      watched
+        ? { text: 'Marcar como não assistido', onPress: () => wp.clear(item.id) }
+        : { text: 'Marcar como assistido', onPress: () => wp.markManyWatched([item.id]) },
+    ];
+    if (idx > 0) {
+      buttons.push({
+        text: 'Marcar este e todos os anteriores',
+        onPress: () => wp.markManyWatched(ordered.slice(0, idx + 1).map(c => c.id)),
+      });
+    }
+    buttons.push({ text: 'Cancelar', style: 'cancel' });
+    // Contexto do episódio no corpo: meta (data · qualidade · duração real) +
+    // sinopse truncada (o modal não rola — plot inteiro de painel Xtream é enorme).
+    const plot = item.plot && item.plot.length > 240
+      ? `${item.plot.slice(0, 240).trimEnd()}…` : item.plot;
+    const meta = [item.releaseDate, item.quality, epDurationLabel(item)].filter(Boolean).join(' · ');
+    showAlert(item.name, [meta, plot].filter(Boolean).join('\n\n') || undefined, buttons);
+  }, [seasons]);
+
   const currentEpIdx = useMemo(() => {
     // 1) Episódio em curso (progresso salvo, ainda não assistido) — o mais recente
     let bestIdx = -1;
@@ -589,7 +618,6 @@ export default function SeriesScreen() {
         <TVFocusable accessibilityLabel="Voltar"
           onPress={() => navigation.goBack()}
           style={[tvStyles.backBtn, { top: Math.round(sh * 0.04), left: pH }]}
-          hasTVPreferredFocus
         >
           <Ionicons name="chevron-back" size={Math.round(sw * 0.013)} color={colors.text1} />
         </TVFocusable>
@@ -613,17 +641,15 @@ export default function SeriesScreen() {
               <Text style={[tvStyles.metaAcc, { fontSize: fMeta }]}>
                 {allEpisodes.length} episódios
               </Text>
+              {/* Sem rating nos dados → sem badge (o fallback "TV-MA" inventava
+                  uma classificação que não existe). */}
               {seriesChannel?.rating ? (
                 <View style={tvStyles.ratingBadge}>
                   <Text style={[tvStyles.ratingText, { fontSize: fBadge }]}>
                     {seriesChannel.rating}
                   </Text>
                 </View>
-              ) : (
-                <View style={tvStyles.ratingBadge}>
-                  <Text style={[tvStyles.ratingText, { fontSize: fBadge }]}>TV-MA</Text>
-                </View>
-              )}
+              ) : null}
               {heroChannel?.quality && (
                 <View style={tvStyles.ratingBadge}>
                   <Text style={[tvStyles.ratingText, { fontSize: fBadge }]}>
@@ -640,24 +666,53 @@ export default function SeriesScreen() {
                 text={displayPlot || displayGenre}
               />
             </View>
+
+            {/* Ação primária da tela — antes não havia: para assistir era preciso
+                caçar o episódio no rail. Retoma o episódio certo (currentEpIdx já
+                considera progresso) e recebe o foco preferido da TV. */}
+            {currentEp && (
+              <TVFocusable
+                onPress={() => handlePlay(currentEp)}
+                style={tvStyles.playCta}
+                // Foco padrão (violeta translúcido) apagaria o fundo claro — clareia sólido
+                focusStyle={tvStyles.playCtaFocused}
+                hasTVPreferredFocus
+              >
+                <Ionicons name="play" size={16} color={colors.textInverse} />
+                <Text style={[tvStyles.playCtaText, { fontSize: fMeta }]}>
+                  {currentEpIdx > 0 ? `Continuar T${seasonNum} · ${currentEpLbl}` : `Assistir T${seasonNum} · ${currentEpLbl}`}
+                </Text>
+              </TVFocusable>
+            )}
           </View>
 
           {/* Pills de temporada + rail de episódios */}
           <View style={tvStyles.bottom}>
             <View style={[tvStyles.seasonRow, { paddingLeft: pH }]}>
-              {seasonKeys.map((s) => (
-                <SeasonPill
-                  key={s}
-                  label={seasonLabel(s)}
-                  active={s === selectedSeason}
-                  fontSize={fPill}
-                  onPress={() => {
-                    setSelectedSeason(s);
-                    setFocusedEp(0);
-                    railRef.current?.scrollToOffset({ offset: 0, animated: false });
-                  }}
-                />
-              ))}
+              {/* ScrollView: com 10+ temporadas as pills estouram a largura — antes
+                  era um View fixo e as excedentes ficavam INALCANÇÁVEIS (sem scroll
+                  de roda no web, sem auto-scroll de foco na TV). O contador fica
+                  fora do scroll para permanecer sempre visível. */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={tvStyles.seasonScroll}
+                contentContainerStyle={tvStyles.seasonScrollContent}
+              >
+                {seasonKeys.map((s) => (
+                  <SeasonPill
+                    key={s}
+                    label={seasonLabel(s)}
+                    active={s === selectedSeason}
+                    fontSize={fPill}
+                    onPress={() => {
+                      setSelectedSeason(s);
+                      setFocusedEp(0);
+                      railRef.current?.scrollToOffset({ offset: 0, animated: false });
+                    }}
+                  />
+                ))}
+              </ScrollView>
               <Text style={[tvStyles.epCount, { fontSize: fEpCount }]}>
                 {episodes.length} EPISÓDIOS
               </Text>
@@ -692,7 +747,16 @@ export default function SeriesScreen() {
                   <TVFocusable
                     onFocus={() => focusEpisode(index)}
                     onPress={() => { setFocusedEp(index); handlePlay(item); }}
+                    onLongPress={() => handleEpisodeMark(item)}
+                    // Web renderiza ESTE layout (IS_TV inclui web) — botão direito
+                    // também abre o menu de marcar, como na lista mobile.
+                    onContextMenu={IS_WEB ? (e: any) => { e?.preventDefault?.(); handleEpisodeMark(item); } : undefined}
                     style={[tvStyles.epCard, { width: cardW }, focused && tvStyles.epCardFocused]}
+                    // O destaque genérico (bg violeta + zoom) virava um quadradão por
+                    // cima do card — o foco aqui já tem linguagem própria: card sobe,
+                    // overlay de play, título forte e sinopse revelada.
+                    focusScale={1}
+                    focusStyle={tvStyles.epCardFocusReset}
                     hasTVPreferredFocus={isResumeEp}
                   >
                     <View style={[tvStyles.epThumbWrap, { width: cardW, height: cardH }]}>
@@ -806,11 +870,10 @@ export default function SeriesScreen() {
             <View style={styles.heroMeta}>
               <Text style={styles.metaAcc}>{allEpisodes.length} ep</Text>
               <Text style={styles.metaDim}>·</Text>
+              {/* Sem rating nos dados → sem badge (não inventa classificação) */}
               {seriesChannel?.rating ? (
                 <View style={styles.ratingBadge}><Text style={styles.ratingText}>{seriesChannel.rating}</Text></View>
-              ) : (
-                <View style={styles.ratingBadge}><Text style={styles.ratingText}>TV-MA</Text></View>
-              )}
+              ) : null}
               <Text style={styles.metaDim}>{seasonKeys.length} temporada{seasonKeys.length !== 1 ? 's' : ''}</Text>
               {heroChannel?.quality && (
                 <View style={styles.ratingBadge}><Text style={styles.ratingText}>{heroChannel.quality}</Text></View>
@@ -929,6 +992,8 @@ export default function SeriesScreen() {
               <TVFocusable
                 key={item.id}
                 onPress={() => handlePlay(item)}
+                onLongPress={() => handleEpisodeMark(item)}
+                onContextMenu={IS_WEB ? (e: any) => { e?.preventDefault?.(); handleEpisodeMark(item); } : undefined}
                 style={[styles.epRow, index < episodes.length - 1 && styles.epRowBorder]}
               >
                 <View style={[styles.epThumbWrap, { width: thumbW }]}>
@@ -1041,12 +1106,12 @@ const tvStyles = StyleSheet.create({
   titleBlock: {
     // width e paddingLeft vêm do JSX (responsivos)
   },
+  // Sem borda violeta: o bg suave já marca — borda + bg + bold gritava (violeta ≤10%)
   origBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: 10, paddingVertical: 4,
     borderRadius: 4,
     backgroundColor: colors.accentSoft,
-    borderWidth: 1, borderColor: colors.accent,
     marginBottom: 14,
   },
   origBadgeText: {
@@ -1078,12 +1143,24 @@ const tvStyles = StyleSheet.create({
     color: colors.text1, opacity: 0.85,
     marginTop: 14,
   },
+  playCta: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginTop: 22,
+    paddingHorizontal: 28, paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: colors.text1,
+  },
+  playCtaFocused: { backgroundColor: colors.accent2 },
+  playCtaText: { fontFamily: fontFamily.semiBold, color: colors.textInverse },
 
   seasonRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
+    flexDirection: 'row', alignItems: 'center',
     // paddingLeft vem do JSX
     paddingBottom: 16,
   },
+  seasonScroll: { flexShrink: 1, flexGrow: 0 },
+  seasonScrollContent: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 16 },
   // Mesmo padrão do NavItem da TVTopBar: sem pílula preenchida — foco é um
   // destaque translúcido, ativo é só texto em negrito + ponto embaixo.
   seasonPill: {
@@ -1144,6 +1221,8 @@ const tvStyles = StyleSheet.create({
   epCardFocused: {
     transform: [{ translateY: -6 }],
   },
+  // Anula o FOCUS_BG padrão do TVFocusable (focusStyle vence na composição)
+  epCardFocusReset: { backgroundColor: 'transparent' },
   epThumbWrap: {
     // width e height vêm do JSX
     position: 'relative',

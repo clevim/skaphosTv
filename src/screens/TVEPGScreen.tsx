@@ -713,10 +713,13 @@ const styles = StyleSheet.create({
     borderRightWidth: 2,
     borderRightColor: colors.bg0,
   },
+  // "No ar": tinta violeta + contorno completo sutil — sem a listra lateral
+  // (side-stripe), que o design system bane.
   programBlockNow: {
     backgroundColor: 'rgba(167,139,250,0.12)',
-    borderLeftWidth: 2,
-    borderLeftColor: colors.accent,
+    borderWidth: 1,
+    borderColor: 'rgba(167,139,250,0.35)',
+    borderRadius: 6,
   },
   programTitle: {
     fontSize: 12, fontWeight: '500', color: colors.text1,

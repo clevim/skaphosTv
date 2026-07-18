@@ -284,8 +284,8 @@ export default function App() {
         {/* Mini-player flutuante (PiP dentro do app) — acima do navegador para
             continuar tocando enquanto o usuário navega. Expandir volta ao Player. */}
         <MiniPlayer
-          onExpand={(channel) => {
-            if (navigationRef.isReady()) navigationRef.navigate('Player', { channel });
+          onExpand={(channel, playlist) => {
+            if (navigationRef.isReady()) navigationRef.navigate('Player', { channel, playlist });
           }}
         />
 

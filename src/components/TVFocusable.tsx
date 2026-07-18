@@ -47,6 +47,8 @@ export interface TVFocusableProps {
   onBlur?: () => void;
   /** Expande a área de toque sem mudar o visual (alvo mínimo de 48dp no mobile). */
   hitSlop?: number;
+  /** Web: botão direito do mouse (RN-web repassa ao DOM; ignorado no nativo). */
+  onContextMenu?: (e: any) => void;
   /** IDs nativos para redirecionar D-pad — usados para focus trapping em overlays. */
   nextFocusLeft?:  number;
   nextFocusRight?: number;
@@ -73,6 +75,7 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
   nextFocusUp,
   nextFocusDown,
   hitSlop,
+  onContextMenu,
 }, ref) {
   const pressableRef = useRef<any>(null);
   // Já inicia destacado se for o foco preferido — assim o highlight aparece ao
@@ -174,6 +177,7 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
         hasTVPreferredFocus: hasTVPreferredFocus && !disabled,
         isTVSelectable:      !disabled,
         collapsable:         false,
+        ...(onContextMenu ? { onContextMenu } : null),
         ...nextFocusProps,
       } as any)}
     >

@@ -18,11 +18,11 @@ const WIN_H = Math.round(WIN_W * 9 / 16);
 
 interface Props {
   /** Expandir = voltar à tela cheia (Player). Fornecido pelo App (usa navigationRef). */
-  onExpand: (channel: Channel) => void;
+  onExpand: (channel: Channel, playlist: Channel[]) => void;
 }
 
 export default function MiniPlayer({ onExpand }: Props) {
-  const { channel, startPosition, visible, close } = useMiniPlayer();
+  const { channel, startPosition, playlist, visible, close } = useMiniPlayer();
   const record = useWatchProgress(s => s.record);
 
   const videoRef = useRef<any>(null);
@@ -65,9 +65,9 @@ export default function MiniPlayer({ onExpand }: Props) {
 
   const handleExpand = useCallback(() => {
     if (!channel) return;
-    saveNow();          // garante retomada precisa na tela cheia
-    onExpand(channel);  // PlayerScreen fecha o mini ao montar
-  }, [channel, onExpand, saveNow]);
+    saveNow();                    // garante retomada precisa na tela cheia
+    onExpand(channel, playlist);  // PlayerScreen fecha o mini ao montar
+  }, [channel, playlist, onExpand, saveNow]);
 
   const handleClose = useCallback(() => {
     saveNow();

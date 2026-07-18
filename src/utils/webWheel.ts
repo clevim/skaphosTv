@@ -1,15 +1,13 @@
 /**
  * webWheel.ts — roda do mouse em listas do app (APENAS web).
  *
- * Regra de ouro: VERTICAL SEMPRE VENCE. Se qualquer ancestral rolável na
- * vertical ainda pode se mover na direção da roda, deixamos o navegador agir
- * (páginas, grades, listas de canais…). Sequestrar a roda para o eixo
- * horizontal quando se está sobre um card era o que impedia rolar a página.
- *
- * O deltaY só vira scroll horizontal quando NÃO há consumo vertical possível:
- *  • barra de chips/abas numa tela sem scroll vertical;
- *  • rail horizontal em tela fixa (ex.: episódios da série na TV/web);
- *  • vertical já no fim → a roda "continua" na lista horizontal sob o cursor.
+ * Regra: o rolável MAIS PRÓXIMO do cursor decide. Subindo do alvo do evento,
+ * o primeiro ancestral rolável define o eixo:
+ *  • vertical que ainda pode se mover → navegador age (páginas, grades);
+ *  • horizontal (chips, abas de temporada, carrosséis) → deltaY vira scrollLeft,
+ *    mesmo que a página inteira ainda role — é o que o usuário espera quando
+ *    para o mouse em cima do carrossel;
+ *  • rolável no fim do próprio eixo → segue subindo (encadeia pro pai/página).
  *
  * Shift+roda (ou gesto horizontal de trackpad) rola a lista horizontal
  * diretamente — o navegador já faz isso sozinho; não interferimos.
@@ -29,7 +27,6 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
       const delta = e.deltaMode === 1 ? e.deltaY * 24 : e.deltaY;
 
       let el = e.target instanceof HTMLElement ? e.target : null;
-      let horizontal: HTMLElement | null = null; // candidato mais próximo
       while (el && el !== document.body) {
         const cs = (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1)
           ? getComputedStyle(el) : null;
@@ -39,24 +36,24 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
           if (scrollableY) {
             const maxY = el.scrollHeight - el.clientHeight;
             const canMove = delta > 0 ? el.scrollTop < maxY - 1 : el.scrollTop > 1;
-            if (canMove) return; // vertical tem prioridade — navegador cuida
-            // vertical no fim → segue subindo (encadeamento natural do scroll)
+            if (canMove) return; // este nível é vertical — navegador cuida
+            // no fim → segue subindo (encadeamento natural do scroll)
           }
           const scrollableX = el.scrollWidth > el.clientWidth + 1 &&
             (cs.overflowX === 'auto' || cs.overflowX === 'scroll');
-          if (scrollableX && !horizontal) horizontal = el;
+          if (scrollableX) {
+            const maxX = el.scrollWidth - el.clientWidth;
+            const atEdge = (delta > 0 && el.scrollLeft >= maxX - 1) ||
+                           (delta < 0 && el.scrollLeft <= 1);
+            if (!atEdge) {
+              el.scrollLeft += delta;
+              e.preventDefault();
+              return;
+            }
+            // no limite → segue subindo (a roda volta a rolar a página)
+          }
         }
         el = el.parentElement;
-      }
-
-      // Nenhum vertical pôde consumir → roda move a lista horizontal sob o cursor
-      if (horizontal) {
-        const max = horizontal.scrollWidth - horizontal.clientWidth;
-        const atEdge = (delta > 0 && horizontal.scrollLeft >= max - 1) ||
-                       (delta < 0 && horizontal.scrollLeft <= 1);
-        if (atEdge) return;
-        horizontal.scrollLeft += delta;
-        e.preventDefault();
       }
     },
     // passive:false é obrigatório para o preventDefault valer em evento de roda

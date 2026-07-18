@@ -89,6 +89,8 @@ function ContinueCard({
   const remaining = remainingLabel(entry);
   return (
     <TVFocusable onPress={onPress} style={cStyles.card}>
+      {/* Paisagem 16:9 — "continuar" é reconhecimento de cena, não capa; o formato
+          largo diferencia a fileira do resto do catálogo (tudo era 2:3 igual). */}
       <View style={cStyles.poster}>
         {channel.logo ? (
           <Image source={channel.logo} style={cStyles.posterImg} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
@@ -97,12 +99,19 @@ function ContinueCard({
             <Text style={cStyles.posterInitials}>{channel.name.slice(0, 2).toUpperCase()}</Text>
           </View>
         )}
-        {/* Play overlay */}
+        {/* Sombra inferior: legibilidade do "Restam X min" sobre qualquer arte */}
+        <LinearGradient
+          colors={['transparent', 'rgba(10,8,16,0.85)']}
+          style={cStyles.posterShade}
+        />
         <View style={cStyles.playOverlay}>
           <View style={cStyles.playCircle}>
             <Ionicons name="play" size={14} color={colors.white} />
           </View>
         </View>
+        {remaining != null && (
+          <Text style={cStyles.remaining} numberOfLines={1}>{remaining}</Text>
+        )}
         {/* Barra de progresso REAL (watchProgress) — sem progresso, sem barra */}
         {progress > 0 && (
           <View style={cStyles.progressTrack}>
@@ -111,17 +120,17 @@ function ContinueCard({
         )}
       </View>
       <Text style={cStyles.title} numberOfLines={1}>{channel.name}</Text>
-      <Text style={[cStyles.sub, remaining != null && cStyles.subProgress]} numberOfLines={1}>
-        {remaining ?? (channel.group ? cleanGroupName(channel.group) : '')}
+      <Text style={cStyles.sub} numberOfLines={1}>
+        {channel.group ? cleanGroupName(channel.group) : ''}
       </Text>
     </TVFocusable>
   );
 }
 
 const cStyles = StyleSheet.create({
-  card: { width: IS_TV ? 160 : 116 },
+  card: { width: IS_TV ? 240 : 176 },
   poster: {
-    aspectRatio: 2 / 3,
+    aspectRatio: 16 / 9,
     borderRadius: 10,
     overflow: 'hidden',
     backgroundColor: colors.bg3,
@@ -133,6 +142,9 @@ const cStyles = StyleSheet.create({
     backgroundColor: colors.bg2,
   },
   posterInitials: { fontSize: 18, fontWeight: '800', color: colors.accent, letterSpacing: 2 },
+  posterShade: {
+    position: 'absolute', left: 0, right: 0, bottom: 0, height: '55%',
+  },
   playOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     alignItems: 'center', justifyContent: 'center',
@@ -142,6 +154,10 @@ const cStyles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center', justifyContent: 'center',
   },
+  remaining: {
+    position: 'absolute', bottom: 8, left: 10, right: 10,
+    fontSize: 10, fontWeight: '600', color: colors.text1,
+  },
   progressTrack: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     height: 3, backgroundColor: 'rgba(255,255,255,0.15)',
@@ -149,7 +165,6 @@ const cStyles = StyleSheet.create({
   progressFill: { height: '100%', backgroundColor: colors.accent },
   title: { fontSize: 12, fontWeight: '500', color: colors.text1, marginTop: 8 },
   sub: { fontSize: 10, color: colors.text3, marginTop: 2 },
-  subProgress: { color: colors.accent },
 });
 
 // ── Live Card ─────────────────────────────────────────────────
@@ -164,9 +179,11 @@ function LiveCard({ channel, onPress, nowPlaying }: {
   const isLive = !isJellyfin && resolveChannelType(channel) === 'live';
   return (
     <TVFocusable onPress={onPress} style={lStyles.card}>
+      {/* Tile paisagem com o logo CONTIDO: logos de canal são paisagem/quadrados
+          e o pôster 2:3 com "cover" cortava todos — aqui o logo aparece inteiro. */}
       <View style={lStyles.poster}>
         {channel.logo ? (
-          <Image source={channel.logo} style={lStyles.posterImg} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
+          <Image source={channel.logo} style={lStyles.posterImg} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
         ) : (
           <View style={lStyles.posterFallback}>
             <Text style={lStyles.posterInitials}>{channel.name.slice(0, 2).toUpperCase()}</Text>
@@ -200,18 +217,19 @@ function LiveCardWithEpg({ channel, onPress }: { channel: Channel; onPress: () =
 }
 
 const lStyles = StyleSheet.create({
-  card: { width: IS_TV ? 160 : 116 },
+  card: { width: IS_TV ? 200 : 148 },
   poster: {
-    aspectRatio: 2 / 3,
+    aspectRatio: 16 / 9,
     borderRadius: 10,
     overflow: 'hidden',
-    backgroundColor: colors.bg3,
+    backgroundColor: colors.bg2,
+    borderWidth: 1, borderColor: colors.border,
+    padding: 14,
   },
   posterImg: { width: '100%', height: '100%' },
   posterFallback: {
     width: '100%', height: '100%',
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.bg2,
   },
   posterInitials: { fontSize: 16, fontWeight: '800', color: colors.accent, letterSpacing: 2 },
   badge: {
@@ -391,6 +409,8 @@ export default function HomeContent({
 }: Props) {
   const navigation = useNavigation();
   const watchEntries = useWatchProgress(s => s.entries);
+  const favorites = useStore(s => s.favorites);
+  const toggleFavorite = useStore(s => s.toggleFavorite);
   const isEmpty = recentChannels.length === 0 && favoriteChannels.length === 0;
 
   // "Continue assistindo" com progresso REAL: itens em curso primeiro (mais
@@ -566,12 +586,12 @@ export default function HomeContent({
             </View>
             {/* Bottom content */}
             <View style={IS_TV ? styles.heroBottomTV : styles.heroBottom}>
-              <Text style={styles.heroCategory}>
-                EM DESTAQUE · {(heroChannel.group ? cleanGroupName(heroChannel.group).toUpperCase() : '') || 'CANAL'}
-              </Text>
+              <Text style={styles.heroCategory}>EM DESTAQUE</Text>
               <Text style={styles.heroTitle} numberOfLines={2}>{heroChannel.name}</Text>
+              {/* Grupo aparece SÓ aqui (antes duplicava no kicker e na meta) */}
               <Text style={styles.heroMeta}>
-                {(heroChannel.group ? cleanGroupName(heroChannel.group) : '') || ''} · {heroChannel.quality || 'HD'}
+                {[heroChannel.group ? cleanGroupName(heroChannel.group) : null, heroChannel.quality || 'HD']
+                  .filter(Boolean).join(' · ')}
               </Text>
               <View style={styles.heroActions}>
                 <TVFocusable
@@ -585,8 +605,16 @@ export default function HomeContent({
                   <Ionicons name="play" size={14} color={colors.textInverse} />
                   <Text style={styles.heroPlayText}>Assistir</Text>
                 </TVFocusable>
-                <TVFocusable onPress={() => {}} style={styles.heroPlusBtn}>
-                  <Ionicons name="add" size={IS_TV ? 18 : 16} color={colors.text1} />
+                <TVFocusable
+                  accessibilityLabel={favorites.includes(heroChannel.id) ? 'Remover da lista' : 'Adicionar à lista'}
+                  onPress={() => toggleFavorite(heroChannel.id)}
+                  style={styles.heroPlusBtn}
+                >
+                  <Ionicons
+                    name={favorites.includes(heroChannel.id) ? 'heart' : 'add'}
+                    size={IS_TV ? 18 : 16}
+                    color={favorites.includes(heroChannel.id) ? colors.accent : colors.text1}
+                  />
                   {IS_TV && <Text style={styles.heroPlusBtnText}>Lista</Text>}
                 </TVFocusable>
                 <TVFocusable
@@ -841,11 +869,11 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase', marginBottom: 4,
   },
   heroTitle: {
-    fontSize: IS_TV ? 42 : 26, fontFamily: fontFamily.semiBold,
-    color: colors.text1, letterSpacing: IS_TV ? -1.5 : -0.6,
-    lineHeight: IS_TV ? 46 : 32,
+    fontSize: IS_TV ? 42 : 28, fontFamily: fontFamily.bold,
+    color: colors.text1, letterSpacing: IS_TV ? -1.5 : -0.8,
+    lineHeight: IS_TV ? 46 : 33,
   },
-  heroMeta: { fontSize: 12, color: colors.text2, marginTop: 4 },
+  heroMeta: { fontSize: 12, color: colors.text2, marginTop: 6 },
   heroActions: {
     flexDirection: 'row', gap: 8, marginTop: IS_TV ? 20 : 14,
   },

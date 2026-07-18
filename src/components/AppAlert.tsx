@@ -65,6 +65,8 @@ export default function AppAlertHost() {
     btn.onPress?.();
   };
 
+  const column = buttons.length > 2;
+
   return (
     <Modal
       visible
@@ -76,7 +78,7 @@ export default function AppAlertHost() {
         <View style={styles.box}>
           <Text style={styles.title}>{title}</Text>
           {!!message && <Text style={styles.message}>{message}</Text>}
-          <View style={[styles.actions, buttons.length > 2 && styles.actionsColumn]}>
+          <View style={[styles.actions, column && styles.actionsColumn]}>
             {buttons.map((btn, i) => {
               const variant =
                 btn.style === 'destructive' ? styles.btnDestructive
@@ -90,7 +92,7 @@ export default function AppAlertHost() {
                 <TVFocusable
                   key={i}
                   onPress={() => press(btn)}
-                  style={[styles.btn, variant]}
+                  style={[styles.btn, column ? styles.btnColumn : styles.btnRow, variant]}
                   hasTVPreferredFocus={i === preferredIndex}
                 >
                   <Text style={textVariant} numberOfLines={1}>{btn.text}</Text>
@@ -126,9 +128,14 @@ const styles = StyleSheet.create({
   title: { fontSize: fontSize.lg, fontWeight: '600', color: colors.text1 },
   message: { fontSize: 13.5, color: colors.text2, lineHeight: 20 },
   actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
-  actionsColumn: { flexDirection: 'column-reverse' },
+  // Empilhado (3+ botões): ordem natural do array (Cancelar por último = embaixo).
+  actionsColumn: { flexDirection: 'column' },
+  // flex fica FORA da base: no modo linha os botões dividem a largura (flex:1);
+  // no empilhado NENHUM flex — "flex:0" no RN-web vira flex-basis:0% e vence o
+  // height:44, colapsando os botões pra altura zero (textos sobrepostos).
+  btnRow: { flex: 1 },
+  btnColumn: { alignSelf: 'stretch' },
   btn: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

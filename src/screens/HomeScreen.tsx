@@ -151,6 +151,22 @@ export default function HomeScreen() {
   const chipScrollWRef   = useRef(0);
   const isLoadingSourcesRef = useRef(false);
 
+  // "Atualizando catálogo": alguma fonte está sendo rebuscada da rede (boot com
+  // cache parcial, refresh em background, retry de categoria vazia). Enquanto
+  // ativo, categoria vazia mostra loading em vez de "Nenhum item encontrado" —
+  // o conteúdo não sumiu, está recarregando. Contador (ref) porque recargas se
+  // sobrepõem (retry do boot chama loadSomeSources dentro do próprio wrap).
+  const [refreshingSources, setRefreshingSources] = useState(false);
+  const refreshingCountRef = useRef(0);
+  const beginRefreshing = useCallback(() => {
+    refreshingCountRef.current++;
+    setRefreshingSources(true);
+  }, []);
+  const endRefreshing = useCallback(() => {
+    refreshingCountRef.current = Math.max(0, refreshingCountRef.current - 1);
+    if (refreshingCountRef.current === 0) setRefreshingSources(false);
+  }, []);
+
   // Quando a categoria ativa muda, centraliza o chip correspondente
   useEffect(() => {
     if (!selectedGroup) return;
@@ -225,6 +241,9 @@ export default function HomeScreen() {
       // Retry com backoff: no boot frio a rede/proxy pode ainda não estar pronta e a
       // carga falhava silenciosamente, deixando a fonte vazia/parcial até o reload manual.
       if (missing.length > 0) {
+        // Segura o "atualizando" durante TODO o ciclo de retries (incluindo os
+        // sleeps entre tentativas) — sem isso a categoria piscaria vazio↔loading.
+        beginRefreshing();
         const RETRY_DELAYS = [3000, 6000, 12000];
         const missingIds = new Set(missing.map(s => s.id));
         for (let attempt = 0; ; attempt++) {
@@ -243,19 +262,22 @@ export default function HomeScreen() {
           if (missing.length === 0 || attempt >= RETRY_DELAYS.length) break;
           await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
         }
+        endRefreshing();
       }
 
       dlog(`[perf][boot] bgRefresh: ${bgRefresh.length} fonte(s) (cacheStale=${cacheStale})`);
       // Atualização em background das fontes completas (Jellyfin sempre; todas se cache velho)
-      for (const src of bgRefresh) {
+      if (bgRefresh.length > 0) beginRefreshing();
+      const bgPromises = bgRefresh.map((src) => {
         const tBg = Date.now();
-        loadOneSource(src)
+        return loadOneSource(src)
           .then(({ channels: chs, groups: grps }) => {
             dlog(`[perf][boot] bgRefresh "${src.name}" terminou em ${Date.now() - tBg}ms, ${chs.length} canais`);
             if (chs.length > 0) replaceSourceChannels(src.id, chs, grps);
           })
           .catch(() => {});
-      }
+      });
+      if (bgRefresh.length > 0) Promise.allSettled(bgPromises).then(endRefreshing);
 
       // Alerta proativo de fonte Xtream vencendo — no máximo 1 notificação por
       // fonte por dia (throttle em AsyncStorage), pra não repetir toda vez que
@@ -271,6 +293,7 @@ export default function HomeScreen() {
     if (!forceRefresh && useStore.getState().channels.length > 0) return;
     if (isLoadingSourcesRef.current) return;
     isLoadingSourcesRef.current = true;
+    beginRefreshing();
     setLoading(true);
     setLoadError(null);
     try {
@@ -290,6 +313,7 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
       isLoadingSourcesRef.current = false;
+      endRefreshing();
     }
   };
 
@@ -298,6 +322,7 @@ export default function HomeScreen() {
   const loadSomeSources = async (sourcesToLoad: IPTVSource[]) => {
     if (sourcesToLoad.length === 0 || isLoadingSourcesRef.current) return;
     isLoadingSourcesRef.current = true;
+    beginRefreshing();
     // Só exibe o spinner global se ainda não há nada na tela
     const showSpinner = useStore.getState().channels.length === 0;
     if (showSpinner) { setLoading(true); setLoadError(null); }
@@ -317,6 +342,7 @@ export default function HomeScreen() {
     } finally {
       if (showSpinner) setLoading(false);
       isLoadingSourcesRef.current = false;
+      endRefreshing();
     }
   };
 
@@ -677,6 +703,17 @@ export default function HomeScreen() {
     if (filteredChannels.length === 0) {
       // Favoritos vazio não é "nada encontrado" — é a chance de ensinar como favoritar
       const isEmptyFavorites = navKey === 'favorites';
+      // Categoria vazia ENQUANTO as fontes recarregam: o conteúdo não sumiu, está
+      // sendo rebuscado — mostra loading em vez do vazio (que induziria o usuário
+      // a achar que não há nada).
+      if (refreshingSources && !isEmptyFavorites) {
+        return (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={colors.accent2} />
+            <Text style={styles.loadingText}>Atualizando catálogo...</Text>
+          </View>
+        );
+      }
       return (
         <View style={styles.center}>
           <Ionicons name={isEmptyFavorites ? 'star-outline' : 'tv-outline'} size={64} color={colors.text3} />

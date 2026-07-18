@@ -6,6 +6,7 @@ import { View, Text, StyleSheet, ScrollView, Switch, ActivityIndicator, TextInpu
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useStore } from '../store/useStore';
 import TVFocusable from '../components/TVFocusable';
 import {
@@ -826,10 +827,72 @@ function InterfaceGroup({ settings, updateSettings }: {
 
 type CategoryKey = 'reproducao' | 'conta' | 'sistema';
 
-const CATEGORIES: { key: CategoryKey; label: string; icon: string }[] = [
-  { key: 'reproducao', label: 'Reprodução',           icon: 'play-circle-outline' },
-  { key: 'conta',      label: 'Conta e dispositivos', icon: 'person-circle-outline' },
-  { key: 'sistema',    label: 'Sistema',              icon: 'settings-outline' },
+// ── Card de status da conta ─────────────────────────────────────────────────
+// Identidade + fatos ao vivo no topo de "Conta e dispositivos". Sóbrio de
+// propósito: logo, nome/versão e uma linha de estado com ponto semântico —
+// nada de número gigante nem grade de métricas.
+function AccountCard({ sources, authInfoMap }: {
+  sources: any[];
+  authInfoMap: Record<string, XtreamUserInfo | 'loading' | 'error'>;
+}) {
+  // Resumo das fontes: "3 listas · 2 Xtream · 1 Jellyfin" (só os tipos presentes)
+  const byType = (t: string) => sources.filter(s => s.type === t).length;
+  const parts = [
+    `${sources.length} lista${sources.length !== 1 ? 's' : ''}`,
+    byType('xtream') > 0 ? `${byType('xtream')} Xtream` : null,
+    byType('m3u') > 0 ? `${byType('m3u')} M3U` : null,
+    byType('jellyfin') > 0 ? `${byType('jellyfin')} Jellyfin` : null,
+  ].filter(Boolean).join(' · ');
+
+  // Estado da assinatura: a fonte Xtream que vence PRIMEIRO define a linha.
+  // Sem Xtream (ou sem resposta ainda) → sem linha de estado, sem inventar.
+  let statusText: string | null = null;
+  let statusDot = colors.text3;
+  const infos = sources
+    .map(s => authInfoMap[s.id])
+    .filter((i): i is XtreamUserInfo => !!i && i !== 'loading' && i !== 'error');
+  if (infos.length > 0) {
+    const soonest = infos.reduce((a, b) =>
+      (parseInt(a.exp_date) || Infinity) <= (parseInt(b.exp_date) || Infinity) ? a : b);
+    const expMs = parseInt(soonest.exp_date) * 1000;
+    const days = expMs ? Math.ceil((expMs - Date.now()) / 86_400_000) : NaN;
+    if (soonest.status?.toLowerCase() !== 'active') {
+      statusText = statusLabel(soonest.status);
+      statusDot = statusColor(soonest.status);
+    } else if (!isNaN(days) && days <= 30) {
+      statusText = days <= 0 ? 'Vencida' : `Vence em ${days} dia${days !== 1 ? 's' : ''}`;
+      statusDot = days <= 7 ? colors.red : colors.yellow;
+    } else {
+      statusText = expMs ? `Ativa até ${formatExpDate(soonest.exp_date)}` : 'Ativa';
+      statusDot = colors.green;
+    }
+  }
+
+  return (
+    <View style={styles.accountCard}>
+      <View style={styles.accountLogo}>
+        <Image source={require('../../assets/icon.png')} style={styles.accountLogoImg} contentFit="cover" />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.accountName}>
+          Skaphos<Text style={{ color: colors.accent }}>·</Text>TV <Text style={styles.accountVersion}>v{APP_VERSION}</Text>
+        </Text>
+        <Text style={styles.accountFacts}>{parts}</Text>
+        {statusText && (
+          <View style={styles.accountStatusRow}>
+            <View style={[styles.accountStatusDot, { backgroundColor: statusDot }]} />
+            <Text style={styles.accountStatusText}>{statusText}</Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+const CATEGORIES: { key: CategoryKey; label: string; sub: string; icon: string }[] = [
+  { key: 'reproducao', label: 'Reprodução',           sub: 'Player, legendas e interface',        icon: 'play-circle-outline' },
+  { key: 'conta',      label: 'Conta e dispositivos', sub: 'Listas, assinaturas e uso',           icon: 'person-circle-outline' },
+  { key: 'sistema',    label: 'Sistema',              sub: 'Notificações, backup e atualizações', icon: 'settings-outline' },
 ];
 
 // ── Category panel content (TV e mobile compartilham o mesmo conteúdo;
@@ -893,6 +956,7 @@ function CategoryPanel({
   if (category === 'conta') {
     return (
       <>
+        <AccountCard sources={sources} authInfoMap={authInfoMap} />
         <SettingsGroup title="Fontes">
           <SettingsRow
             icon="globe-outline"
@@ -1012,6 +1076,13 @@ export default function SettingsScreen() {
       <View style={tvStyles.root}>
         {/* Sidebar */}
         <View style={tvStyles.sidebar}>
+          {/* Identidade + título da tela — a sidebar abria direto nas categorias */}
+          <View style={tvStyles.sidebarHeader}>
+            <View style={tvStyles.sidebarLogo}>
+              <Image source={require('../../assets/icon.png')} style={tvStyles.sidebarLogoImg} contentFit="cover" />
+            </View>
+            <Text style={tvStyles.sidebarTitle}>Ajustes</Text>
+          </View>
           <View style={tvStyles.categoryList}>
             {CATEGORIES.map((cat, i) => {
               const active = cat.key === activeCategory;
@@ -1022,11 +1093,17 @@ export default function SettingsScreen() {
                   style={[tvStyles.categoryItem, active && tvStyles.categoryItemActive]}
                   hasTVPreferredFocus={i === 0}
                 >
-                  {active && <View style={tvStyles.categoryActiveBar} />}
-                  <Ionicons name={cat.icon as any} size={18} color={active ? colors.accent : colors.text3} />
-                  <Text style={[tvStyles.categoryLabel, active && tvStyles.categoryLabelActive]}>
-                    {cat.label}
-                  </Text>
+                  {/* Ativo = contêiner violeta-profundo com ícone claro (uso
+                      sancionado no DESIGN.md) — sem a barrinha lateral (side-stripe) */}
+                  <View style={[tvStyles.catIcon, active && tvStyles.catIconActive]}>
+                    <Ionicons name={cat.icon as any} size={16} color={active ? colors.white : colors.text2} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[tvStyles.categoryLabel, active && tvStyles.categoryLabelActive]}>
+                      {cat.label}
+                    </Text>
+                    <Text style={tvStyles.categorySub} numberOfLines={1}>{cat.sub}</Text>
+                  </View>
                 </TVFocusable>
               );
             })}
@@ -1046,6 +1123,9 @@ export default function SettingsScreen() {
           <View style={tvStyles.panelHeader}>
             <Text style={tvStyles.panelTitle}>
               {CATEGORIES.find(c => c.key === activeCategory)?.label}
+            </Text>
+            <Text style={tvStyles.panelSub}>
+              {CATEGORIES.find(c => c.key === activeCategory)?.sub}
             </Text>
           </View>
           <ScrollView contentContainerStyle={tvStyles.panelContent}>
@@ -1088,14 +1168,22 @@ export default function SettingsScreen() {
               key={cat.key}
               onPress={() => setActiveCategory(cat.key)}
               style={[styles.tab, active && styles.tabActive]}
-              borderRadius={radius.full}
+              borderRadius={radius.lg}
             >
-              <Ionicons name={cat.icon as any} size={15} color={active ? colors.accent : colors.text3} />
+              {/* Mesma anatomia da sidebar da TV: contêiner tonal, violeta-profundo
+                  no ativo — uma linguagem de categoria nas três plataformas */}
+              <View style={[styles.tabIcon, active && styles.tabIconActive]}>
+                <Ionicons name={cat.icon as any} size={13} color={active ? colors.white : colors.text2} />
+              </View>
               <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{cat.label}</Text>
             </TVFocusable>
           );
         })}
       </ScrollView>
+      {/* Descrição da categoria ativa — contexto sem poluir as abas */}
+      <Text style={styles.tabCaption}>
+        {CATEGORIES.find(c => c.key === activeCategory)?.sub}
+      </Text>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.inner}>
         <CategoryPanel
@@ -1110,7 +1198,7 @@ export default function SettingsScreen() {
         <View style={styles.footer}>
           <View style={styles.footerLogoRow}>
             <View style={styles.footerLogoIcon}>
-              <Ionicons name="tv" size={12} color={colors.accent} />
+              <Image source={require('../../assets/icon.png')} style={styles.footerLogoImg} contentFit="cover" />
             </View>
             <Text style={styles.footerLogoText}>
               Skaphos<Text style={{ color: colors.accent }}>·</Text>TV
@@ -1140,6 +1228,20 @@ const tvStyles = StyleSheet.create({
     paddingTop: 32,
     gap: spacing.xl,
   },
+  sidebarHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: spacing.lg,
+  },
+  sidebarLogo: {
+    width: 28, height: 28, borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(167,139,250,0.25)',
+    backgroundColor: colors.bg0,
+  },
+  sidebarLogoImg: { width: 40, height: 40, marginTop: -7, marginLeft: -7 },
+  sidebarTitle: {
+    fontSize: 20, fontWeight: '700', color: colors.text1, letterSpacing: -0.4,
+  },
   categoryList: {
     flex: 1,
     paddingHorizontal: spacing.sm,
@@ -1149,32 +1251,34 @@ const tvStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: radius.md,
-    position: 'relative',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: radius.lg,
   },
   categoryItemActive: {
     backgroundColor: colors.accentSoft,
   },
+  catIcon: {
+    width: 34, height: 34, borderRadius: 10,
+    backgroundColor: colors.bg2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  catIconActive: {
+    backgroundColor: colors.accent3,
+  },
   categoryLabel: {
-    flex: 1,
     fontSize: fontSize.sm,
     fontWeight: '500',
-    color: colors.text3,
+    color: colors.text2,
   },
   categoryLabelActive: {
-    color: colors.accent,
+    color: colors.text1,
     fontWeight: '600',
   },
-  categoryActiveBar: {
-    position: 'absolute',
-    left: 0,
-    top: 8,
-    bottom: 8,
-    width: 3,
-    borderRadius: 2,
-    backgroundColor: colors.accent,
+  categorySub: {
+    fontSize: 10.5,
+    color: colors.text3,
+    marginTop: 1,
   },
 
   sidebarFooter: {
@@ -1218,11 +1322,16 @@ const tvStyles = StyleSheet.create({
     color: colors.text1,
     letterSpacing: -0.5,
   },
+  panelSub: {
+    fontSize: fontSize.sm,
+    color: colors.text3,
+    marginTop: 4,
+  },
   panelContent: {
     padding: spacing.xxxl,
     paddingTop: spacing.xl,
-    gap: 20,
-    maxWidth: 600,
+    gap: 24,
+    maxWidth: 640,
   },
 });
 
@@ -1247,14 +1356,24 @@ const styles = StyleSheet.create({
   tabBar: { flexGrow: 0, marginTop: spacing.sm },
   tabBarInner: { paddingHorizontal: 22, gap: 8 },
   tab: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingVertical: 8, paddingHorizontal: 14,
-    borderRadius: radius.full,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 7, paddingLeft: 8, paddingRight: 14,
+    borderRadius: radius.lg,
     backgroundColor: colors.bg1, borderWidth: 1, borderColor: colors.border,
   },
-  tabActive: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
-  tabLabel: { fontSize: fontSize.xs, fontWeight: '600', color: colors.text3 },
-  tabLabelActive: { color: colors.accent },
+  tabActive: { backgroundColor: colors.accentSoft, borderColor: 'rgba(167,139,250,0.4)' },
+  tabIcon: {
+    width: 26, height: 26, borderRadius: 8,
+    backgroundColor: colors.bg2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  tabIconActive: { backgroundColor: colors.accent3 },
+  tabLabel: { fontSize: fontSize.xs, fontWeight: '600', color: colors.text2 },
+  tabLabelActive: { color: colors.text1 },
+  tabCaption: {
+    fontSize: fontSize.xs, color: colors.text3,
+    paddingHorizontal: 24, paddingTop: 10,
+  },
 
   content: { flex: 1 },
   inner: {
@@ -1267,10 +1386,31 @@ const styles = StyleSheet.create({
     paddingTop: 18,
   },
 
+  // Card de status da conta
+  accountCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: colors.bg1, borderRadius: 12,
+    borderWidth: 1, borderColor: colors.border,
+    padding: 16,
+  },
+  accountLogo: {
+    width: 44, height: 44, borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(167,139,250,0.25)',
+    backgroundColor: colors.bg0,
+  },
+  accountLogoImg: { width: 64, height: 64, marginTop: -10, marginLeft: -10 },
+  accountName: { fontSize: 15, fontWeight: '700', color: colors.text1, letterSpacing: 0.3 },
+  accountVersion: { fontSize: 11, fontWeight: '500', color: colors.text3, letterSpacing: 0 },
+  accountFacts: { fontSize: 12, color: colors.text2, marginTop: 3 },
+  accountStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  accountStatusDot: { width: 7, height: 7, borderRadius: 4 },
+  accountStatusText: { fontSize: 12, color: colors.text2 },
+
   group: { gap: spacing.sm },
   groupTitle: {
-    fontSize: 10, fontWeight: '600', color: colors.text3,
-    letterSpacing: 0.6, textTransform: 'uppercase', paddingLeft: 2,
+    fontSize: 11, fontWeight: '600', color: colors.text3,
+    letterSpacing: 0.8, textTransform: 'uppercase', paddingLeft: 2,
   },
   groupBox: {
     backgroundColor: colors.bg1, borderRadius: 12,
@@ -1282,7 +1422,13 @@ const styles = StyleSheet.create({
     paddingVertical: 13, paddingHorizontal: 14,
     borderBottomWidth: 1, borderBottomColor: colors.borderSoft,
   },
-  rowIcon: { width: 24, alignItems: 'center' },
+  // Contêiner tonal arredondado (anatomia de settings premium) em vez do
+  // ícone solto — uma mudança, todas as linhas de todas as plataformas herdam.
+  rowIcon: {
+    width: 30, height: 30, borderRadius: 8,
+    backgroundColor: colors.bg2,
+    alignItems: 'center', justifyContent: 'center',
+  },
   rowLabel: { fontSize: 14, fontWeight: '500', color: colors.text1 },
   rowSub: { fontSize: fontSize.xs, color: colors.text3, marginTop: 2 },
   rowValueWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -1291,10 +1437,12 @@ const styles = StyleSheet.create({
   footer: { alignItems: 'center', paddingVertical: 20, gap: 8 },
   footerLogoRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   footerLogoIcon: {
-    width: 20, height: 20, borderRadius: 5,
-    backgroundColor: 'rgba(167,139,250,0.15)',
-    alignItems: 'center', justifyContent: 'center',
+    width: 22, height: 22, borderRadius: 6,
+    overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(167,139,250,0.25)',
+    backgroundColor: colors.bg0,
   },
+  footerLogoImg: { width: 32, height: 32, marginTop: -6, marginLeft: -6 },
   footerLogoText: { fontSize: 11, fontWeight: '600', color: colors.text3, letterSpacing: 0.4 },
   footerVersion: { fontSize: 10, color: colors.text3, letterSpacing: 0.4 },
   footerBy: { fontSize: 10, color: colors.text3, letterSpacing: 0.4, marginTop: 2 },
@@ -1308,6 +1456,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 13,
     color: colors.text1,
-    marginLeft: 36,
+    marginLeft: 42, // alinha com o texto das linhas (ícone 30 + gap 12)
   },
 });
