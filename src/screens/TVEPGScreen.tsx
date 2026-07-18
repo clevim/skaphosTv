@@ -400,9 +400,13 @@ export default function TVEPGScreen() {
                               <Text style={[styles.programTitle, { fontSize: 12 * scale }, isNow && styles.programTitleNow]} numberOfLines={1}>
                                 {p.title}
                               </Text>
-                              <Text style={styles.programTime}>
-                                {fmtTime(p.start)} — {fmtTime(p.end)}
-                              </Text>
+                              {/* Bloco estreito (programa curto/beira da janela): só o
+                                  título — o horário espremido virava ruído ilegível */}
+                              {block.width > 76 && (
+                                <Text style={[styles.programTime, { fontSize: 10 * scale }]} numberOfLines={1}>
+                                  {fmtTime(p.start)} — {fmtTime(p.end)}
+                                </Text>
+                              )}
                             </TVFocusable>
                           );
                         })}
@@ -705,21 +709,23 @@ const styles = StyleSheet.create({
     flex: 1, fontSize: 11, fontWeight: '500', color: colors.text1, lineHeight: 14,
   },
 
+  // Chip arredondado; o borderRight cor-de-fundo faz o "vão" entre blocos sem
+  // alterar a largura de fluxo (a régua do tempo depende dela).
   programBlock: {
     height: ROW_HEIGHT - 1,
     justifyContent: 'center',
     paddingHorizontal: 10,
     backgroundColor: colors.bg1,
+    borderRadius: 6,
     borderRightWidth: 2,
     borderRightColor: colors.bg0,
   },
-  // "No ar": tinta violeta + contorno completo sutil — sem a listra lateral
-  // (side-stripe), que o design system bane.
+  // "No ar": tinta violeta + contorno completo sutil — NUNCA listra lateral
+  // (side-stripe é banido no design system).
   programBlockNow: {
     backgroundColor: 'rgba(167,139,250,0.12)',
     borderWidth: 1,
     borderColor: 'rgba(167,139,250,0.35)',
-    borderRadius: 6,
   },
   programTitle: {
     fontSize: 12, fontWeight: '500', color: colors.text1,

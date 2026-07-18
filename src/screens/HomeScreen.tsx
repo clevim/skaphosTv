@@ -223,11 +223,14 @@ export default function HomeScreen() {
         }
       }
 
-      // Cache completo porém VELHO: painéis Xtream rotacionam os ids de VOD com
-      // frequência — URLs em cache passam a responder 406/404 e o player fica
-      // "reconectando" sem fim. Revalida TODAS as fontes em background (a lista
-      // em cache continua na tela; os dados novos entram silenciosamente).
-      const CACHE_STALE_MS = 12 * 60 * 60 * 1000;
+      // Cache completo porém VELHO: painéis Xtream rotacionam ids de VOD E de
+      // canais ao vivo — URLs em cache passam a responder 406/404 e o canal "não
+      // abre" até recarregar a fonte. Revalida TODAS as fontes em background (a
+      // lista em cache continua na tela; os dados novos entram silenciosamente).
+      // 3h (era 12h): o ao vivo é o que se abre logo ao reabrir o app, e era o
+      // que mais sofria com a janela longa. ponytail: constante única; janela
+      // por tipo de conteúdo exigiria cache por fase — só se 3h ainda doer.
+      const CACHE_STALE_MS = 3 * 60 * 60 * 1000;
       const cacheStale = Date.now() - (state.channelsSavedAt || 0) > CACHE_STALE_MS;
 
       // Fontes completas que serão atualizadas em background:

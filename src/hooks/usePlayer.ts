@@ -11,6 +11,7 @@ import {
 } from '../utils/jellyfinLoader';
 import { SubtitleTrack, AudioTrack } from '../types';
 import { useWatchProgress, resumePositionFor } from '../store/watchProgress';
+import { loadSourceChannels } from '../utils/sourceLoader';
 import { useUsageStats } from '../store/usageStats';
 import { notify } from '../utils/notifications';
 
@@ -458,11 +459,48 @@ export function usePlayer(
     setIsBuffering(data.isBuffering);
   }, []);
 
+  // Fontes já recarregadas por erro de lista desatualizada — 1 tentativa por
+  // fonte por sessão de player, pra não martelar o painel em erro persistente.
+  const staleReloadTriedRef = useRef(new Set<string>());
+
+  /** 404/406 = lista em cache desatualizada (painéis Xtream rotacionam ids de
+   *  stream — VOD E ao vivo). Em vez de só mandar o usuário recarregar a fonte
+   *  na mão, recarrega aqui, acha o canal equivalente na lista fresca e retoma. */
+  const refreshSourceAndRetry = useCallback(async (ch: Channel, fallbackMsg: string) => {
+    setError('Sua lista estava desatualizada — atualizando a fonte...');
+    setIsBuffering(false);
+    try {
+      const state = useStore.getState();
+      const src = state.sources.find(s => s.id === ch.sourceId);
+      if (src) {
+        const { channels: chs, groups } = await loadSourceChannels(src);
+        if (chs.length > 0) {
+          await state.replaceSourceChannels(src.id, chs, groups);
+          const all = useStore.getState().channels;
+          const type = resolveChannelType(ch);
+          // Mesmo id primeiro; senão, mesmo nome+tipo na mesma fonte (ids de
+          // stream rotacionam — o nome é o que sobrevive à rotação).
+          const fresh =
+            all.find(c => c.sourceId === ch.sourceId && c.id === ch.id) ??
+            all.find(c => c.sourceId === ch.sourceId && c.name === ch.name && resolveChannelType(c) === type);
+          if (fresh && fresh.url !== ch.url) {
+            playChannel(fresh);
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+    // Reload não achou URL nova → volta pro fluxo normal de erro/retry
+    setError(fallbackMsg);
+    scheduleRetry(retryCount);
+  }, [playChannel, scheduleRetry, retryCount]);
+
   const onError = useCallback((err: any) => {
     const code = err?.error?.errorCode;
     const exception = err?.error?.errorException || '';
 
     let msg = 'Falha ao reproduzir o canal.';
+    let staleList = false;
 
     if (exception.includes('UnknownHostException') || exception.includes('SocketException')) {
       msg = 'Sem conexão com o servidor.';
@@ -470,8 +508,10 @@ export function usePlayer(
       // Painéis Xtream respondem 406 para stream inexistente — típico de rotação
       // de ids de VOD com lista em cache desatualizada.
       msg = 'O servidor recusou este conteúdo — sua lista pode estar desatualizada. Recarregue a fonte na tela de Fontes.';
+      staleList = true;
     } else if (exception.includes('FileNotFoundException') || exception.includes('404')) {
       msg = 'Conteúdo não encontrado no servidor — sua lista pode estar desatualizada. Recarregue a fonte na tela de Fontes.';
+      staleList = true;
     } else if (exception.includes('403') || exception.includes('Forbidden')) {
       msg = 'Acesso negado. Verifique sua assinatura.';
     } else if (exception.includes('429')) {
@@ -482,10 +522,21 @@ export function usePlayer(
       msg = 'Erro interno do player.';
     }
 
+    // Lista desatualizada (VOD OU ao vivo): tenta recarregar a fonte sozinho
+    // uma vez antes de desistir com a mensagem manual.
+    if (staleList) {
+      const ch = playingChannelRef.current;
+      if (ch?.sourceId && !staleReloadTriedRef.current.has(ch.sourceId)) {
+        staleReloadTriedRef.current.add(ch.sourceId);
+        refreshSourceAndRetry(ch, msg);
+        return;
+      }
+    }
+
     setError(msg);
     setIsBuffering(false);
     scheduleRetry(retryCount);
-  }, [retryCount, scheduleRetry]);
+  }, [retryCount, scheduleRetry, refreshSourceAndRetry]);
 
   const onEnd = useCallback(() => {
     const ch = playingChannelRef.current;
