@@ -1,16 +1,19 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TextInput, Pressable,
   ScrollView, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Modal, useWindowDimensions,
+  Platform, Modal, useWindowDimensions, Keyboard, BackHandler,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import axios from 'axios';
 import { useStore, IPTVSource } from '../store/useStore';
+import { useWatchProgress } from '../store/watchProgress';
 import type { ChannelIndex } from '../store/channelIndex';
 import { cleanGroupName } from '../utils/channelUtils';
 import TVFocusable, { TVFocusableHandle } from '../components/TVFocusable';
+import SonarLine from '../components/SonarLine';
 import RemoteHints from '../components/RemoteHints';
 import { parseM3U } from '../utils/m3uParser';
 import { loadXtreamPhased, XtreamPhase } from '../utils/xtreamPhasedLoader';
@@ -22,11 +25,26 @@ import { APP_VERSION } from '../utils/version';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import PairingSetupModal from '../components/PairingSetupModal';
+import SendToTVModal from '../components/SendToTVModal';
 import { showAlert } from '../components/AppAlert';
 import { dlog } from '../utils/debugLog';
 import type { PairingPayload } from '../utils/pairingServer';
 
 type TabType = 'm3u' | 'xtream' | 'jellyfin';
+
+// Conectores — cada tipo de fonte tem cor de identidade própria (soft, nunca
+// bloco chapado berrante) usada no seletor e nos cards de fontes ativas.
+const SOURCE_TYPES: { key: TabType; icon: string; tint: string; tintSoft: string; label: string; desc: string; hint: string }[] = [
+  { key: 'xtream',   icon: 'server-outline',        tint: '#34d399',     tintSoft: 'rgba(52,211,153,0.14)', label: 'Xtream',   desc: 'Usuário e senha',
+    hint: 'Servidor, usuário e senha da sua conta Xtream Codes API' },
+  { key: 'm3u',      icon: 'document-text-outline', tint: colors.accent, tintSoft: colors.accentSoft,       label: 'M3U',      desc: 'URL da lista',
+    hint: 'Aponte para uma lista M3U/M3U8 por URL' },
+  { key: 'jellyfin', icon: 'play-circle-outline',   tint: '#38bdf8',     tintSoft: 'rgba(56,189,248,0.14)', label: 'Jellyfin', desc: 'Servidor de mídia',
+    hint: 'Seu servidor de mídia pessoal, autenticado por Quick Connect' },
+];
+
+const typeTint     = (t: string) => SOURCE_TYPES.find(s => s.key === t)?.tint ?? colors.accent;
+const typeTintSoft = (t: string) => SOURCE_TYPES.find(s => s.key === t)?.tintSoft ?? colors.accentSoft;
 
 interface ConnectionResult {
   success: boolean;
@@ -143,6 +161,10 @@ export default function SetupScreen() {
 
   // Pareamento pelo celular (QR + servidor local efêmero) — só builds nativos
   const [showPairing, setShowPairing] = useState(false);
+  // Scanner de QR (celular → TV) — só existe no layout mobile nativo
+  const [showScanner, setShowScanner] = useState(false);
+  // Mobile: fluxo em 2 passos — escolher o conector, depois o formulário
+  const [mobileStep, setMobileStep] = useState<'pick' | 'form'>('pick');
 
   // Quick Connect
   const [showQC, setShowQC] = useState(false);
@@ -177,9 +199,21 @@ export default function SetupScreen() {
 
   // Fonte recebida do celular via QR: preenche o form (feedback visual) e dispara
   // o MESMO fluxo de validação/carga da digitação manual, com os valores direto
-  // (o estado do form ainda não atualizou neste tick).
+  // (o estado do form ainda não atualizou neste tick). Favoritos e assistidos
+  // que vierem junto são mesclados na hora (união de favoritos; no progresso,
+  // a entrada mais recente vence).
   const handlePairedSource = (p: PairingPayload) => {
     setShowPairing(false);
+    if (p.extras) {
+      if (Array.isArray(p.extras.favorites) && p.extras.favorites.length > 0) {
+        const cur = useStore.getState().favorites;
+        useStore.setState({ favorites: Array.from(new Set([...cur, ...p.extras.favorites])) });
+        useStore.getState().saveToStorage();
+      }
+      if (p.extras.watch && typeof p.extras.watch === 'object') {
+        useWatchProgress.getState().importEntries(p.extras.watch);
+      }
+    }
     if (p.type === 'xtream') {
       setActiveTab('xtream');
       setXHost(p.host ?? 'http://');
@@ -214,6 +248,7 @@ export default function SetupScreen() {
     setEditingSourceId(source.id);
     setConnectionResult(null);
     setShowPhases(false);
+    setMobileStep('form'); // no mobile, editar pula direto pro formulário
   }, []);
 
   // `override` = valores vindos do pareamento pelo celular (o estado do form
@@ -578,7 +613,15 @@ export default function SetupScreen() {
         <>
           <View style={styles.formRow}>
             <View style={{ flex: 1 }}>
-              <FormField label="USUÁRIO" value={xUser} onChangeText={setXUser} placeholder="seu_usuario" returnKeyType="next" />
+              <FormField
+                label="USUÁRIO"
+                value={xUser}
+                onChangeText={setXUser}
+                placeholder="seu_usuario"
+                returnKeyType="next"
+                inputRef={xUserRef}
+                onSubmitEditing={() => xPassRef.current?.focus()}
+              />
             </View>
             <View style={{ flex: 1 }}>
               <FormField
@@ -588,6 +631,8 @@ export default function SetupScreen() {
                 placeholder="sua_senha"
                 secureTextEntry={!showPassword}
                 returnKeyType="next"
+                inputRef={xPassRef}
+                onSubmitEditing={() => xNameRef.current?.focus()}
                 trailing={
                   <Pressable onPress={() => setShowPassword(!showPassword)} style={{ padding: 4 }}>
                     <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={16} color={colors.text3} />
@@ -602,6 +647,7 @@ export default function SetupScreen() {
             onChangeText={setXName}
             placeholder="Ex: Minha TV, Casa..."
             returnKeyType="done"
+            inputRef={xNameRef}
             onSubmitEditing={() => xSubmitRef.current?.focus()}
           />
         </>
@@ -768,148 +814,159 @@ export default function SetupScreen() {
   // ─── TV two-panel layout ─────────────────────────────────────────
 
   if (IS_TV) {
+    const activeMeta = SOURCE_TYPES.find(t => t.key === activeTab)!;
     return (
       <View style={tvStyles.root}>
-        {/* Header bar */}
-        <View style={[tvStyles.header, { paddingHorizontal: padH }]}>
-          <TVFocusable accessibilityLabel="Voltar"
-            onPress={() => navigation.goBack()}
-            style={tvStyles.backBtn}
-            hasTVPreferredFocus
-            borderRadius={999}
-          >
-            <Ionicons name="chevron-back" size={26} color={colors.text2} />
-          </TVFocusable>
-          <View style={tvStyles.headerTitles}>
-            <Text style={tvStyles.mainTitle}>Conecte sua lista IPTV</Text>
-            <Text style={tvStyles.mainDesc}>
-              Conta <Text style={{ color: colors.text1 }}>Xtream Codes API</Text> ou{' '}
-              <Text style={{ color: colors.text1 }}>lista M3U/M3U8</Text>.
-            </Text>
-          </View>
-        </View>
-
-        {/* Tab switcher */}
-        <View style={[tvStyles.tabContainer, { paddingHorizontal: padH }]}>
-          <TVFocusable
-            onPress={() => setActiveTab('xtream')}
-            style={[tvStyles.tab, activeTab === 'xtream' && tvStyles.tabActive]}
-            borderRadius={10}
-          >
-            <Ionicons name="server-outline" size={20} color={activeTab === 'xtream' ? colors.accent : colors.text3} />
-            <Text style={[tvStyles.tabText, activeTab === 'xtream' && tvStyles.tabTextActive]}>Xtream API</Text>
-          </TVFocusable>
-          <TVFocusable
-            onPress={() => setActiveTab('m3u')}
-            style={[tvStyles.tab, activeTab === 'm3u' && tvStyles.tabActive]}
-            borderRadius={10}
-          >
-            <Ionicons name="document-text-outline" size={20} color={activeTab === 'm3u' ? colors.accent : colors.text3} />
-            <Text style={[tvStyles.tabText, activeTab === 'm3u' && tvStyles.tabTextActive]}>Lista M3U / URL</Text>
-          </TVFocusable>
-          <TVFocusable
-            onPress={() => setActiveTab('jellyfin')}
-            style={[tvStyles.tab, activeTab === 'jellyfin' && tvStyles.tabActive]}
-            borderRadius={10}
-          >
-            <Ionicons name="play-circle-outline" size={20} color={activeTab === 'jellyfin' ? colors.accent : colors.text3} />
-            <Text style={[tvStyles.tabText, activeTab === 'jellyfin' && tvStyles.tabTextActive]}>Jellyfin</Text>
-          </TVFocusable>
-          {/* Pareamento via QR: só builds nativos (o web não abre servidor local) */}
-          {!IS_WEB && (
-            <TVFocusable
-              onPress={() => setShowPairing(true)}
-              style={[tvStyles.tab, tvStyles.pairTab]}
-              borderRadius={10}
-            >
-              <Ionicons name="qr-code-outline" size={20} color={colors.accent} />
-              <Text style={[tvStyles.tabText, { color: colors.accent }]}>Pelo celular</Text>
-            </TVFocusable>
-          )}
-        </View>
-
-        {/* Two-panel body */}
-        <View style={tvStyles.body}>
-          {/* Left panel — form */}
-          <ScrollView
-            style={tvStyles.leftPanel}
-            contentContainerStyle={[tvStyles.leftPanelInner, { paddingHorizontal: padH }]}
-            showsVerticalScrollIndicator={false}
-          >
-            <View style={{ width: '100%', maxWidth: formMaxW, alignSelf: 'center' }}>
-              {activeTab === 'xtream' ? xtreamForm : activeTab === 'jellyfin' ? jellyfinForm : m3uForm}
+        <View style={tvStyles.main}>
+          {/* Trilho esquerdo — conectores (mesma anatomia da sidebar dos Ajustes) */}
+          <View style={tvStyles.rail}>
+            <View style={tvStyles.railHeader}>
+              <TVFocusable accessibilityLabel="Voltar"
+                onPress={() => navigation.goBack()}
+                style={tvStyles.backBtn}
+                borderRadius={999}
+              >
+                <Ionicons name="chevron-back" size={20} color={colors.text2} />
+              </TVFocusable>
+              <Text style={tvStyles.railTitle}>Adicionar fonte</Text>
             </View>
-          </ScrollView>
 
-          {/* Divider */}
-          <View style={tvStyles.divider} />
+            <View style={tvStyles.railList}>
+              {SOURCE_TYPES.map((t, i) => {
+                const active = activeTab === t.key;
+                return (
+                  <TVFocusable
+                    key={t.key}
+                    onPress={() => setActiveTab(t.key)}
+                    style={[tvStyles.railItem, active && tvStyles.railItemActive]}
+                    hasTVPreferredFocus={i === 0}
+                    borderRadius={radius.lg}
+                  >
+                    <View style={[tvStyles.railIcon, { backgroundColor: t.tintSoft }]}>
+                      <Ionicons name={t.icon as any} size={18} color={t.tint} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[tvStyles.railLabel, active && tvStyles.railLabelActive]}>{t.label}</Text>
+                      <Text style={tvStyles.railDesc} numberOfLines={1}>{t.desc}</Text>
+                    </View>
+                  </TVFocusable>
+                );
+              })}
 
-          {/* Right panel — options + sources */}
-          <ScrollView
-            style={tvStyles.rightPanel}
-            contentContainerStyle={[tvStyles.rightPanelInner, { paddingHorizontal: padH }]}
-            showsVerticalScrollIndicator={false}
-          >
-            {sources.length > 0 && (
-              <>
-                <Text style={[tvStyles.panelLabel, { marginTop: 28 }]}>FONTES ATIVAS</Text>
+              {/* Sincronizar dispositivos — QR pro celular enviar fonte (+ favoritos
+                  e assistidos, conforme o escopo). No web o modal explica a limitação. */}
+              <TVFocusable
+                onPress={() => setShowPairing(true)}
+                style={tvStyles.pairCard}
+                borderRadius={radius.lg}
+              >
+                <View style={[tvStyles.railIcon, { backgroundColor: colors.accentSoft }]}>
+                  <Ionicons name="qr-code-outline" size={18} color={colors.accent} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={tvStyles.railLabel}>Sincronizar dispositivos</Text>
+                  <Text style={tvStyles.railDesc} numberOfLines={1}>Receber do celular via QR code</Text>
+                </View>
+              </TVFocusable>
+            </View>
+
+            <View style={tvStyles.railFooter}>
+              <Ionicons name="lock-closed" size={12} color={colors.text3} />
+              <Text style={tvStyles.securityText}>Credenciais ficam só neste aparelho</Text>
+            </View>
+          </View>
+
+          {/* Painel central — formulário do conector ativo */}
+          <View style={tvStyles.panel}>
+            <LinearGradient
+              colors={['rgba(124,58,237,0.10)', 'rgba(10,8,16,0)']}
+              style={tvStyles.panelGlow}
+              pointerEvents="none"
+            />
+            <View style={[tvStyles.panelHeader, { paddingHorizontal: padH }]}>
+              <Text style={tvStyles.panelTitle}>Conectar {activeMeta.label}</Text>
+              <Text style={tvStyles.panelSub}>{activeMeta.hint}</Text>
+            </View>
+            <ScrollView
+              contentContainerStyle={[tvStyles.panelContent, { paddingHorizontal: padH }]}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={{ width: '100%', maxWidth: formMaxW }}>
+                {activeTab === 'xtream' ? xtreamForm : activeTab === 'jellyfin' ? jellyfinForm : m3uForm}
+              </View>
+            </ScrollView>
+          </View>
+
+          {/* Coluna direita — fontes ativas (some quando vazia) */}
+          {sources.length > 0 && (
+            <>
+              <View style={tvStyles.divider} />
+              <ScrollView
+                style={tvStyles.sourcesPanel}
+                contentContainerStyle={[tvStyles.sourcesPanelInner, { paddingHorizontal: padH }]}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={tvStyles.sectionHeader}>
+                  <Text style={tvStyles.sectionTitle}>Fontes ativas</Text>
+                  <SonarLine />
+                </View>
                 <View style={tvStyles.sourcesGroup}>
                   {sources.map(source => (
                     <View key={source.id} style={tvStyles.sourceCard}>
-                      <View style={[tvStyles.sourceIcon, source.type === 'xtream' ? styles.sourceIconXtream : source.type === 'jellyfin' ? styles.sourceIconJellyfin : styles.sourceIconM3U]}>
-                        <Ionicons name={source.type === 'xtream' ? 'server' : source.type === 'jellyfin' ? 'play-circle' : 'document-text'} size={20} color={colors.white} />
+                      <View style={tvStyles.sourceCardTop}>
+                        <View style={[tvStyles.sourceIcon, { backgroundColor: typeTintSoft(source.type) }]}>
+                          <Ionicons name={source.type === 'xtream' ? 'server' : source.type === 'jellyfin' ? 'play-circle' : 'document-text'} size={20} color={typeTint(source.type)} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={tvStyles.sourceName} numberOfLines={1}>{source.name}</Text>
+                          <Text style={tvStyles.sourceType} numberOfLines={1}>
+                            {source.type === 'xtream' ? 'Xtream API' : source.type === 'jellyfin' ? `Jellyfin · ${source.serverName ?? source.host}` : 'Lista M3U'} · {source.channelCount || 0} itens
+                          </Text>
+                        </View>
                       </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={tvStyles.sourceName}>{source.name}</Text>
-                        <Text style={tvStyles.sourceType}>
-                          {source.type === 'xtream' ? 'Xtream API' : source.type === 'jellyfin' ? `Jellyfin · ${source.serverName ?? source.host}` : 'Lista M3U'} · {source.channelCount || 0} itens
-                        </Text>
+                      {/* Ações numa linha própria — alvos de foco maiores no D-pad */}
+                      <View style={tvStyles.sourceActions}>
+                        <TVFocusable
+                          accessibilityLabel="Recarregar fonte"
+                          onPress={() => reloadSource(source)}
+                          style={tvStyles.actionBtn}
+                          borderRadius={10}
+                        >
+                          {reloadingIds.includes(source.id)
+                            ? <ActivityIndicator size="small" color={colors.accent} />
+                            : <Ionicons name="refresh-outline" size={18} color={colors.text2} />}
+                        </TVFocusable>
+                        <TVFocusable
+                          accessibilityLabel="Categorias da fonte"
+                          onPress={() => setCategoryTarget(source)}
+                          style={tvStyles.actionBtn}
+                          borderRadius={10}
+                        >
+                          <Ionicons name="pricetags-outline" size={18} color={colors.text2} />
+                        </TVFocusable>
+                        <TVFocusable
+                          accessibilityLabel="Editar fonte"
+                          onPress={() => startEdit(source)}
+                          style={tvStyles.actionBtn}
+                          borderRadius={10}
+                        >
+                          <Ionicons name="pencil-outline" size={18} color={colors.accent} />
+                        </TVFocusable>
+                        <TVFocusable
+                          accessibilityLabel="Excluir fonte"
+                          onPress={() => deleteSource(source.id, source.name)}
+                          style={tvStyles.actionBtn}
+                          borderRadius={10}
+                        >
+                          <Ionicons name="trash-outline" size={18} color={colors.red} />
+                        </TVFocusable>
                       </View>
-                      <TVFocusable
-                        accessibilityLabel="Recarregar fonte"
-                        onPress={() => reloadSource(source)}
-                        style={tvStyles.editBtn}
-                        borderRadius={8}
-                      >
-                        {reloadingIds.includes(source.id)
-                          ? <ActivityIndicator size="small" color={colors.accent} />
-                          : <Ionicons name="refresh-outline" size={20} color={colors.text2} />}
-                      </TVFocusable>
-                      <TVFocusable
-                        accessibilityLabel="Categorias da fonte"
-                        onPress={() => setCategoryTarget(source)}
-                        style={tvStyles.editBtn}
-                        borderRadius={8}
-                      >
-                        <Ionicons name="pricetags-outline" size={20} color={colors.text2} />
-                      </TVFocusable>
-                      <TVFocusable
-                        accessibilityLabel="Editar fonte"
-                        onPress={() => startEdit(source)}
-                        style={tvStyles.editBtn}
-                        borderRadius={8}
-                      >
-                        <Ionicons name="pencil-outline" size={20} color={colors.accent} />
-                      </TVFocusable>
-                      <TVFocusable
-                        accessibilityLabel="Excluir fonte"
-                        onPress={() => deleteSource(source.id, source.name)}
-                        style={tvStyles.deleteBtn}
-                        borderRadius={8}
-                      >
-                        <Ionicons name="trash-outline" size={20} color={colors.red} />
-                      </TVFocusable>
                     </View>
                   ))}
                 </View>
-              </>
-            )}
-
-            <View style={tvStyles.securityNote}>
-              <Ionicons name="lock-closed" size={14} color={colors.text3} />
-              <Text style={tvStyles.securityText}>Suas credenciais ficam apenas neste dispositivo</Text>
-            </View>
-          </ScrollView>
+              </ScrollView>
+            </>
+          )}
         </View>
 
         <RemoteHints
@@ -971,71 +1028,110 @@ export default function SetupScreen() {
 
   // ─── Mobile layout (unchanged) ───────────────────────────────────
 
+  const activeMeta = SOURCE_TYPES.find(t => t.key === activeTab)!;
+  const backFromForm = () => {
+    setMobileStep('pick');
+    setEditingSourceId(null);
+    setConnectionResult(null);
+    setShowPhases(false);
+  };
+
   return (
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {/* Névoa violeta descendo do topo — mesma linguagem dos Ajustes */}
+      <LinearGradient
+        colors={['rgba(124,58,237,0.14)', 'rgba(10,8,16,0)']}
+        style={styles.headerGlow}
+        pointerEvents="none"
+      />
       <ScrollView style={styles.content} contentContainerStyle={styles.contentInner}>
 
-        {/* Header */}
+        {/* Header — no passo do formulário, o voltar retorna à escolha */}
         <View style={styles.headerRow}>
-          <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.backBtn} borderRadius={999}>
+          <TVFocusable
+            accessibilityLabel="Voltar"
+            onPress={mobileStep === 'form' ? backFromForm : () => navigation.goBack()}
+            style={styles.backBtn}
+            borderRadius={999}
+          >
             <Ionicons name="chevron-back" size={20} color={colors.text2} />
           </TVFocusable>
           <View style={{ flex: 1 }} />
         </View>
 
-        {/* Title */}
-        <Text style={styles.mainTitle}>Conecte sua lista IPTV</Text>
-        <Text style={styles.mainDesc}>
-          Use uma conta <Text style={{ color: colors.text1 }}>Xtream Codes API</Text> ou aponte para uma{' '}
-          <Text style={{ color: colors.text1 }}>lista M3U/M3U8</Text>.
-        </Text>
+        {mobileStep === 'pick' ? (
+          <>
+            {/* Passo 1 — escolher o conector */}
+            <Text style={styles.mainTitle}>Adicionar fonte</Text>
+            <Text style={styles.mainDesc}>De onde vem o seu conteúdo?</Text>
 
-        {/* Tab switch */}
-        <View style={styles.tabContainer}>
-          <TVFocusable
-            onPress={() => setActiveTab('xtream')}
-            style={[styles.tab, activeTab === 'xtream' && styles.tabActive]}
-          >
-            <Text style={[styles.tabText, activeTab === 'xtream' && styles.tabTextActive]}>Xtream API</Text>
-          </TVFocusable>
-          <TVFocusable
-            onPress={() => setActiveTab('m3u')}
-            style={[styles.tab, activeTab === 'm3u' && styles.tabActive]}
-          >
-            <Text style={[styles.tabText, activeTab === 'm3u' && styles.tabTextActive]}>M3U / URL</Text>
-          </TVFocusable>
-          <TVFocusable
-            onPress={() => setActiveTab('jellyfin')}
-            style={[styles.tab, activeTab === 'jellyfin' && styles.tabActive]}
-          >
-            <Text style={[styles.tabText, activeTab === 'jellyfin' && styles.tabTextActive]}>Jellyfin</Text>
-          </TVFocusable>
-        </View>
+            <View style={styles.pickList}>
+              {SOURCE_TYPES.map(t => (
+                <TVFocusable
+                  key={t.key}
+                  onPress={() => { setActiveTab(t.key); setMobileStep('form'); }}
+                  style={styles.pickCard}
+                  borderRadius={16}
+                >
+                  <View style={[styles.typeIcon, { backgroundColor: t.tintSoft }]}>
+                    <Ionicons name={t.icon as any} size={20} color={t.tint} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pickLabel}>{t.label}</Text>
+                    <Text style={styles.pickDesc} numberOfLines={2}>{t.hint}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.text3} />
+                </TVFocusable>
+              ))}
 
-        {/* Pareamento via QR — só builds nativos (o web não abre servidor local) */}
-        {!IS_WEB && (
-          <TVFocusable onPress={() => setShowPairing(true)} style={styles.pairBtn} borderRadius={10}>
-            <Ionicons name="qr-code-outline" size={16} color={colors.accent} />
-            <Text style={styles.pairBtnText}>Configurar por QR code (preencher em outro aparelho)</Text>
-          </TVFocusable>
+              {/* Celular → TV: leitor de QR dentro do app. Só faz sentido aqui —
+                  este layout é exclusivo do mobile nativo (web e TV usam o de TV). */}
+              <TVFocusable
+                onPress={() => setShowScanner(true)}
+                style={styles.sendTvCard}
+                borderRadius={16}
+              >
+                <View style={[styles.typeIcon, { backgroundColor: colors.accentSoft }]}>
+                  <Ionicons name="scan-outline" size={20} color={colors.accent} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pickLabel}>Sincronizar dispositivos</Text>
+                  <Text style={styles.pickDesc} numberOfLines={2}>
+                    Leia o QR code da TV e envie uma fonte daqui
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.text3} />
+              </TVFocusable>
+            </View>
+          </>
+        ) : (
+          <>
+            {/* Passo 2 — formulário do conector escolhido */}
+            <Text style={styles.mainTitle}>
+              {editingSourceId ? `Editar ${activeMeta.label}` : `Conectar ${activeMeta.label}`}
+            </Text>
+            <Text style={styles.mainDesc}>{activeMeta.hint}</Text>
+
+            {activeTab === 'xtream' ? xtreamForm : activeTab === 'jellyfin' ? jellyfinForm : m3uForm}
+
+            <View style={styles.securityNote}>
+              <Ionicons name="lock-closed" size={12} color={colors.text3} />
+              <Text style={styles.securityText}>Suas credenciais ficam apenas neste dispositivo</Text>
+            </View>
+          </>
         )}
 
-        {activeTab === 'xtream' ? xtreamForm : activeTab === 'jellyfin' ? jellyfinForm : m3uForm}
-
-        {/* Security note */}
-        <View style={styles.securityNote}>
-          <Ionicons name="lock-closed" size={12} color={colors.text3} />
-          <Text style={styles.securityText}>Suas credenciais ficam apenas neste dispositivo</Text>
-        </View>
-
-        {/* Active sources */}
-        {sources.length > 0 && (
+        {/* Active sources — só no passo de escolha */}
+        {mobileStep === 'pick' && sources.length > 0 && (
           <View style={styles.sourcesSection}>
-            <Text style={styles.sectionLabel}>FONTES ATIVAS</Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Fontes ativas</Text>
+              <SonarLine />
+            </View>
             {sources.map(source => (
               <View key={source.id} style={styles.sourceCard}>
-                <View style={[styles.sourceIcon, source.type === 'xtream' ? styles.sourceIconXtream : source.type === 'jellyfin' ? styles.sourceIconJellyfin : styles.sourceIconM3U]}>
-                  <Ionicons name={source.type === 'xtream' ? 'server' : source.type === 'jellyfin' ? 'play-circle' : 'document-text'} size={18} color={colors.white} />
+                <View style={[styles.sourceIcon, { backgroundColor: typeTintSoft(source.type) }]}>
+                  <Ionicons name={source.type === 'xtream' ? 'server' : source.type === 'jellyfin' ? 'play-circle' : 'document-text'} size={18} color={typeTint(source.type)} />
                 </View>
                 <View style={styles.sourceMeta}>
                   <Text style={styles.sourceName}>{source.name}</Text>
@@ -1096,10 +1192,10 @@ export default function SetupScreen() {
         onCancel={cancelQuickConnect}
       />
 
-      <PairingSetupModal
-        visible={showPairing}
-        onClose={() => setShowPairing(false)}
-        onSource={handlePairedSource}
+      {/* Celular → TV: escaneia o QR da TV e envia uma fonte deste aparelho */}
+      <SendToTVModal
+        visible={showScanner}
+        onClose={() => setShowScanner(false)}
       />
 
       {/* Delete confirmation modal */}
@@ -1386,6 +1482,22 @@ function FormField({ label, value, onChangeText, placeholder, secureTextEntry, k
     }
   }, []);
 
+  // TV: enquanto digita, o "voltar" fecha o teclado e devolve o foco a ESTE
+  // campo (via blur → handleBlurTV), em vez de sair da tela. O primeiro voltar
+  // o IME consome sozinho (fecha o teclado sem avisar o JS) — por isso também
+  // ouvimos keyboardDidHide, que dispara o mesmo blur e realinha o foco na hora.
+  useEffect(() => {
+    if (!IS_TV || !isFocused) return;
+    const hide = Keyboard.addListener('keyboardDidHide', () => {
+      if (!isSubmittingRef.current) inputRef.current?.blur();
+    });
+    const back = BackHandler.addEventListener('hardwareBackPress', () => {
+      inputRef.current?.blur();
+      return true; // consome — não navega pra fora da tela
+    });
+    return () => { hide.remove(); back.remove(); };
+  }, [isFocused, inputRef]);
+
   if (IS_TV) {
     return (
       <TVFocusable
@@ -1456,44 +1568,52 @@ function FormField({ label, value, onChangeText, placeholder, secureTextEntry, k
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg0 },
+  headerGlow: { position: 'absolute', top: 0, left: 0, right: 0, height: 220 },
   content: { flex: 1 },
   contentInner: { padding: spacing.xl, gap: spacing.lg, maxWidth: 480, alignSelf: 'center', width: '100%' },
 
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  backBtn: { width: 36, height: 36, borderRadius: radius.full, backgroundColor: colors.bg1, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  backBtn: { width: 36, height: 36, borderRadius: radius.full, backgroundColor: 'rgba(20,17,28,0.72)', borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   skipText: { fontSize: 12, color: colors.text2, textDecorationLine: 'underline' },
 
-  mainTitle: { fontSize: fontSize.xxl, fontWeight: '600', color: colors.text1, letterSpacing: -0.7, lineHeight: 34, marginTop: spacing.xxl },
+  mainTitle: { fontSize: fontSize.xxl, fontWeight: '700', color: colors.text1, letterSpacing: -0.7, lineHeight: 34, marginTop: spacing.xxl },
   mainDesc: { fontSize: 13.5, color: colors.text2, lineHeight: 20 },
 
-  tabContainer: { flexDirection: 'row', backgroundColor: colors.bg1, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: 3, marginTop: spacing.sm },
-  tab: { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: 8 },
-  tabActive: { backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border },
-  tabText: { fontSize: fontSize.sm, fontWeight: '500', color: colors.text3 },
-  tabTextActive: { color: colors.text1, fontWeight: '600' },
-  pairBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    marginTop: spacing.sm,
-    paddingVertical: 11,
-    borderRadius: radius.md,
-    backgroundColor: colors.accentSoft,
-    borderWidth: 1, borderColor: colors.borderHover,
+  // Passo 1 — lista de conectores (cards horizontais com identidade por serviço)
+  pickList: { gap: 10, marginTop: spacing.md },
+  pickCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingVertical: 14, paddingHorizontal: 14,
+    borderRadius: 16, backgroundColor: colors.bg1,
   },
-  pairBtnText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.accent },
+  typeIcon: {
+    width: 42, height: 42, borderRadius: 13,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  pickLabel: { fontSize: 15, fontWeight: '600', color: colors.text1 },
+  pickDesc: { fontSize: fontSize.xs, color: colors.text3, marginTop: 2, lineHeight: 16 },
+  // Celular → TV: borda tracejada sinaliza "caminho alternativo"
+  sendTvCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingVertical: 14, paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(167,139,250,0.4)',
+  },
 
   optionsBox: { backgroundColor: colors.bg1, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
 
   form: { gap: spacing.md },
   formRow: { flexDirection: 'row', gap: spacing.md },
 
-  // Field — mobile
+  // Field — mobile (filled: superfície tonal sem borda; a borda só acende no foco)
   fieldWrap: {
-    borderWidth: 1, borderColor: colors.border,
+    borderWidth: 1, borderColor: 'transparent',
     borderRadius: radius.lg, padding: spacing.md, paddingTop: 10,
     backgroundColor: colors.bg1,
   },
   fieldWrapFocused: {
     borderColor: colors.accent,
+    backgroundColor: colors.bg2,
     shadowColor: colors.accent,
     shadowOpacity: 0.35,
     shadowRadius: 8,
@@ -1518,13 +1638,11 @@ const styles = StyleSheet.create({
   securityNote: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   securityText: { fontSize: 11, color: colors.text3 },
 
-  sourcesSection: { gap: spacing.md, marginTop: spacing.lg, paddingTop: spacing.lg, borderTopWidth: 1, borderTopColor: colors.border },
-  sectionLabel: { fontSize: 10, fontWeight: '600', color: colors.text3, letterSpacing: 0.6 },
-  sourceCard: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: colors.bg1, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.md },
-  sourceIcon: { width: 40, height: 40, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
-  sourceIconM3U: { backgroundColor: colors.accent3 },
-  sourceIconXtream: { backgroundColor: '#059669' },
-  sourceIconJellyfin: { backgroundColor: '#00a4dc' },
+  sourcesSection: { gap: spacing.md, marginTop: spacing.lg, paddingTop: spacing.lg, borderTopWidth: 1, borderTopColor: colors.borderSoft },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 2 },
+  sectionTitle: { fontSize: 14, fontWeight: '600', color: colors.text1, letterSpacing: -0.2 },
+  sourceCard: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: colors.bg1, borderRadius: 16, padding: spacing.md },
+  sourceIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   sourceMeta: { flex: 1 },
   sourceName: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text1 },
   sourceType: { fontSize: fontSize.xs, color: colors.text2, marginTop: 2 },
@@ -1562,70 +1680,79 @@ const styles = StyleSheet.create({
 
 const tvStyles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg0 },
+  main: { flex: 1, flexDirection: 'row' },
 
-  // Header
-  header: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingTop: 18, paddingBottom: 14,
-    gap: 16,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
+  // Trilho esquerdo — conectores (mesma anatomia da sidebar dos Ajustes)
+  rail: {
+    width: 264,
+    borderRightWidth: 1, borderRightColor: colors.borderSoft,
+    paddingTop: 28,
+    gap: spacing.xl,
+  },
+  railHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: spacing.lg,
   },
   backBtn: {
-    width: 44, height: 44, borderRadius: 999,
+    width: 36, height: 36, borderRadius: 999,
     backgroundColor: colors.bg1, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
     flexShrink: 0,
   },
-  headerTitles: { flex: 1 },
-  mainTitle: { fontSize: 22, fontWeight: '700', color: colors.text1, letterSpacing: -0.5 },
-  mainDesc: { fontSize: 13, color: colors.text2, marginTop: 2 },
-  skipBtn: {
-    paddingHorizontal: 20, paddingVertical: 10,
-    backgroundColor: colors.bg1, borderRadius: 8,
-    borderWidth: 1, borderColor: colors.border,
+  railTitle: { fontSize: 19, fontWeight: '700', color: colors.text1, letterSpacing: -0.4 },
+  railList: { flex: 1, paddingHorizontal: spacing.sm, gap: 4 },
+  railItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 12, paddingHorizontal: 12,
+    borderRadius: radius.lg,
   },
-  skipText: { fontSize: 14, color: colors.text2 },
-
-  // Tab
-  tabContainer: {
-    flexDirection: 'row',
-    paddingVertical: 10,
-    gap: 10,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
+  railItemActive: { backgroundColor: colors.accentSoft },
+  railIcon: {
+    width: 38, height: 38, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
   },
-  tab: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    flex: 1,
-    paddingVertical: 9, paddingHorizontal: 14,
-    borderRadius: 10,
-    backgroundColor: colors.bg1,
-    borderWidth: 1, borderColor: colors.border,
+  railLabel: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text2 },
+  railLabelActive: { color: colors.text1 },
+  railDesc: { fontSize: 10.5, color: colors.text3, marginTop: 2 },
+  // "Pelo celular" — caminho alternativo: borda tracejada, não card de tipo
+  pairCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 12, paddingHorizontal: 12,
+    marginTop: spacing.sm,
+    borderRadius: radius.lg,
+    borderWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(167,139,250,0.4)',
   },
-  tabActive: { backgroundColor: colors.bg2, borderColor: colors.accent },
-  tabText: { fontSize: 14, fontWeight: '500', color: colors.text3 },
-  tabTextActive: { color: colors.text1, fontWeight: '600' },
-  // "Pelo celular" — ação, não aba: destaque accent permanente
-  pairTab: { flex: 0, backgroundColor: colors.accentSoft, borderColor: colors.borderHover },
+  railFooter: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    padding: spacing.lg,
+    borderTopWidth: 1, borderTopColor: colors.borderSoft,
+  },
 
-  // Body
-  body: { flex: 1, flexDirection: 'row' },
-  leftPanel: { flex: 3 },
-  leftPanelInner: { paddingVertical: 24, gap: 0 },
-  divider: { width: 1, backgroundColor: colors.border },
-  rightPanel: { flex: 2 },
-  rightPanelInner: { paddingVertical: 24, gap: 0 },
+  // Painel central — formulário
+  panel: { flex: 3 },
+  panelGlow: { position: 'absolute', top: 0, left: 0, right: 0, height: 160 },
+  panelHeader: { paddingTop: 28, paddingBottom: spacing.lg },
+  panelTitle: { fontSize: 24, fontWeight: '700', color: colors.text1, letterSpacing: -0.5 },
+  panelSub: { fontSize: fontSize.sm, color: colors.text3, marginTop: 4, lineHeight: 19 },
+  panelContent: { paddingBottom: 24 },
 
-  panelLabel: {
-    fontSize: 11, fontWeight: '600', color: colors.text3, letterSpacing: 0.8,
+  // Coluna direita — fontes ativas
+  divider: { width: 1, backgroundColor: colors.borderSoft },
+  sourcesPanel: { flex: 2 },
+  sourcesPanelInner: { paddingVertical: 28 },
+
+  sectionHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
     marginBottom: 12,
   },
+  sectionTitle: { fontSize: 14, fontWeight: '600', color: colors.text1, letterSpacing: -0.2 },
 
   formGroup: { gap: 12 },
 
-  // Field — TV
+  // Field — TV (filled: superfície tonal; a borda acende no foco de digitação)
   fieldWrap: {
-    borderWidth: 1.5, borderColor: colors.border,
-    borderRadius: 10, padding: 12,
+    borderWidth: 1.5, borderColor: 'transparent',
+    borderRadius: 14, padding: 12,
     backgroundColor: colors.bg1,
   },
   fieldWrapFocused: {
@@ -1666,28 +1793,27 @@ const tvStyles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border, overflow: 'hidden',
   },
 
-  // Sources — TV
+  // Sources — TV: identidade em cima, ações numa linha própria (alvos maiores)
   sourcesGroup: { gap: 10 },
   sourceCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: colors.bg1, borderRadius: 10,
-    borderWidth: 1, borderColor: colors.border, padding: 12,
+    backgroundColor: colors.bg1, borderRadius: 16,
+    padding: 12, gap: 10,
   },
+  sourceCardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   sourceIcon: {
-    width: 40, height: 40, borderRadius: 8,
+    width: 40, height: 40, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center',
   },
   sourceName: { fontSize: 14, fontWeight: '600', color: colors.text1 },
   sourceType: { fontSize: 12, color: colors.text2, marginTop: 3 },
-  editBtn: { padding: 10 },
-  deleteBtn: { padding: 10 },
-
-  // Security
-  securityNote: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    marginTop: 28,
+  sourceActions: { flexDirection: 'row', gap: 8 },
+  actionBtn: {
+    flex: 1, height: 38, borderRadius: 10,
+    backgroundColor: colors.bg2,
+    alignItems: 'center', justifyContent: 'center',
   },
-  securityText: { fontSize: 13, color: colors.text3 },
+
+  securityText: { fontSize: 12, color: colors.text3 },
 
   qcBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, height: 48, borderRadius: 12, borderWidth: 1.5, borderColor: colors.accent, backgroundColor: 'transparent' },
   qcBtnText: { color: colors.accent, fontSize: 15, fontWeight: '700' },

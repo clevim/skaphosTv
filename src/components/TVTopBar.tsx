@@ -209,10 +209,11 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: 'center',
   },
+  // Sublinha curta em vez de bolinha — marcador clássico de aba ativa
   activeDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
+    width: 14,
+    height: 2,
+    borderRadius: 1,
     backgroundColor: colors.accent,
   },
 

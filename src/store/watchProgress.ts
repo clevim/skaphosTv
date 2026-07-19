@@ -32,6 +32,8 @@ interface WatchProgressState {
   markWatched: (id: string) => void;
   /** Marca vários de uma vez (ex.: "este e todos os anteriores") — um único set/save. */
   markManyWatched: (ids: string[]) => void;
+  /** Mescla entradas vindas de outro aparelho (pareamento) — a mais recente vence. */
+  importEntries: (incoming: Record<string, WatchEntry>) => void;
   clear: (id: string) => void;
   get: (id: string) => WatchEntry | undefined;
 }
@@ -120,6 +122,27 @@ export const useWatchProgress = create<WatchProgressState>((set, get) => ({
           watched: true,
           updatedAt: now,
         };
+      }
+      scheduleSave(entries);
+      return { entries };
+    });
+  },
+
+  importEntries: (incoming) => {
+    if (!incoming || typeof incoming !== 'object') return;
+    set(state => {
+      const entries = { ...state.entries };
+      for (const [id, e] of Object.entries(incoming)) {
+        if (!e || typeof e.positionSec !== 'number' || typeof e.updatedAt !== 'number') continue;
+        const prev = entries[id];
+        if (!prev || e.updatedAt > prev.updatedAt) {
+          entries[id] = {
+            positionSec: e.positionSec,
+            durationSec: e.durationSec ?? 0,
+            watched: !!e.watched,
+            updatedAt: e.updatedAt,
+          };
+        }
       }
       scheduleSave(entries);
       return { entries };

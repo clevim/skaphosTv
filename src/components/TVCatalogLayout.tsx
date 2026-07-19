@@ -64,7 +64,6 @@ export default function TVCatalogLayout({
             onPress={() => onGroupSelect(null)}
             style={[styles.groupItem, !selectedGroup && styles.groupItemActive]}
           >
-            <View style={[styles.groupDot, !selectedGroup && styles.groupDotActive]} />
             <Text
               style={[styles.groupName, !selectedGroup && styles.groupNameActive]}
               numberOfLines={2}
@@ -82,7 +81,6 @@ export default function TVCatalogLayout({
                 onPress={() => onGroupSelect(isActive ? null : g)}
                 style={[styles.groupItem, isActive && styles.groupItemActive]}
               >
-                <View style={[styles.groupDot, isActive && styles.groupDotActive]} />
                 <Text
                   style={[styles.groupName, isActive && styles.groupNameActive]}
                   numberOfLines={2}
@@ -172,15 +170,6 @@ const styles = StyleSheet.create({
   },
   groupItemActive: {
     backgroundColor: colors.accentSoft,
-  },
-  groupDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.text3,
-  },
-  groupDotActive: {
-    backgroundColor: colors.accent,
   },
   groupName: {
     flex: 1,

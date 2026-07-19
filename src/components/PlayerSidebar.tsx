@@ -61,7 +61,6 @@ export default function PlayerSidebar({
                 {/* Episódio: título real ("Pilot") vale mais que repetir o grupo */}
                 <Text style={styles.group} numberOfLines={1}>{item.epTitle || item.group}</Text>
               </View>
-              {isActive && <View style={styles.activeDot} />}
             </TVFocusable>
           );
         }}
@@ -112,5 +111,4 @@ const styles = StyleSheet.create({
   meta: { flex: 1 },
   name: { color: colors.text1, fontSize: fontSize.sm, fontWeight: '500' },
   group: { color: colors.text3, fontSize: fontSize.xs },
-  activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent2 },
 });

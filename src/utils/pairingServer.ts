@@ -18,6 +18,14 @@ import * as Network from 'expo-network';
 // Buffer NÃO é global no React Native — vem do polyfill (dependência do tcp-socket)
 import { Buffer } from 'buffer';
 
+/** Bagagem opcional que acompanha a fonte no pareamento celular → TV. */
+export interface PairingExtras {
+  /** IDs de canais favoritos (ids derivados do provedor — valem entre aparelhos). */
+  favorites?: string[];
+  /** Progresso de assistidos (mesmo formato do watchProgress store). */
+  watch?: Record<string, { positionSec: number; durationSec: number; watched: boolean; updatedAt: number }>;
+}
+
 export interface PairingPayload {
   type: 'xtream' | 'm3u';
   name?: string;
@@ -27,6 +35,8 @@ export interface PairingPayload {
   password?: string;
   // m3u
   url?: string;
+  /** Favoritos e assistidos do aparelho remetente (só no envio pelo app). */
+  extras?: PairingExtras;
 }
 
 export interface PairingServer {

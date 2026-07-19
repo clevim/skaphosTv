@@ -7,8 +7,10 @@ import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useStore } from '../store/useStore';
 import TVFocusable from '../components/TVFocusable';
+import SonarLine from '../components/SonarLine';
 import {
   checkOtaUpdate, reloadApp, fetchLatestRelease, isNewerVersion,
   downloadAndInstallApk,
@@ -108,7 +110,11 @@ const BUFFER_OPTIONS = [
 function SettingsGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <View style={styles.group}>
-      <Text style={styles.groupTitle}>{title}</Text>
+      {/* Linha de sonda — o título seguido da varredura violeta que se dissolve */}
+      <View style={styles.groupHeader}>
+        <Text style={styles.groupTitle}>{title}</Text>
+        <SonarLine />
+      </View>
       <View style={styles.groupBox}>{children}</View>
     </View>
   );
@@ -122,11 +128,9 @@ function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle
   const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
   const content = (
     <View style={styles.row}>
-      <View style={styles.rowIcon}>
-        <Ionicons name={icon as any} size={16} color={colors.text2} />
-      </View>
+      <Ionicons name={icon as any} size={17} color={colors.text3} style={styles.rowIcon} />
       <View style={{ flex: 1 }}>
-        <Text style={[styles.rowLabel, { fontSize: 14 * scale }]}>{label}</Text>
+        <Text style={[styles.rowLabel, { fontSize: 14.5 * scale }]}>{label}</Text>
         {sub && <Text style={[styles.rowSub, { fontSize: fontSize.xs * scale }]}>{sub}</Text>}
       </View>
       {toggle && onToggle ? (
@@ -139,10 +143,15 @@ function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle
           {...({ activeThumbColor: colors.white } as any)}
         />
       ) : value ? (
-        <View style={styles.rowValueWrap}>
-          <Text style={[styles.rowValue, { fontSize: 12 * scale }, valueColor ? { color: valueColor } : null]}>{value}</Text>
-          {onPress && <Ionicons name="chevron-forward" size={12} color={colors.text3} />}
-        </View>
+        onPress ? (
+          // Interativo: valor num chip recuado (affordance de "dá pra mexer")
+          <View style={styles.rowChip}>
+            <Text numberOfLines={1} style={[styles.rowChipText, { fontSize: 12 * scale }, valueColor ? { color: valueColor } : null]}>{value}</Text>
+            <Ionicons name="chevron-forward" size={11} color={colors.text3} />
+          </View>
+        ) : (
+          <Text numberOfLines={1} style={[styles.rowValue, { fontSize: 12 * scale }, valueColor ? { color: valueColor } : null]}>{value}</Text>
+        )
       ) : onPress ? (
         <Ionicons name="chevron-forward" size={14} color={colors.text3} />
       ) : null}
@@ -174,16 +183,14 @@ function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
   return (
     <TVFocusable onPress={cycle} style={{ borderRadius: 0 }}>
       <View style={styles.row}>
-        <View style={styles.rowIcon}>
-          <Ionicons name={icon as any} size={16} color={colors.text2} />
-        </View>
+        <Ionicons name={icon as any} size={17} color={colors.text3} style={styles.rowIcon} />
         <View style={{ flex: 1 }}>
-          <Text style={[styles.rowLabel, { fontSize: 14 * scale }]}>{label}</Text>
+          <Text style={[styles.rowLabel, { fontSize: 14.5 * scale }]}>{label}</Text>
           {sub && <Text style={[styles.rowSub, { fontSize: fontSize.xs * scale }]}>{sub}</Text>}
         </View>
-        <View style={styles.rowValueWrap}>
-          <Text style={[styles.rowValue, { fontSize: 12 * scale }]}>{current.label}</Text>
-          <Ionicons name="swap-horizontal-outline" size={12} color={colors.text3} />
+        <View style={styles.rowChip}>
+          <Text numberOfLines={1} style={[styles.rowChipText, { fontSize: 12 * scale }]}>{current.label}</Text>
+          <Ionicons name="swap-horizontal-outline" size={11} color={colors.accent} />
         </View>
       </View>
     </TVFocusable>
@@ -224,9 +231,7 @@ function DevUpdateUrlRow() {
   return (
     <>
       <View style={styles.row}>
-        <View style={styles.rowIcon}>
-          <Ionicons name="construct-outline" size={16} color={colors.text2} />
-        </View>
+        <Ionicons name="construct-outline" size={17} color={colors.text3} style={styles.rowIcon} />
         <View style={{ flex: 1 }}>
           <Text style={styles.rowLabel}>Servidor de update (dev)</Text>
           <Text style={styles.rowSub}>scripts/dev-update-server.js — ex: http://192.168.0.10:8787</Text>
@@ -870,6 +875,13 @@ function AccountCard({ sources, authInfoMap }: {
 
   return (
     <View style={styles.accountCard}>
+      {/* Névoa violeta diagonal — o único momento "de marca" da tela */}
+      <LinearGradient
+        colors={['rgba(124,58,237,0.22)', 'rgba(124,58,237,0.03)']}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
       <View style={styles.accountLogo}>
         <Image source={require('../../assets/icon.png')} style={styles.accountLogoImg} contentFit="cover" />
       </View>
@@ -889,10 +901,10 @@ function AccountCard({ sources, authInfoMap }: {
   );
 }
 
-const CATEGORIES: { key: CategoryKey; label: string; sub: string; icon: string }[] = [
-  { key: 'reproducao', label: 'Reprodução',           sub: 'Player, legendas e interface',        icon: 'play-circle-outline' },
-  { key: 'conta',      label: 'Conta e dispositivos', sub: 'Listas, assinaturas e uso',           icon: 'person-circle-outline' },
-  { key: 'sistema',    label: 'Sistema',              sub: 'Notificações, backup e atualizações', icon: 'settings-outline' },
+const CATEGORIES: { key: CategoryKey; label: string; short: string; sub: string; icon: string }[] = [
+  { key: 'reproducao', label: 'Reprodução',           short: 'Reprodução', sub: 'Player, legendas e interface',        icon: 'play-circle-outline' },
+  { key: 'conta',      label: 'Conta e dispositivos', short: 'Conta',      sub: 'Listas, assinaturas e uso',           icon: 'person-circle-outline' },
+  { key: 'sistema',    label: 'Sistema',              short: 'Sistema',    sub: 'Notificações, backup e atualizações', icon: 'settings-outline' },
 ];
 
 // ── Category panel content (TV e mobile compartilham o mesmo conteúdo;
@@ -1092,12 +1104,11 @@ export default function SettingsScreen() {
                   onPress={() => setActiveCategory(cat.key)}
                   style={[tvStyles.categoryItem, active && tvStyles.categoryItemActive]}
                   hasTVPreferredFocus={i === 0}
+                  borderRadius={radius.lg}
                 >
-                  {/* Ativo = contêiner violeta-profundo com ícone claro (uso
-                      sancionado no DESIGN.md) — sem a barrinha lateral (side-stripe) */}
-                  <View style={[tvStyles.catIcon, active && tvStyles.catIconActive]}>
-                    <Ionicons name={cat.icon as any} size={16} color={active ? colors.white : colors.text2} />
-                  </View>
+                  {/* Ícone inline + dot violeta no ativo — mesma linguagem dos
+                      grupos (tick) e do chip de valor; nada de caixinhas */}
+                  <Ionicons name={cat.icon as any} size={18} color={active ? colors.accent : colors.text3} />
                   <View style={{ flex: 1 }}>
                     <Text style={[tvStyles.categoryLabel, active && tvStyles.categoryLabelActive]}>
                       {cat.label}
@@ -1120,6 +1131,12 @@ export default function SettingsScreen() {
 
         {/* Right panel */}
         <View style={tvStyles.panel}>
+          {/* Névoa violeta descendo do topo — profundidade sem decoração */}
+          <LinearGradient
+            colors={['rgba(124,58,237,0.10)', 'rgba(10,8,16,0)']}
+            style={tvStyles.panelGlow}
+            pointerEvents="none"
+          />
           <View style={tvStyles.panelHeader}>
             <Text style={tvStyles.panelTitle}>
               {CATEGORIES.find(c => c.key === activeCategory)?.label}
@@ -1148,6 +1165,12 @@ export default function SettingsScreen() {
   // uma barra de abas horizontal, já que não há espaço lateral no celular.
   return (
     <View style={styles.root}>
+      {/* Névoa violeta descendo do topo — dá profundidade ao header sem decorar */}
+      <LinearGradient
+        colors={['rgba(124,58,237,0.14)', 'rgba(10,8,16,0)']}
+        style={styles.headerGlow}
+        pointerEvents="none"
+      />
       <View style={styles.header}>
         <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.back}>
           <Ionicons name="chevron-back" size={20} color={colors.text2} />
@@ -1155,31 +1178,24 @@ export default function SettingsScreen() {
         <Text style={styles.title}>Ajustes</Text>
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabBar}
-        contentContainerStyle={styles.tabBarInner}
-      >
+      {/* Controle segmentado (ícone sobre rótulo) — as 3 categorias sempre
+          visíveis, sem scroll horizontal escondendo opção */}
+      <View style={styles.segmentBar}>
         {CATEGORIES.map(cat => {
           const active = cat.key === activeCategory;
           return (
             <TVFocusable
               key={cat.key}
               onPress={() => setActiveCategory(cat.key)}
-              style={[styles.tab, active && styles.tabActive]}
-              borderRadius={radius.lg}
+              style={[styles.segment, active && styles.segmentActive]}
+              borderRadius={12}
             >
-              {/* Mesma anatomia da sidebar da TV: contêiner tonal, violeta-profundo
-                  no ativo — uma linguagem de categoria nas três plataformas */}
-              <View style={[styles.tabIcon, active && styles.tabIconActive]}>
-                <Ionicons name={cat.icon as any} size={13} color={active ? colors.white : colors.text2} />
-              </View>
-              <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{cat.label}</Text>
+              <Ionicons name={cat.icon as any} size={16} color={active ? colors.accent : colors.text3} />
+              <Text style={[styles.segmentLabel, active && styles.segmentLabelActive]}>{cat.short}</Text>
             </TVFocusable>
           );
         })}
-      </ScrollView>
+      </View>
       {/* Descrição da categoria ativa — contexto sem poluir as abas */}
       <Text style={styles.tabCaption}>
         {CATEGORIES.find(c => c.key === activeCategory)?.sub}
@@ -1222,9 +1238,9 @@ const tvStyles = StyleSheet.create({
 
   // Sidebar
   sidebar: {
-    width: 260,
+    width: 264,
     borderRightWidth: 1,
-    borderRightColor: colors.border,
+    borderRightColor: colors.borderSoft,
     paddingTop: 32,
     gap: spacing.xl,
   },
@@ -1245,26 +1261,18 @@ const tvStyles = StyleSheet.create({
   categoryList: {
     flex: 1,
     paddingHorizontal: spacing.sm,
-    gap: 2,
+    gap: 4,
   },
   categoryItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     borderRadius: radius.lg,
   },
   categoryItemActive: {
     backgroundColor: colors.accentSoft,
-  },
-  catIcon: {
-    width: 34, height: 34, borderRadius: 10,
-    backgroundColor: colors.bg2,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  catIconActive: {
-    backgroundColor: colors.accent3,
   },
   categoryLabel: {
     fontSize: fontSize.sm,
@@ -1278,7 +1286,7 @@ const tvStyles = StyleSheet.create({
   categorySub: {
     fontSize: 10.5,
     color: colors.text3,
-    marginTop: 1,
+    marginTop: 2,
   },
 
   sidebarFooter: {
@@ -1309,12 +1317,13 @@ const tvStyles = StyleSheet.create({
   panel: {
     flex: 1,
   },
+  panelGlow: {
+    position: 'absolute', top: 0, left: 0, right: 0, height: 180,
+  },
   panelHeader: {
     paddingHorizontal: spacing.xxxl,
     paddingTop: 32,
     paddingBottom: spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSoft,
   },
   panelTitle: {
     fontSize: 26,
@@ -1329,8 +1338,8 @@ const tvStyles = StyleSheet.create({
   },
   panelContent: {
     padding: spacing.xxxl,
-    paddingTop: spacing.xl,
-    gap: 24,
+    paddingTop: spacing.sm,
+    gap: 26,
     maxWidth: 640,
   },
 });
@@ -1338,101 +1347,101 @@ const tvStyles = StyleSheet.create({
 // ── Mobile Styles ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg0 },
+  headerGlow: {
+    position: 'absolute', top: 0, left: 0, right: 0, height: 200,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
     paddingHorizontal: 22,
     paddingTop: spacing.lg,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.md,
   },
   back: {
     width: 36, height: 36, borderRadius: radius.full,
-    backgroundColor: colors.bg1, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: 'rgba(20,17,28,0.72)', borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  title: { fontSize: 28, fontWeight: '600', color: colors.text1, letterSpacing: -0.6 },
+  title: { fontSize: 28, fontWeight: '700', color: colors.text1, letterSpacing: -0.6 },
 
-  tabBar: { flexGrow: 0, marginTop: spacing.sm },
-  tabBarInner: { paddingHorizontal: 22, gap: 8 },
-  tab: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingVertical: 7, paddingLeft: 8, paddingRight: 14,
-    borderRadius: radius.lg,
-    backgroundColor: colors.bg1, borderWidth: 1, borderColor: colors.border,
+  // Controle segmentado das categorias (ícone sobre rótulo)
+  segmentBar: {
+    flexDirection: 'row', gap: 4, padding: 4,
+    marginHorizontal: 22,
+    backgroundColor: 'rgba(20,17,28,0.85)',
+    borderRadius: 16,
+    borderWidth: 1, borderColor: colors.borderSoft,
   },
-  tabActive: { backgroundColor: colors.accentSoft, borderColor: 'rgba(167,139,250,0.4)' },
-  tabIcon: {
-    width: 26, height: 26, borderRadius: 8,
-    backgroundColor: colors.bg2,
-    alignItems: 'center', justifyContent: 'center',
+  segment: {
+    flex: 1, alignItems: 'center', gap: 4,
+    paddingVertical: 10, borderRadius: 12,
   },
-  tabIconActive: { backgroundColor: colors.accent3 },
-  tabLabel: { fontSize: fontSize.xs, fontWeight: '600', color: colors.text2 },
-  tabLabelActive: { color: colors.text1 },
+  segmentActive: { backgroundColor: colors.accentSoft },
+  segmentLabel: { fontSize: 11, fontWeight: '600', color: colors.text3 },
+  segmentLabelActive: { color: colors.text1 },
   tabCaption: {
     fontSize: fontSize.xs, color: colors.text3,
-    paddingHorizontal: 24, paddingTop: 10,
+    paddingHorizontal: 26, paddingTop: 10,
   },
 
   content: { flex: 1 },
   inner: {
     paddingHorizontal: 22,
     paddingBottom: 60,
-    gap: 20,
+    gap: 26,
     maxWidth: 600,
     alignSelf: 'center',
     width: '100%',
-    paddingTop: 18,
+    paddingTop: 20,
   },
 
-  // Card de status da conta
+  // Card de status da conta — hero com névoa violeta (LinearGradient no JSX)
   accountCard: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
-    backgroundColor: colors.bg1, borderRadius: 12,
-    borderWidth: 1, borderColor: colors.border,
-    padding: 16,
+    borderRadius: 18, overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(167,139,250,0.22)',
+    padding: 18,
   },
   accountLogo: {
-    width: 44, height: 44, borderRadius: 12,
+    width: 50, height: 50, borderRadius: 14,
     overflow: 'hidden',
-    borderWidth: 1, borderColor: 'rgba(167,139,250,0.25)',
+    borderWidth: 1, borderColor: 'rgba(167,139,250,0.3)',
     backgroundColor: colors.bg0,
   },
-  accountLogoImg: { width: 64, height: 64, marginTop: -10, marginLeft: -10 },
-  accountName: { fontSize: 15, fontWeight: '700', color: colors.text1, letterSpacing: 0.3 },
+  accountLogoImg: { width: 72, height: 72, marginTop: -11, marginLeft: -11 },
+  accountName: { fontSize: 16, fontWeight: '700', color: colors.text1, letterSpacing: 0.2 },
   accountVersion: { fontSize: 11, fontWeight: '500', color: colors.text3, letterSpacing: 0 },
   accountFacts: { fontSize: 12, color: colors.text2, marginTop: 3 },
-  accountStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  accountStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 7 },
   accountStatusDot: { width: 7, height: 7, borderRadius: 4 },
   accountStatusText: { fontSize: 12, color: colors.text2 },
 
-  group: { gap: spacing.sm },
-  groupTitle: {
-    fontSize: 11, fontWeight: '600', color: colors.text3,
-    letterSpacing: 0.8, textTransform: 'uppercase', paddingLeft: 2,
-  },
+  group: { gap: 10 },
+  groupHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 2 },
+  groupTitle: { fontSize: 14, fontWeight: '600', color: colors.text1, letterSpacing: -0.2 },
+  // Superfície tonal sem borda nem separadores — o respiro entre linhas chunca
   groupBox: {
-    backgroundColor: colors.bg1, borderRadius: 12,
-    borderWidth: 1, borderColor: colors.border, overflow: 'hidden',
+    backgroundColor: colors.bg1, borderRadius: 16,
+    overflow: 'hidden', paddingVertical: 4,
   },
 
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 13, paddingHorizontal: 14,
-    borderBottomWidth: 1, borderBottomColor: colors.borderSoft,
+    paddingVertical: 13, paddingHorizontal: 16,
   },
-  // Contêiner tonal arredondado (anatomia de settings premium) em vez do
-  // ícone solto — uma mudança, todas as linhas de todas as plataformas herdam.
-  rowIcon: {
-    width: 30, height: 30, borderRadius: 8,
-    backgroundColor: colors.bg2,
-    alignItems: 'center', justifyContent: 'center',
+  rowIcon: { width: 20, textAlign: 'center' },
+  rowLabel: { fontSize: 14.5, fontWeight: '500', color: colors.text1 },
+  rowSub: { fontSize: fontSize.xs, color: colors.text3, marginTop: 2, lineHeight: 16 },
+  rowValue: { fontSize: 12, color: colors.text2, flexShrink: 1, maxWidth: 180 },
+  // Chip de valor interativo — recuo tonal sinaliza "dá pra mexer"
+  rowChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: colors.bg2, borderRadius: radius.full,
+    paddingHorizontal: 10, paddingVertical: 5,
+    maxWidth: '55%',
   },
-  rowLabel: { fontSize: 14, fontWeight: '500', color: colors.text1 },
-  rowSub: { fontSize: fontSize.xs, color: colors.text3, marginTop: 2 },
-  rowValueWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  rowValue: { fontSize: 12, color: colors.text2 },
+  rowChipText: { fontSize: 12, color: colors.text2, flexShrink: 1 },
 
   footer: { alignItems: 'center', paddingVertical: 20, gap: 8 },
   footerLogoRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -1456,6 +1465,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 13,
     color: colors.text1,
-    marginLeft: 42, // alinha com o texto das linhas (ícone 30 + gap 12)
+    marginLeft: 32, // alinha com o texto das linhas (ícone 20 + gap 12)
   },
 });
