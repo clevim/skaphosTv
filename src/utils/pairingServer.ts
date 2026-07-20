@@ -288,7 +288,10 @@ export async function startPairingServer(opts: StartOptions): Promise<PairingSer
           buf = Buffer.concat([buf, typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk]);
           const headerEnd = buf.indexOf('\r\n\r\n');
           if (headerEnd === -1) return; // headers incompletos — espera mais dados
-          const head = buf.subarray(0, headerEnd).toString('utf8');
+          // slice, NUNCA subarray: no Hermes (sem Symbol.species) subarray devolve
+          // Uint8Array cru — toString('utf8') virava "71,69,84,…" e TODA requisição
+          // caía no 404 "Rota desconhecida". O slice do polyfill reanexa o prototype.
+          const head = buf.slice(0, headerEnd).toString('utf8');
           const [requestLine, ...headerLines] = head.split('\r\n');
           const [method = '', path = ''] = requestLine.split(' ');
           const headers: Record<string, string> = {};
@@ -297,9 +300,9 @@ export async function startPairingServer(opts: StartOptions): Promise<PairingSer
             if (idx > 0) headers[line.slice(0, idx).trim().toLowerCase()] = line.slice(idx + 1).trim();
           }
           const contentLength = parseInt(headers['content-length'] ?? '0', 10) || 0;
-          const bodyBytes = buf.subarray(headerEnd + 4);
+          const bodyBytes = buf.slice(headerEnd + 4);
           if (bodyBytes.length < contentLength) return; // corpo incompleto — espera
-          handleRequest(socket, method.toUpperCase(), path, bodyBytes.subarray(0, contentLength).toString('utf8'));
+          handleRequest(socket, method.toUpperCase(), path, bodyBytes.slice(0, contentLength).toString('utf8'));
         });
         socket.on('error', () => {});
         socket.on('close', () => sockets.delete(socket));
