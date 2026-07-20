@@ -16,3 +16,8 @@ android {
     versionName '0.1.0'
   }
 }
+
+dependencies {
+  // UIManagerModule.resolveView (watchView) — versão substituída pelo plugin do RN
+  implementation "com.facebook.react:react-android"
+}

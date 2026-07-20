@@ -181,6 +181,10 @@ export default function SeriesScreen() {
   const [trackSheetUrl, setTrackSheetUrl] = useState<string | null>(null);
   const pendingEpRef = useRef<Channel | null>(null);
   const railRef = useRef<FlatList<Channel>>(null);
+  // Foco inicial do rail concedido UMA vez por visita: hasTVPreferredFocus chama
+  // requestFocus() a cada MONTAGEM no Android — sem o gate, rolar longe e voltar
+  // (virtualização) remontava o episódio de resume e roubava a seleção de volta.
+  const railGrantRef = useRef(false);
 
   const doFetchEpisodes = useCallback(() => {
     if (!isXtreamSeries) return;
@@ -287,6 +291,14 @@ export default function SeriesScreen() {
   const isFav = favorites.some(id =>
     isXtreamSeries ? id === seriesChannel?.id : routeChannels.some(c => c.id === id),
   );
+
+  const toggleSeriesFav = () => {
+    if (isXtreamSeries) {
+      if (seriesChannel) toggleFavorite(seriesChannel.id);
+    } else {
+      routeChannels.forEach(c => toggleFavorite(c.id));
+    }
+  };
 
   const handleShare = async () => {
     const id = seriesChannel?.tvgId;
@@ -582,7 +594,9 @@ export default function SeriesScreen() {
     const fEpTitle = clamp(sw * 0.010, 12, 19);
     const fEpSyn   = clamp(sw * 0.008, 10, 15);
     const fEpDur   = clamp(sw * 0.007,  9, 14);
-    const padTop   = clamp(sh * 0.07,  44, 110);
+    // Nunca menos que o rodapé do botão Voltar (top 4% + 36 de altura + folga):
+    // em telas menores a tag "SÉRIE · N TEMPORADAS" ficava POR BAIXO do botão.
+    const padTop   = Math.max(clamp(sh * 0.07, 44, 110), Math.round(sh * 0.04) + 36 + 12);
 
     // Mantém o card em foco visível e sincroniza o destaque (play + sinopse) com o D-pad
     const focusEpisode = (index: number) => {
@@ -670,20 +684,34 @@ export default function SeriesScreen() {
             {/* Ação primária da tela — antes não havia: para assistir era preciso
                 caçar o episódio no rail. Retoma o episódio certo (currentEpIdx já
                 considera progresso) e recebe o foco preferido da TV. */}
-            {currentEp && (
+            <View style={tvStyles.ctaRow}>
+              {currentEp && (
+                <TVFocusable
+                  onPress={() => handlePlay(currentEp)}
+                  style={tvStyles.playCta}
+                  // Foco padrão (violeta translúcido) apagaria o fundo claro — clareia sólido
+                  focusStyle={tvStyles.playCtaFocused}
+                  hasTVPreferredFocus
+                >
+                  <Ionicons name="play" size={16} color={colors.textInverse} />
+                  <Text style={[tvStyles.playCtaText, { fontSize: fMeta }]}>
+                    {currentEpIdx > 0 ? `Continuar T${seasonNum} · ${currentEpLbl}` : `Assistir T${seasonNum} · ${currentEpLbl}`}
+                  </Text>
+                </TVFocusable>
+              )}
               <TVFocusable
-                onPress={() => handlePlay(currentEp)}
-                style={tvStyles.playCta}
-                // Foco padrão (violeta translúcido) apagaria o fundo claro — clareia sólido
-                focusStyle={tvStyles.playCtaFocused}
-                hasTVPreferredFocus
+                accessibilityLabel={isFav ? 'Remover da minha lista' : 'Adicionar à minha lista'}
+                onPress={toggleSeriesFav}
+                style={tvStyles.favBtn}
+                borderRadius={radius.full}
               >
-                <Ionicons name="play" size={16} color={colors.textInverse} />
-                <Text style={[tvStyles.playCtaText, { fontSize: fMeta }]}>
-                  {currentEpIdx > 0 ? `Continuar T${seasonNum} · ${currentEpLbl}` : `Assistir T${seasonNum} · ${currentEpLbl}`}
-                </Text>
+                <Ionicons
+                  name={isFav ? 'heart' : 'heart-outline'}
+                  size={18}
+                  color={isFav ? colors.accent : colors.text1}
+                />
               </TVFocusable>
-            )}
+            </View>
           </View>
 
           {/* Pills de temporada + rail de episódios */}
@@ -736,6 +764,11 @@ export default function SeriesScreen() {
                 const focused = index === focusedEp;
                 const label = epLabel(item.name, index);
                 const isResumeEp = index === currentEpIdx;
+                let railPreferred = false;
+                if (isResumeEp && !railGrantRef.current) {
+                  railGrantRef.current = true;
+                  railPreferred = true;
+                }
                 const entry = watchEntries[item.id];
                 const epWatched = !!entry?.watched;
                 const epFrac = epWatched ? 0 : progressFractionFor(entry);
@@ -757,7 +790,7 @@ export default function SeriesScreen() {
                     // overlay de play, título forte e sinopse revelada.
                     focusScale={1}
                     focusStyle={tvStyles.epCardFocusReset}
-                    hasTVPreferredFocus={isResumeEp}
+                    hasTVPreferredFocus={railPreferred}
                   >
                     <View style={[tvStyles.epThumbWrap, { width: cardW, height: cardH }]}>
                       <EpThumb logo={item.logo} size={{ w: cardW, h: cardH }} />
@@ -905,13 +938,7 @@ export default function SeriesScreen() {
           <GlassButton
             icon={isFav ? 'heart' : 'heart-outline'}
             label="Lista"
-            onPress={() => {
-              if (isXtreamSeries) {
-                toggleFavorite(seriesChannel.id);
-              } else {
-                routeChannels.forEach(c => toggleFavorite(c.id));
-              }
-            }}
+            onPress={toggleSeriesFav}
           />
           <GlassButton icon="share-outline" label="Indicar" onPress={handleShare} />
         </View>
@@ -1143,13 +1170,22 @@ const tvStyles = StyleSheet.create({
     color: colors.text1, opacity: 0.85,
     marginTop: 14,
   },
-  playCta: {
+  ctaRow: {
     alignSelf: 'flex-start',
-    flexDirection: 'row', alignItems: 'center', gap: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
     marginTop: 22,
+  },
+  playCta: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingHorizontal: 28, paddingVertical: 12,
     borderRadius: 12,
     backgroundColor: colors.text1,
+  },
+  favBtn: {
+    width: 44, height: 44, borderRadius: radius.full,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1, borderColor: colors.border,
   },
   playCtaFocused: { backgroundColor: colors.accent2 },
   playCtaText: { fontFamily: fontFamily.semiBold, color: colors.textInverse },

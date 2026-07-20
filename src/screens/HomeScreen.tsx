@@ -62,11 +62,14 @@ interface FlatItemProps {
   watched: boolean;
   onPress: (channel: Channel) => void;
   onLongPress: (id: string) => void;
+  /** Foco inicial da TV — concedido UMA vez por sessão (ver preferredGrantedRef). */
+  preferredFocus?: boolean;
 }
 
 const FlatItem = memo(function FlatItem({
   item, index, isPlaying, isFavorite, epCount, contentType,
   cardWidth, cardHeight, displayName, progress, watched, onPress, onLongPress,
+  preferredFocus,
 }: FlatItemProps) {
   const handlePress     = useCallback(() => onPress(item),     [onPress, item]);
   const handleLongPress = useCallback(() => onLongPress(item.id), [onLongPress, item.id]);
@@ -79,7 +82,7 @@ const FlatItem = memo(function FlatItem({
       onPress={handlePress}
       onLongPress={handleLongPress}
       onToggleFavorite={handleLongPress}
-      hasTVPreferredFocus={index === 0 && IS_TV}
+      hasTVPreferredFocus={preferredFocus}
       episodeCount={epCount > 1 ? epCount : undefined}
       contentType={contentType}
       progress={progress}
@@ -557,6 +560,13 @@ export default function HomeScreen() {
     [ROW_H, numColumns, gridPadding, listHeaderH]
   );
 
+  // hasTVPreferredFocus chama requestFocus() TODA vez que a view MONTA no
+  // Android. O card 0 vive numa lista virtualizada: rolar longe e voltar, trocar
+  // filtro ou reordenar favoritos REMONTA o item 0 → o foco "resetava pro início
+  // da página" em toda ação. Concede o foco inicial UMA única vez por montagem
+  // da tela; depois disso a continuidade de foco fica com o Android.
+  const preferredGrantedRef = useRef(false);
+
   const renderCard = useCallback(
     (item: Channel, index: number) => {
       const type: 'live' | 'movies' | 'series' = resolveChannelType(item);
@@ -573,6 +583,11 @@ export default function HomeScreen() {
       const progress = type === 'live' ? 0 : status.progress;
       // Passa o item com referência ESTÁVEL + displayName separado — evita criar
       // objeto novo por render (que quebrava o memo das séries).
+      let preferredFocus = false;
+      if (index === 0 && IS_TV && !preferredGrantedRef.current) {
+        preferredGrantedRef.current = true;
+        preferredFocus = true;
+      }
       return (
         <FlatItem
           key={item.id}
@@ -589,6 +604,7 @@ export default function HomeScreen() {
           cardHeight={cardHeight}
           onPress={handleChannelPress}
           onLongPress={toggleFavorite}
+          preferredFocus={preferredFocus}
         />
       );
     },

@@ -1,23 +1,21 @@
 package expo.modules.tvfocus
 
-import android.app.Activity
 import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.view.ViewTreeObserver
+import com.facebook.react.bridge.ReactContext
+import com.facebook.react.uimanager.UIManagerModule
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 class TvFocusModule : Module() {
 
-  private var focusListener: ViewTreeObserver.OnGlobalFocusChangeListener? = null
-  private var lastFocusedView: View? = null
-  private var isSetup = false
+  // Uma janela (rootView) → um listener. A Activity é uma janela; cada Modal do
+  // RN abre um Dialog com decorView PRÓPRIA — sem observar cada root, o foco
+  // dentro de modais nunca chegava ao JS (o "sem highlight" nos modais da TV).
+  private val watched = HashMap<View, ViewTreeObserver.OnGlobalFocusChangeListener>()
   private val mainHandler = Handler(Looper.getMainLooper())
-
-  private val SCALE_FOCUSED = 1.08f
-  private val SCALE_NORMAL = 1.0f
-  private val ANIM_DURATION = 150L
 
   override fun definition() = ModuleDefinition {
     Name("TvFocus")
@@ -26,88 +24,76 @@ class TvFocusModule : Module() {
 
     // Called from JS after Activity is ready
     Function("activate") {
-      mainHandler.post { setupFocusListenerWithRetry(0) }
+      mainHandler.post { watchActivityRootWithRetry(0) }
+    }
+
+    // Garante o observer na janela onde a view `viewTag` vive. Para views da
+    // Activity é no-op (root já observado); para views dentro de um Modal
+    // registra o observer na decorView do Dialog.
+    Function("watchView") { viewTag: Int ->
+      mainHandler.post { watchRootOf(viewTag) }
     }
 
     OnDestroy {
-      mainHandler.post { removeFocusListener() }
+      mainHandler.post {
+        for ((root, listener) in watched) {
+          try { root.viewTreeObserver.removeOnGlobalFocusChangeListener(listener) } catch (_: Exception) {}
+        }
+        watched.clear()
+      }
     }
   }
 
-  private fun setupFocusListenerWithRetry(attempt: Int) {
-    if (isSetup) return
+  private fun watchActivityRootWithRetry(attempt: Int) {
     if (attempt > 10) return // Give up after ~5 seconds
 
-    val activity = appContext.currentActivity
-    val rootView = activity?.window?.decorView?.rootView
-
-    if (rootView == null) {
+    val root = appContext.currentActivity?.window?.decorView?.rootView
+    if (root == null) {
       // Activity not ready yet, retry in 500ms
-      mainHandler.postDelayed({ setupFocusListenerWithRetry(attempt + 1) }, 500)
+      mainHandler.postDelayed({ watchActivityRootWithRetry(attempt + 1) }, 500)
       return
     }
-
-    setupFocusListener(rootView)
+    attach(root)
   }
 
-  private fun setupFocusListener(rootView: View) {
-    removeFocusListener()
+  private fun watchRootOf(viewTag: Int) {
+    val reactContext = appContext.reactContext as? ReactContext ?: return
+    // resolveView precisa da UI thread — estamos nela (mainHandler)
+    val view = try {
+      reactContext.getNativeModule(UIManagerModule::class.java)?.resolveView(viewTag)
+    } catch (_: Exception) { null } ?: return
+    attach(view.rootView ?: return)
+  }
 
-    focusListener = ViewTreeObserver.OnGlobalFocusChangeListener { oldFocus, newFocus ->
-      // Animate old focused view back to normal
-      if (oldFocus != null && oldFocus.id > 0) {
-        oldFocus.animate()
-          .scaleX(SCALE_NORMAL)
-          .scaleY(SCALE_NORMAL)
-          .translationZ(0f)
-          .setDuration(ANIM_DURATION)
-          .start()
-      }
+  private fun attach(root: View) {
+    if (watched.containsKey(root)) return
 
-      // Animate new focused view (scale up + elevation)
-      if (newFocus != null && newFocus.id > 0) {
-        newFocus.animate()
-          .scaleX(SCALE_FOCUSED)
-          .scaleY(SCALE_FOCUSED)
-          .translationZ(8f)
-          .setDuration(ANIM_DURATION)
-          .start()
-      }
-
-      lastFocusedView = newFocus
-
-      // Emit event to JS for overlay/ring effects
+    // Sem animação nativa aqui: o TVFocusable (JS) já anima o foco. As duas
+    // juntas disputavam scaleX/scaleY da MESMA view a cada movimento do D-pad
+    // (nativo ia a 1.08, o spring do JS a 1.05) — trabalho dobrado e visual
+    // inconsistente.
+    val listener = ViewTreeObserver.OnGlobalFocusChangeListener { oldFocus, newFocus ->
       try {
-        val oldTag = if (oldFocus != null && oldFocus.id > 0) oldFocus.id else -1
-        val newTag = if (newFocus != null && newFocus.id > 0) newFocus.id else -1
-
         sendEvent("onTvFocusChanged", mapOf(
-          "oldViewTag" to oldTag,
-          "newViewTag" to newTag
+          "oldViewTag" to (if (oldFocus != null && oldFocus.id > 0) oldFocus.id else -1),
+          "newViewTag" to (if (newFocus != null && newFocus.id > 0) newFocus.id else -1)
         ))
       } catch (_: Exception) {
         // Ignore if JS bridge isn't ready
       }
     }
+    root.viewTreeObserver.addOnGlobalFocusChangeListener(listener)
+    watched[root] = listener
 
-    rootView.viewTreeObserver.addOnGlobalFocusChangeListener(focusListener)
-    isSetup = true
-  }
-
-  private fun removeFocusListener() {
-    if (!isSetup) return
-
-    try {
-      val rootView = appContext.currentActivity?.window?.decorView?.rootView
-      focusListener?.let { listener ->
-        rootView?.viewTreeObserver?.removeOnGlobalFocusChangeListener(listener)
+    // Modal fechado → decorView sai da janela → remove o observer sozinho
+    root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+      override fun onViewAttachedToWindow(v: View) {}
+      override fun onViewDetachedFromWindow(v: View) {
+        watched.remove(v)?.let { l ->
+          try { v.viewTreeObserver.removeOnGlobalFocusChangeListener(l) } catch (_: Exception) {}
+        }
+        v.removeOnAttachStateChangeListener(this)
       }
-    } catch (_: Exception) {
-      // Activity might already be destroyed
-    }
-
-    focusListener = null
-    lastFocusedView = null
-    isSetup = false
+    })
   }
 }

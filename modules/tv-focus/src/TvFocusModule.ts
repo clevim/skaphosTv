@@ -21,6 +21,15 @@ export function activate(): void {
   TvFocusNative?.activate();
 }
 
+/**
+ * Garante o observer de foco na janela nativa onde `viewTag` vive.
+ * Modais RN abrem um Dialog (janela própria) — sem isto, o foco lá dentro
+ * nunca chega ao JS. `?.` no método: APK antigo via OTA não tem watchView.
+ */
+export function watchView(viewTag: number): void {
+  try { TvFocusNative?.watchView?.(viewTag); } catch (_) {}
+}
+
 export function addFocusListener(
   callback: (event: TvFocusEvent) => void
 ): Subscription | null {

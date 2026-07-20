@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView,
+  View, Text, StyleSheet, ScrollView, InteractionManager,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -413,6 +413,16 @@ export default function HomeContent({
   const toggleFavorite = useStore(s => s.toggleFavorite);
   const isEmpty = recentChannels.length === 0 && favoriteChannels.length === 0;
 
+  // Seções abaixo da dobra (Filmes/Séries/Lançamentos/recomendações — ~120
+  // cards com pôster) montam só depois da primeira pintura: o hero e as
+  // primeiras fileiras aparecem na hora, sem o engasgo de montar tudo junto
+  // (sentido principalmente na TV).
+  const [restReady, setRestReady] = useState(false);
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => setRestReady(true));
+    return () => task.cancel();
+  }, []);
+
   // "Continue assistindo" com progresso REAL: itens em curso primeiro (mais
   // recentes antes), depois os demais recentes na ordem original. Séries usam
   // o progresso espelhado no id da série (gravado pelo player junto do episódio).
@@ -672,7 +682,7 @@ export default function HomeContent({
       )}
 
       {/* Filmes */}
-      {movieChannels.length > 0 && (
+      {restReady && movieChannels.length > 0 && (
         <Section title="Filmes para você" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('movies')}>
           <Row>
             {movieChannels.map(ch => {
@@ -694,7 +704,7 @@ export default function HomeContent({
 
       {/* Séries — pick já trocado (swapWatchedSeriesPick) por um episódio em
           curso quando o representante original estava 100% assistido. */}
-      {seriesChannelsDisplay.length > 0 && (
+      {restReady && seriesChannelsDisplay.length > 0 && (
         <Section title="Séries" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('series')}>
           <Row>
             {seriesChannelsDisplay.map(ch => {
@@ -716,7 +726,7 @@ export default function HomeContent({
       )}
 
       {/* 2026 — filmes e séries do ano */}
-      {yearChannels.length > 0 && (
+      {restReady && yearChannels.length > 0 && (
         <Section title={`Lançamentos ${LAUNCH_YEAR}`} trailing="Ver tudo" onTrailingPress={() => onNavPress?.('year')}>
           <Row>
             {yearChannels.map(ch => {
@@ -738,7 +748,7 @@ export default function HomeContent({
       )}
 
       {/* Porque você assistiu X — mesmo gênero do último item não-ao-vivo visto */}
-      {seed && becauseYouWatchedDisplay.length > 0 && (
+      {restReady && seed && becauseYouWatchedDisplay.length > 0 && (
         <Section title={`Porque você assistiu ${seed.name}`}>
           <Row>
             {becauseYouWatchedDisplay.map(ch => {
@@ -759,7 +769,7 @@ export default function HomeContent({
       )}
 
       {/* Recomendados por gênero — top gêneros pré-computados no channelIndex */}
-      {topGenres.slice(0, 3).map(({ genre, channels: genreChannels }) => (
+      {restReady && topGenres.slice(0, 3).map(({ genre, channels: genreChannels }) => (
         <Section key={genre} title={`Recomendados: ${genre}`}>
           <Row>
             {genreChannels.slice(0, MAX).map(ch => {

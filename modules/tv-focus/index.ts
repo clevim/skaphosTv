@@ -1,1 +1,1 @@
-export { activate, addFocusListener } from './src/TvFocusModule';
+export { activate, addFocusListener, watchView } from './src/TvFocusModule';

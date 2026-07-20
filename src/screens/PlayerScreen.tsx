@@ -19,7 +19,7 @@ import AudioTrackSheet from '@/components/AudioTrackSheet';
 import SleepTimerSheet from '@/components/SleepTimerSheet';
 import { fixStreamUrl } from '../utils/m3uParser';
 import { resolveSubtitleUri } from '../utils/subtitleSync';
-import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import { IS_TV, IS_WEB, IS_NATIVE_TV } from '../utils/tvDetect';
 import { setPipEnabled, setPipPlaying } from '../utils/pip';
 import { useMiniPlayer } from '../store/miniPlayer';
 
@@ -126,9 +126,9 @@ export default function PlayerScreen() {
     if (navigation.canGoBack()) navigation.goBack();
   }, [playingChannel, position, playlist, navigation]);
 
-  // Picture-in-Picture (Android): habilita a entrada automática em PiP enquanto
-  // o player está aberto; desliga ao sair. Em PiP, esconde o OSD.
-  // TV Android também suporta PiP do sistema — ao pressionar Home o vídeo fica numa janelinha.
+  // Picture-in-Picture (Android mobile): habilita a entrada automática em PiP
+  // enquanto o player está aberto; desliga ao sair. Em PiP, esconde o OSD.
+  // Na TV o PiP do sistema é bloqueado (buga o launcher) — setPipEnabled é no-op lá.
   const [inPip, setInPip] = useState(false);
   useEffect(() => {
     setPipEnabled(true);
@@ -450,8 +450,10 @@ export default function PlayerScreen() {
             bufferForPlaybackAfterRebufferMs: 5000,
           }}
           ignoreSilentSwitch="ignore"
-          // Android (mobile + TV): mantém a reprodução ao entrar em PiP do sistema.
-          playInBackground={Platform.OS === 'android'}
+          // Android mobile: mantém a reprodução ao entrar em PiP do sistema.
+          // TV: PiP do sistema é bloqueado (buga o launcher) — sem ele, manter
+          // playInBackground deixaria o ÁUDIO tocando sozinho após o Home.
+          playInBackground={Platform.OS === 'android' && !IS_NATIVE_TV}
           playWhenInactive={false}
           textTracks={activeVttTrack}
           selectedTextTrack={selectedTextTrack}

@@ -166,6 +166,10 @@ class MainActivity : ReactActivity() {
   fun enterPipNow() {
     if (!pipEnabled) return
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    // Android TV: o PiP do sistema quebra o launcher em várias TVs (janela órfã
+    // que "buga" a home). Na TV o app usa só o mini-player interno.
+    if (resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK ==
+        Configuration.UI_MODE_TYPE_TELEVISION) return
     if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
     try {
       enterPictureInPictureMode(buildPipParams())

@@ -231,9 +231,11 @@ export async function startPairingServer(opts: StartOptions): Promise<PairingSer
 
   const handleRequest = (socket: any, method: string, path: string, body: string) => {
     const reply = (raw: string) => {
-      try { socket.write(raw); } catch (_) {}
-      // Dá tempo do flush antes de derrubar a conexão
-      setTimeout(() => { try { socket.destroy(); } catch (_) {} }, 150);
+      // end() escreve e fecha com FIN após o flush. O destroy() antigo (150ms)
+      // mandava RST antes do celular terminar de ler a resposta — o axios via
+      // "network error" e o app mostrava "perdeu a conexão" mesmo com a TV
+      // tendo recebido a fonte.
+      try { socket.end(raw); } catch (_) { try { socket.destroy(); } catch (_) {} }
     };
 
     if (method === 'GET') {

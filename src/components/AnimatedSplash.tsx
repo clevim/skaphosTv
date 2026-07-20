@@ -391,6 +391,41 @@ function FullAnimatedSplash({ ready, onFinish }: { ready: boolean; onFinish: () 
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Aspecto responsivo dos tentáculos ──────────────────────────────────────
+  // O rig foi desenhado em 1920×1080 com âncoras logo FORA das bordas 16:9.
+  // No celular em pé, o "slice" cortava ~75% da largura: as âncoras laterais
+  // caíam centenas de dp fora da tela e o grow parecia "arrastar" o tentáculo
+  // de longe até o lugar. Correção exata em qualquer aspecto, em 2 passos:
+  //  1. retrato: gira o rig 90° (eixo longo do desenho acompanha o da tela);
+  //  2. pina cada âncora na borda VISÍVEL correspondente (translate por membro).
+  // Em 16:9 (TV/web cheio) os dois passos viram identidade — igual ao protótipo.
+  const portrait = h > w;
+  const boxW = portrait ? 1080 : 1920;
+  const boxH = portrait ? 1920 : 1080;
+  const cover = Math.max(w / boxW, h / boxH);       // escala do "slice"
+  const visW = w / cover, visH = h / cover;         // janela visível (coords do box)
+  const visX0 = (boxW - visW) / 2, visY0 = (boxH - visH) / 2;
+  // Dentro do box: interpola posição relativa; fora (âncora): mantém o offset
+  // além da borda, mas da borda VISÍVEL — o tentáculo nasce colado na tela.
+  const pin = (v: number, size: number, vis0: number, visSize: number) =>
+    v < 0 ? vis0 + v
+    : v > size ? vis0 + visSize + (v - size)
+    : vis0 + (v / size) * visSize;
+  // Rotação de 90° do passo 1 leva (x,y) do desenho para (1080-y, x) no box.
+  const limbWrap = (key: string, ax: number, ay: number, child: React.ReactNode) => {
+    const bx = portrait ? 1080 - ay : ax;
+    const by = portrait ? ax : ay;
+    const dx = pin(bx, boxW, visX0, visW) - bx;
+    const dy = pin(by, boxH, visY0, visH) - by;
+    return (
+      <G key={key} x={dx} y={dy}>
+        {portrait
+          ? <G x={-420} y={420}><G rotation={90} origin="960, 540">{child}</G></G>
+          : child}
+      </G>
+    );
+  };
+
   // Medidas responsivas do protótipo (clamp/vmin do CSS → px)
   const logoW = Math.min(600, Math.max(190, 0.46 * vmin));
   const glowSize = logoW * 1.35;
@@ -438,14 +473,16 @@ function FullAnimatedSplash({ ready, onFinish }: { ready: boolean; onFinish: () 
         <Rect x={0} y={0} width={w} height={h} fill="url(#skVig)" />
       </Svg>
 
-      {/* Tentáculos — mesmo viewBox + "slice" do protótipo (responsivo idêntico:
-          âncoras fora da tela, cluster abraçando o centro em qualquer aspecto) */}
+      {/* Tentáculos — box em pé no retrato + âncoras pinadas na borda visível
+          (ver limbWrap); em 16:9 é o viewBox/slice idêntico ao protótipo */}
       <Svg
         width={w} height={h} style={StyleSheet.absoluteFill}
-        viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice"
+        viewBox={`0 0 ${boxW} ${boxH}`} preserveAspectRatio="xMidYMid slice"
       >
-        {BG_LIMBS.map((l) => <BgLimb key={l.name} anim={l.anim} geo={l.geo} />)}
-        {HERO_LIMBS.map((l) => <HeroLimb key={l.name} anim={l.anim} geo={l.geo} />)}
+        {BG_LIMBS.map((l) => limbWrap(l.name, l.anim.ax, l.anim.ay,
+          <BgLimb anim={l.anim} geo={l.geo} />))}
+        {HERO_LIMBS.map((l) => limbWrap(l.name, l.anim.ax, l.anim.ay,
+          <HeroLimb anim={l.anim} geo={l.geo} />))}
       </Svg>
 
       {/* Burst radial + anéis de energia */}

@@ -17,12 +17,26 @@ import {
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import { shadow } from '../utils/theme';
 import { useReducedMotion } from '../utils/reducedMotion';
-import { addFocusListener } from '../../modules/tv-focus';
+import { addFocusListener, watchView } from '../../modules/tv-focus';
 
 const FOCUS_SCALE = IS_TV ? 1.05 : 1;
 // Mais opaco que colors.accentSoft (0.16): o highlight de foco precisa ler à distância na TV
 const FOCUS_BG    = 'rgba(167,139,250,0.22)';
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+// Registro global: UMA assinatura do evento nativo para o app inteiro, com
+// lookup O(1) por tag. Antes cada TVFocusable montado assinava o evento — cada
+// movimento do D-pad rodava N callbacks (N = focusables montados, centenas num
+// grid), todos comparando tags à toa.
+const focusHandlers = new Map<number, (focused: boolean) => void>();
+let focusSub: ReturnType<typeof addFocusListener> = null;
+function ensureFocusSub() {
+  if (focusSub) return;
+  focusSub = addFocusListener((event) => {
+    if (event.oldViewTag !== event.newViewTag) focusHandlers.get(event.oldViewTag)?.(false);
+    focusHandlers.get(event.newViewTag)?.(true);
+  });
+}
 
 export interface TVFocusableHandle {
   focus:  () => void;
@@ -122,22 +136,19 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
   useEffect(() => {
     if (!IS_TV) return;
     // Tag resolvida UMA vez por montagem (collapsable={false} garante a view
-    // nativa). Antes ficava dentro do callback: cada evento de foco do D-pad
-    // rodava findNodeHandle em TODOS os focusables montados (~200 num grid) —
-    // era o engasgo ao navegar entre cards na TV.
+    // nativa) e registrada no mapa global — dispatch O(1) por evento de foco.
     const myTag = findNodeHandle(pressableRef.current);
     if (myTag == null) return;
-    const sub = addFocusListener((event) => {
-      if (event.newViewTag === myTag) {
-        setIsFocused(true);
-        onFocusPropRef.current?.();
-      } else if (event.oldViewTag === myTag) {
-        setIsFocused(false);
-        onBlurPropRef.current?.();
-      }
+    ensureFocusSub();
+    focusHandlers.set(myTag, (focused) => {
+      setIsFocused(focused);
+      (focused ? onFocusPropRef : onBlurPropRef).current?.();
     });
+    // Modais RN abrem outra janela nativa (Dialog) — garante que o observer de
+    // foco também esteja nela, senão o highlight não segue o D-pad em modais.
+    watchView(myTag);
     return () => {
-      sub?.remove();
+      focusHandlers.delete(myTag);
       setIsFocused(false);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -151,7 +162,10 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
   return (
     <AnimatedPressable
       ref={pressableRef}
-      onPress={disabled ? undefined : () => { setIsFocused(false); onPress?.(); }}
+      // Não zera isFocused aqui: o foco nativo CONTINUA no botão após o press
+      // (ex.: favoritar no hero) — apagar o highlight deixava o usuário sem
+      // referência de onde estava. O blur real chega pelo observer de foco.
+      onPress={disabled ? undefined : onPress}
       onLongPress={disabled ? undefined : onLongPress}
       // Mecanismo 2: Pressable.onFocus/onBlur — redundância para mecanismo 1.
       // Captura o foco inicial do hasTVPreferredFocus antes do listener ser subscrito,
