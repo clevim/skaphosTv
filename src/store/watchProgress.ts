@@ -45,20 +45,32 @@ const MIN_RESUME_SEC = 15;      // abaixo disto não vale a pena retomar
 const SAVE_DEBOUNCE_MS = 1500;
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let pending: Record<string, WatchEntry> | null = null;
+
+/**
+ * Grava AGORA o que estiver pendente no debounce. Chamado ao mandar o app pra
+ * background / fechar a aba — sem isso, marcar episódios e sair em menos de
+ * SAVE_DEBOUNCE_MS perdia tudo (o timer morria com o processo).
+ */
+export function flushWatchProgress() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  const entries = pending;
+  pending = null;
+  if (!entries) return;
+  // Poda LRU: mantém só os MAX_ENTRIES mais recentes
+  let toSave = entries;
+  const keys = Object.keys(entries);
+  if (keys.length > MAX_ENTRIES) {
+    const sorted = keys.sort((a, b) => entries[b].updatedAt - entries[a].updatedAt).slice(0, MAX_ENTRIES);
+    toSave = Object.fromEntries(sorted.map(k => [k, entries[k]]));
+  }
+  AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(toSave)).catch(() => {});
+}
 
 function scheduleSave(entries: Record<string, WatchEntry>) {
+  pending = entries;
   if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    // Poda LRU: mantém só os MAX_ENTRIES mais recentes
-    let toSave = entries;
-    const keys = Object.keys(entries);
-    if (keys.length > MAX_ENTRIES) {
-      const sorted = keys.sort((a, b) => entries[b].updatedAt - entries[a].updatedAt).slice(0, MAX_ENTRIES);
-      toSave = Object.fromEntries(sorted.map(k => [k, entries[k]]));
-    }
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(toSave)).catch(() => {});
-  }, SAVE_DEBOUNCE_MS);
+  saveTimer = setTimeout(flushWatchProgress, SAVE_DEBOUNCE_MS);
 }
 
 export const useWatchProgress = create<WatchProgressState>((set, get) => ({
@@ -106,6 +118,7 @@ export const useWatchProgress = create<WatchProgressState>((set, get) => ({
       scheduleSave(entries);
       return { entries };
     });
+    flushWatchProgress(); // ação explícita do usuário — não espera o debounce
   },
 
   markManyWatched: (ids) => {
@@ -126,6 +139,7 @@ export const useWatchProgress = create<WatchProgressState>((set, get) => ({
       scheduleSave(entries);
       return { entries };
     });
+    flushWatchProgress(); // ação explícita do usuário — não espera o debounce
   },
 
   importEntries: (incoming) => {
@@ -156,6 +170,7 @@ export const useWatchProgress = create<WatchProgressState>((set, get) => ({
       scheduleSave(rest);
       return { entries: rest };
     });
+    flushWatchProgress(); // ação explícita do usuário — não espera o debounce
   },
 
   get: (id) => get().entries[id],

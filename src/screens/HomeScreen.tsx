@@ -661,6 +661,7 @@ export default function HomeScreen() {
           favoriteChannels={favoriteChannels}
           sourcesEmpty={sources.length === 0}
           renderCard={renderCard}
+          cardWidth={cardWidth}
           contentH={contentH}
           channels={channels}
           topGenres={channelIndex?.topGenres ?? []}

@@ -1,6 +1,6 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, memo } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, InteractionManager,
+  View, Text, StyleSheet, FlatList, InteractionManager, useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,6 +21,8 @@ interface Props {
   favoriteChannels: Channel[];
   sourcesEmpty: boolean;
   renderCard: (item: Channel, index: number) => React.ReactNode;
+  /** Largura do ChannelCard usado por renderCard — a fileira precisa dela pra virtualizar. */
+  cardWidth: number;
   contentH: number;
   channels?: Channel[];
   /** Gêneros mais frequentes do catálogo (pré-computados em channelIndex.topGenres). */
@@ -34,6 +36,14 @@ interface Props {
 }
 
 const MAX = 20;
+
+// Larguras dos cards — fonte única: o estilo do card E o getItemLayout da fileira
+// leem daqui. Divergir os dois desalinha a virtualização do layout real.
+const CONTINUE_W = IS_TV ? 240 : 176;
+const LIVE_W     = IS_TV ? 200 : 148;
+const VOD_W      = IS_TV ? 160 : 116;
+/** Margem própria do ChannelCard (fileira de Favoritos usa renderCard). */
+const CHANNEL_CARD_MARGIN = IS_TV ? 6 : 4;
 
 // ── Continue Watching Card ────────────────────────────────────
 /** Minutos restantes formatados, ou null quando não há progresso útil. */
@@ -77,7 +87,7 @@ function badgeFor(ch: Channel, watchEntries: Record<string, WatchEntry>): { watc
   return resolveChannelType(ch) === 'series' ? { watched: false, progress: status.progress } : status;
 }
 
-function ContinueCard({
+const ContinueCard = memo(function ContinueCard({
   channel, progress, entry, onPress,
 }: {
   channel: Channel;
@@ -125,10 +135,12 @@ function ContinueCard({
       </Text>
     </TVFocusable>
   );
-}
+}, (a, b) =>
+  a.channel === b.channel && a.progress === b.progress && a.entry === b.entry,
+);
 
 const cStyles = StyleSheet.create({
-  card: { width: IS_TV ? 240 : 176 },
+  card: { width: CONTINUE_W },
   poster: {
     aspectRatio: 16 / 9,
     borderRadius: 10,
@@ -168,7 +180,7 @@ const cStyles = StyleSheet.create({
 });
 
 // ── Live Card ─────────────────────────────────────────────────
-function LiveCard({ channel, onPress, nowPlaying }: {
+const LiveCard = memo(function LiveCard({ channel, onPress, nowPlaying }: {
   channel: Channel; onPress: () => void;
   /** Programa no ar (EPG) — substitui o grupo no subtítulo. */
   nowPlaying?: string;
@@ -207,17 +219,17 @@ function LiveCard({ channel, onPress, nowPlaying }: {
       </Text>
     </TVFocusable>
   );
-}
+}, (a, b) => a.channel === b.channel && a.nowPlaying === b.nowPlaying);
 
 /** LiveCard com "agora no ar" do EPG no subtítulo (quando o guia está ativo). */
-function LiveCardWithEpg({ channel, onPress }: { channel: Channel; onPress: () => void }) {
+const LiveCardWithEpg = memo(function LiveCardWithEpg({ channel, onPress }: { channel: Channel; onPress: () => void }) {
   const showEpg = useStore(s => s.settings.showEpg);
   const { now } = useNowNext(showEpg && !channel.id.startsWith('jf-') ? channel.id : undefined);
   return <LiveCard channel={channel} onPress={onPress} nowPlaying={now?.title} />;
-}
+}, (a, b) => a.channel === b.channel);
 
 const lStyles = StyleSheet.create({
-  card: { width: IS_TV ? 200 : 148 },
+  card: { width: LIVE_W },
   poster: {
     aspectRatio: 16 / 9,
     borderRadius: 10,
@@ -289,25 +301,61 @@ const sStyles = StyleSheet.create({
 });
 
 // ── Horizontal Row ────────────────────────────────────────────
-function Row({ children }: { children: React.ReactNode }) {
+const ROW_GAP  = IS_TV ? 14 : 12;
+const ROW_PAD  = IS_TV ? spacing.xxxl : 22;
+// paddingVertical dá espaço pro card ampliado (zoom de foco) não ser recortado.
+const ROW_PAD_V = IS_TV ? 16 : 8;
+
+/**
+ * Fileira horizontal virtualizada.
+ *
+ * Era um ScrollView com TODOS os cards montados — 9 fileiras × 12–20 cards
+ * saíam ~160 views nativas vivas ao mesmo tempo, cada uma com listener de foco
+ * e imagem. Agora só a janela visível (+ uma de folga) existe.
+ *
+ * Três ajustes são obrigatórios pro D-pad e não devem ser "simplificados":
+ * - `removeClippedSubviews` FALSO: clipar destrói a view nativa do card focado
+ *   e o foco vai junto (o Android cai numa busca a partir da raiz).
+ * - `windowSize` ≥ 3: garante uma tela renderizada à frente, senão a próxima
+ *   tecla para a direita encontra o vazio e o foco trava na borda.
+ * - `getItemLayout`: sem ele a FlatList precisa medir para virtualizar, e a
+ *   janela erra durante o movimento rápido.
+ */
+function Row<T>({ data, renderItem, keyExtractor, itemWidth }: {
+  data: readonly T[];
+  renderItem: (item: T, index: number) => React.ReactElement;
+  keyExtractor: (item: T, index: number) => string;
+  /** Largura EXTERNA do card (inclui margem própria) — base do getItemLayout. */
+  itemWidth: number;
+}) {
+  const { width } = useWindowDimensions();
+  const stride = itemWidth + ROW_GAP;
   return (
-    <ScrollView
+    <FlatList
       horizontal
+      data={data as T[]}
+      renderItem={({ item, index }) => renderItem(item, index)}
+      keyExtractor={keyExtractor}
       showsHorizontalScrollIndicator={false}
-      // paddingVertical dá espaço pro card ampliado (zoom de foco) não ser recortado.
       contentContainerStyle={{
-        gap: IS_TV ? 14 : 12,
-        paddingHorizontal: IS_TV ? spacing.xxxl : 22,
-        paddingVertical: IS_TV ? 16 : 8,
+        gap: ROW_GAP,
+        paddingHorizontal: ROW_PAD,
+        paddingVertical: ROW_PAD_V,
       }}
-    >
-      {children}
-    </ScrollView>
+      // Preenche a viewport + 2 de folga: o primeiro frame já nasce completo,
+      // sem buraco visível na borda direita.
+      initialNumToRender={Math.ceil(width / stride) + 2}
+      maxToRenderPerBatch={4}
+      updateCellsBatchingPeriod={50}
+      windowSize={3}
+      removeClippedSubviews={false}
+      getItemLayout={(_, index) => ({ length: stride, offset: stride * index + ROW_PAD, index })}
+    />
   );
 }
 
 // ── VOD Poster Card ───────────────────────────────────────────
-function VodCard({ channel, onPress, displayName, isNew, progress, watched }: {
+const VodCard = memo(function VodCard({ channel, onPress, displayName, isNew, progress, watched }: {
   channel: Channel; onPress: () => void; displayName?: string; isNew?: boolean;
   /** 0–1: mostra a barra de "assistindo" no rodapé do pôster. */
   progress?: number;
@@ -356,10 +404,13 @@ function VodCard({ channel, onPress, displayName, isNew, progress, watched }: {
       {groupClean ? <Text style={vStyles.sub} numberOfLines={1}>{groupClean}</Text> : null}
     </TVFocusable>
   );
-}
+}, (a, b) =>
+  a.channel === b.channel && a.displayName === b.displayName && a.isNew === b.isNew &&
+  a.progress === b.progress && a.watched === b.watched,
+);
 
 const vStyles = StyleSheet.create({
-  card: { width: IS_TV ? 160 : 116 },
+  card: { width: VOD_W },
   poster: {
     aspectRatio: 2 / 3,
     borderRadius: 10,
@@ -404,7 +455,7 @@ const vStyles = StyleSheet.create({
 
 // ── Main HomeContent ──────────────────────────────────────────
 export default function HomeContent({
-  recentChannels, favoriteChannels, sourcesEmpty, renderCard, contentH,
+  recentChannels, favoriteChannels, sourcesEmpty, renderCard, cardWidth, contentH,
   channels = [], topGenres = [], onChannelPress, onWatch, onDetails, onNavPress,
 }: Props) {
   const navigation = useNavigation();
@@ -413,13 +464,17 @@ export default function HomeContent({
   const toggleFavorite = useStore(s => s.toggleFavorite);
   const isEmpty = recentChannels.length === 0 && favoriteChannels.length === 0;
 
-  // Seções abaixo da dobra (Filmes/Séries/Lançamentos/recomendações — ~120
-  // cards com pôster) montam só depois da primeira pintura: o hero e as
-  // primeiras fileiras aparecem na hora, sem o engasgo de montar tudo junto
-  // (sentido principalmente na TV).
-  const [restReady, setRestReady] = useState(false);
+  // A lista de seções abaixo só monta depois que a transição de navegação
+  // assenta — sem isso os primeiros cards competem com a animação de entrada e
+  // ela engasga. O hero (header da lista) aparece na hora, então a tela nunca
+  // fica em branco.
+  //
+  // O escalonamento manual que existia aqui (uma seção a cada 120ms) saiu: a
+  // FlatList vertical já faz isso melhor via initialNumToRender +
+  // maxToRenderPerBatch, e o timer ainda atrasava seções que estavam VISÍVEIS.
+  const [ready, setReady] = useState(false);
   useEffect(() => {
-    const task = InteractionManager.runAfterInteractions(() => setRestReady(true));
+    const task = InteractionManager.runAfterInteractions(() => setReady(true));
     return () => task.cancel();
   }, []);
 
@@ -550,247 +605,287 @@ export default function HomeContent({
     ? liveChannels
     : (channels.length > 0 ? channels : [...recentChannels, ...favoriteChannels]).slice(0, 12);
 
-  return (
-    <ScrollView
-      style={{ height: contentH }}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Featured Hero */}
-      {heroChannel && (
-        <View style={IS_TV ? styles.heroWrapTV : styles.heroWrap}>
-          <View style={IS_TV ? styles.heroTV : styles.hero}>
-            {heroChannel.logo ? (
-              <Image source={heroChannel.logo} style={styles.heroImg} contentFit="cover" transition={150} />
-            ) : (
-              <View style={styles.heroFallback}>
-                <Text style={styles.heroInitials}>{heroChannel.name.slice(0, 3).toUpperCase()}</Text>
-              </View>
-            )}
-            {/* Gradient overlays */}
-            {/* Horizontal: left→right (TV: strong cover, mobile: subtle vignette) */}
-            <LinearGradient
-              colors={
-                IS_TV
-                  ? ['rgba(10,8,16,0.96)', 'rgba(10,8,16,0.6)', 'transparent']
-                  : ['rgba(10,8,16,0.55)', 'transparent']
-              }
-              start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }}
-              style={IS_TV ? styles.heroGradientH : styles.heroGradientHMobile}
-            />
-            {/* Vertical: bottom overlay */}
-            <LinearGradient
-              colors={['transparent', 'rgba(10,8,16,0.85)', colors.bg0]}
-              locations={[0.3, 0.8, 1]}
-              style={styles.heroGradient}
-            />
-            {/* Type badge */}
-            <View style={[
-              styles.heroLiveBadge,
-              isHeroJellyfin ? styles.heroJellyBadge : (heroType !== 'live' && styles.heroVodBadge),
-            ]}>
-              {isHeroJellyfin
-                ? <View style={styles.heroJellyDot} />
-                : heroType === 'live' ? <PulsingDot size={6} color={colors.live} /> : null}
-              <Text style={styles.heroLiveText}>{heroBadgeLabel}</Text>
-            </View>
-            {/* Bottom content */}
-            <View style={IS_TV ? styles.heroBottomTV : styles.heroBottom}>
-              <Text style={styles.heroCategory}>EM DESTAQUE</Text>
-              <Text style={styles.heroTitle} numberOfLines={2}>{heroChannel.name}</Text>
-              {/* Grupo aparece SÓ aqui (antes duplicava no kicker e na meta) */}
-              <Text style={styles.heroMeta}>
-                {[heroChannel.group ? cleanGroupName(heroChannel.group) : null, heroChannel.quality || 'HD']
-                  .filter(Boolean).join(' · ')}
-              </Text>
-              <View style={styles.heroActions}>
-                <TVFocusable
-                  onPress={() => (onWatch ? onWatch(heroChannel) : handlePress(heroChannel))}
-                  style={styles.heroPlayBtn}
-                  // O highlight padrão de foco (roxo translúcido) apagava o fundo
-                  // branco e deixava o texto escuro ilegível — mantém fundo sólido.
-                  focusStyle={{ backgroundColor: colors.accent2 }}
-                  hasTVPreferredFocus={IS_TV}
-                >
-                  <Ionicons name="play" size={14} color={colors.textInverse} />
-                  <Text style={styles.heroPlayText}>Assistir</Text>
-                </TVFocusable>
-                <TVFocusable
-                  accessibilityLabel={favorites.includes(heroChannel.id) ? 'Remover da lista' : 'Adicionar à lista'}
-                  onPress={() => toggleFavorite(heroChannel.id)}
-                  style={styles.heroPlusBtn}
-                >
-                  <Ionicons
-                    name={favorites.includes(heroChannel.id) ? 'heart' : 'add'}
-                    size={IS_TV ? 18 : 16}
-                    color={favorites.includes(heroChannel.id) ? colors.accent : colors.text1}
-                  />
-                  {IS_TV && <Text style={styles.heroPlusBtnText}>Lista</Text>}
-                </TVFocusable>
-                <TVFocusable
-                  onPress={() => (onDetails ? onDetails(heroChannel) : handlePress(heroChannel))}
-                  style={styles.heroPlusBtn}
-                >
-                  <Ionicons name="information-circle-outline" size={18} color={colors.text1} />
-                  {IS_TV && <Text style={styles.heroPlusBtnText}>Detalhes</Text>}
-                </TVFocusable>
-              </View>
-            </View>
+  // Hero em destaque — vira o ListHeaderComponent da lista abaixo.
+  const heroNode = !heroChannel ? null : (
+    <View style={IS_TV ? styles.heroWrapTV : styles.heroWrap}>
+      <View style={IS_TV ? styles.heroTV : styles.hero}>
+        {heroChannel.logo ? (
+          <Image source={heroChannel.logo} style={styles.heroImg} contentFit="cover" transition={150} />
+        ) : (
+          <View style={styles.heroFallback}>
+            <Text style={styles.heroInitials}>{heroChannel.name.slice(0, 3).toUpperCase()}</Text>
+          </View>
+        )}
+        {/* Gradient overlays */}
+        {/* Horizontal: left→right (TV: strong cover, mobile: subtle vignette) */}
+        <LinearGradient
+          colors={
+            IS_TV
+              ? ['rgba(10,8,16,0.96)', 'rgba(10,8,16,0.6)', 'transparent']
+              : ['rgba(10,8,16,0.55)', 'transparent']
+          }
+          start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }}
+          style={IS_TV ? styles.heroGradientH : styles.heroGradientHMobile}
+        />
+        {/* Vertical: bottom overlay */}
+        <LinearGradient
+          colors={['transparent', 'rgba(10,8,16,0.85)', colors.bg0]}
+          locations={[0.3, 0.8, 1]}
+          style={styles.heroGradient}
+        />
+        {/* Type badge */}
+        <View style={[
+          styles.heroLiveBadge,
+          isHeroJellyfin ? styles.heroJellyBadge : (heroType !== 'live' && styles.heroVodBadge),
+        ]}>
+          {isHeroJellyfin
+            ? <View style={styles.heroJellyDot} />
+            : heroType === 'live' ? <PulsingDot size={6} color={colors.live} /> : null}
+          <Text style={styles.heroLiveText}>{heroBadgeLabel}</Text>
+        </View>
+        {/* Bottom content */}
+        <View style={IS_TV ? styles.heroBottomTV : styles.heroBottom}>
+          <Text style={styles.heroCategory}>EM DESTAQUE</Text>
+          <Text style={styles.heroTitle} numberOfLines={2}>{heroChannel.name}</Text>
+          {/* Grupo aparece SÓ aqui (antes duplicava no kicker e na meta) */}
+          <Text style={styles.heroMeta}>
+            {[heroChannel.group ? cleanGroupName(heroChannel.group) : null, heroChannel.quality || 'HD']
+              .filter(Boolean).join(' · ')}
+          </Text>
+          <View style={styles.heroActions}>
+            <TVFocusable
+              onPress={() => (onWatch ? onWatch(heroChannel) : handlePress(heroChannel))}
+              style={styles.heroPlayBtn}
+              // O highlight padrão de foco (roxo translúcido) apagava o fundo
+              // branco e deixava o texto escuro ilegível — mantém fundo sólido.
+              focusStyle={{ backgroundColor: colors.accent2 }}
+              hasTVPreferredFocus={IS_TV}
+            >
+              <Ionicons name="play" size={14} color={colors.textInverse} />
+              <Text style={styles.heroPlayText}>Assistir</Text>
+            </TVFocusable>
+            <TVFocusable
+              accessibilityLabel={favorites.includes(heroChannel.id) ? 'Remover da lista' : 'Adicionar à lista'}
+              onPress={() => toggleFavorite(heroChannel.id)}
+              style={styles.heroPlusBtn}
+            >
+              <Ionicons
+                name={favorites.includes(heroChannel.id) ? 'heart' : 'add'}
+                size={IS_TV ? 18 : 16}
+                color={favorites.includes(heroChannel.id) ? colors.accent : colors.text1}
+              />
+              {IS_TV && <Text style={styles.heroPlusBtnText}>Lista</Text>}
+            </TVFocusable>
+            <TVFocusable
+              onPress={() => (onDetails ? onDetails(heroChannel) : handlePress(heroChannel))}
+              style={styles.heroPlusBtn}
+            >
+              <Ionicons name="information-circle-outline" size={18} color={colors.text1} />
+              {IS_TV && <Text style={styles.heroPlusBtnText}>Detalhes</Text>}
+            </TVFocusable>
           </View>
         </View>
-      )}
+      </View>
+    </View>
+  );
 
-      {/* Continue assistindo */}
-      {continueItems.length > 0 && (
-        <Section title="Continue assistindo" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('favorites')}>
-          <Row>
-            {continueItems.map(({ channel: ch, progress, entry }) => (
-              <ContinueCard
-                key={ch.id}
+  // ── Seções da página, em ordem ────────────────────────────────────────────
+  // Construir estes elementos é barato: a Row recebe `data` e só cria o
+  // descritor da fileira — nenhum card é criado aqui. Quem decide o que
+  // MONTA é a FlatList lá embaixo, que só instancia as seções na janela.
+  const sections: { key: string; node: React.ReactNode }[] = [];
+  const pushSection = (key: string, node: React.ReactNode) => sections.push({ key, node });
+
+  if (ready && continueItems.length > 0) pushSection('continue', (
+    <Section title="Continue assistindo" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('favorites')}>
+      <Row
+        data={continueItems}
+        itemWidth={CONTINUE_W}
+        keyExtractor={it => it.channel.id}
+        renderItem={({ channel: ch, progress, entry }) => (
+          <ContinueCard
+            channel={ch}
+            progress={progress}
+            entry={entry}
+            // Em curso → retoma direto (player resume; série abre no episódio certo).
+            // Sem progresso → fluxo normal (filme abre Detalhes etc.)
+            onPress={() => (progress > 0 && onWatch ? onWatch(ch) : handlePress(ch))}
+          />
+        )}
+      />
+    </Section>
+  ));
+
+  // Favoritos — logo após o início (Continue assistindo), não no fim da página
+  if (ready && favoriteChannels.length > 0) pushSection('favorites', (
+    <Section title="Meus Favoritos" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('favorites')}>
+      <Row
+        data={favoriteChannels.slice(0, MAX)}
+        // ChannelCard carrega margem própria — entra na conta do stride
+        itemWidth={cardWidth + CHANNEL_CARD_MARGIN * 2}
+        keyExtractor={ch => ch.id}
+        renderItem={(ch, i) => <View>{renderCard(ch, i)}</View>}
+      />
+    </Section>
+  ));
+
+  if (ready && displayLive.length > 0) pushSection('live', (
+    <Section title="Ao vivo agora" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('live')}>
+      <Row
+        data={displayLive}
+        itemWidth={LIVE_W}
+        keyExtractor={ch => ch.id}
+        renderItem={ch => <LiveCardWithEpg channel={ch} onPress={() => handlePress(ch)} />}
+      />
+    </Section>
+  ));
+
+  if (ready && movieChannels.length > 0) pushSection('movies', (
+    <Section title="Filmes para você" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('movies')}>
+      <Row
+        data={movieChannels}
+        itemWidth={VOD_W}
+        keyExtractor={ch => ch.id}
+        renderItem={ch => {
+          const status = watchStatusFor(watchEntries[ch.id]);
+          return (
+            <VodCard
+              channel={ch}
+              onPress={() => handlePress(ch)}
+              isNew={isLaunchYear(ch.name)}
+              watched={status.watched}
+              progress={status.progress}
+            />
+          );
+        }}
+      />
+    </Section>
+  ));
+
+  // Séries — pick já trocado (swapWatchedSeriesPick) por um episódio em curso
+  // quando o representante original estava 100% assistido.
+  if (ready && seriesChannelsDisplay.length > 0) pushSection('series', (
+    <Section title="Séries" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('series')}>
+      <Row
+        data={seriesChannelsDisplay}
+        itemWidth={VOD_W}
+        keyExtractor={ch => ch.id}
+        renderItem={ch => {
+          const status = watchStatusFor(watchEntries[ch.id]);
+          return (
+            <VodCard
+              channel={ch}
+              onPress={() => handlePress(ch)}
+              displayName={getSeriesBaseName(ch.name)}
+              isNew={isLaunchYear(ch.name)}
+              watched={status.watched}
+              progress={status.progress}
+            />
+          );
+        }}
+      />
+    </Section>
+  ));
+
+  // Lançamentos — filmes e séries do ano corrente
+  if (ready && yearChannels.length > 0) pushSection('year', (
+    <Section title={`Lançamentos ${LAUNCH_YEAR}`} trailing="Ver tudo" onTrailingPress={() => onNavPress?.('year')}>
+      <Row
+        data={yearChannels}
+        itemWidth={VOD_W}
+        keyExtractor={ch => ch.id}
+        renderItem={ch => {
+          const status = badgeFor(ch, watchEntries);
+          return (
+            <VodCard
+              channel={ch}
+              onPress={() => handlePress(ch)}
+              displayName={resolveChannelType(ch) === 'series' ? getSeriesBaseName(ch.name) : ch.name}
+              isNew
+              watched={status.watched}
+              progress={status.progress}
+            />
+          );
+        }}
+      />
+    </Section>
+  ));
+
+  // Porque você assistiu X — mesmo gênero do último item não-ao-vivo visto
+  if (ready && seed && becauseYouWatchedDisplay.length > 0) pushSection('because', (
+    <Section title={`Porque você assistiu ${seed.name}`}>
+      <Row
+        data={becauseYouWatchedDisplay}
+        itemWidth={VOD_W}
+        keyExtractor={ch => ch.id}
+        renderItem={ch => {
+          const status = watchStatusFor(watchEntries[ch.id]);
+          return (
+            <VodCard
+              channel={ch}
+              onPress={() => handlePress(ch)}
+              displayName={resolveChannelType(ch) === 'series' ? getSeriesBaseName(ch.name) : ch.name}
+              watched={status.watched}
+              progress={status.progress}
+            />
+          );
+        }}
+      />
+    </Section>
+  ));
+
+  // Recomendados por gênero — top gêneros pré-computados no channelIndex
+  if (ready) topGenres.slice(0, 3).forEach(({ genre, channels: genreChannels }) => {
+    pushSection(`genre-${genre}`, (
+      <Section title={`Recomendados: ${genre}`}>
+        <Row
+          data={genreChannels.slice(0, MAX)}
+          itemWidth={VOD_W}
+          keyExtractor={ch => ch.id}
+          renderItem={ch => {
+            const status = badgeFor(ch, watchEntries);
+            return (
+              <VodCard
                 channel={ch}
-                progress={progress}
-                entry={entry}
-                // Em curso → retoma direto (player resume; série abre no episódio certo).
-                // Sem progresso → fluxo normal (filme abre Detalhes etc.)
-                onPress={() => (progress > 0 && onWatch ? onWatch(ch) : handlePress(ch))}
+                onPress={() => handlePress(ch)}
+                displayName={resolveChannelType(ch) === 'series' ? getSeriesBaseName(ch.name) : ch.name}
+                watched={status.watched}
+                progress={status.progress}
               />
-            ))}
-          </Row>
-        </Section>
-      )}
+            );
+          }}
+        />
+      </Section>
+    ));
+  });
 
-      {/* Favoritos — logo após o início (Continue assistindo), não no fim da página */}
-      {favoriteChannels.length > 0 && (
-        <Section title="Meus Favoritos" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('favorites')}>
-          <Row>
-            {favoriteChannels.slice(0, MAX).map((ch, i) => (
-              <View key={ch.id}>{renderCard(ch, i)}</View>
-            ))}
-          </Row>
-        </Section>
-      )}
-
-      {/* Ao vivo agora */}
-      {displayLive.length > 0 && (
-        <Section title="Ao vivo agora" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('live')}>
-          <Row>
-            {displayLive.map(ch => (
-              <LiveCardWithEpg key={ch.id} channel={ch} onPress={() => handlePress(ch)} />
-            ))}
-          </Row>
-        </Section>
-      )}
-
-      {/* Filmes */}
-      {restReady && movieChannels.length > 0 && (
-        <Section title="Filmes para você" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('movies')}>
-          <Row>
-            {movieChannels.map(ch => {
-              const status = watchStatusFor(watchEntries[ch.id]);
-              return (
-                <VodCard
-                  key={ch.id}
-                  channel={ch}
-                  onPress={() => handlePress(ch)}
-                  isNew={isLaunchYear(ch.name)}
-                  watched={status.watched}
-                  progress={status.progress}
-                />
-              );
-            })}
-          </Row>
-        </Section>
-      )}
-
-      {/* Séries — pick já trocado (swapWatchedSeriesPick) por um episódio em
-          curso quando o representante original estava 100% assistido. */}
-      {restReady && seriesChannelsDisplay.length > 0 && (
-        <Section title="Séries" trailing="Ver tudo" onTrailingPress={() => onNavPress?.('series')}>
-          <Row>
-            {seriesChannelsDisplay.map(ch => {
-              const status = watchStatusFor(watchEntries[ch.id]);
-              return (
-                <VodCard
-                  key={ch.id}
-                  channel={ch}
-                  onPress={() => handlePress(ch)}
-                  displayName={getSeriesBaseName(ch.name)}
-                  isNew={isLaunchYear(ch.name)}
-                  watched={status.watched}
-                  progress={status.progress}
-                />
-              );
-            })}
-          </Row>
-        </Section>
-      )}
-
-      {/* 2026 — filmes e séries do ano */}
-      {restReady && yearChannels.length > 0 && (
-        <Section title={`Lançamentos ${LAUNCH_YEAR}`} trailing="Ver tudo" onTrailingPress={() => onNavPress?.('year')}>
-          <Row>
-            {yearChannels.map(ch => {
-              const status = badgeFor(ch, watchEntries);
-              return (
-                <VodCard
-                  key={ch.id}
-                  channel={ch}
-                  onPress={() => handlePress(ch)}
-                  displayName={resolveChannelType(ch) === 'series' ? getSeriesBaseName(ch.name) : ch.name}
-                  isNew
-                  watched={status.watched}
-                  progress={status.progress}
-                />
-              );
-            })}
-          </Row>
-        </Section>
-      )}
-
-      {/* Porque você assistiu X — mesmo gênero do último item não-ao-vivo visto */}
-      {restReady && seed && becauseYouWatchedDisplay.length > 0 && (
-        <Section title={`Porque você assistiu ${seed.name}`}>
-          <Row>
-            {becauseYouWatchedDisplay.map(ch => {
-              const status = watchStatusFor(watchEntries[ch.id]);
-              return (
-                <VodCard
-                  key={ch.id}
-                  channel={ch}
-                  onPress={() => handlePress(ch)}
-                  displayName={resolveChannelType(ch) === 'series' ? getSeriesBaseName(ch.name) : ch.name}
-                  watched={status.watched}
-                  progress={status.progress}
-                />
-              );
-            })}
-          </Row>
-        </Section>
-      )}
-
-      {/* Recomendados por gênero — top gêneros pré-computados no channelIndex */}
-      {restReady && topGenres.slice(0, 3).map(({ genre, channels: genreChannels }) => (
-        <Section key={genre} title={`Recomendados: ${genre}`}>
-          <Row>
-            {genreChannels.slice(0, MAX).map(ch => {
-              const status = badgeFor(ch, watchEntries);
-              return (
-                <VodCard
-                  key={ch.id}
-                  channel={ch}
-                  onPress={() => handlePress(ch)}
-                  displayName={resolveChannelType(ch) === 'series' ? getSeriesBaseName(ch.name) : ch.name}
-                  watched={status.watched}
-                  progress={status.progress}
-                />
-              );
-            })}
-          </Row>
-        </Section>
-      ))}
-
-      <View style={{ height: 60 }} />
-    </ScrollView>
+  return (
+    <FlatList
+      style={{ height: contentH }}
+      data={sections}
+      keyExtractor={s => s.key}
+      renderItem={({ item }) => <>{item.node}</>}
+      // Hero fica no header: rola junto, mas nunca é desmontado — é ele que
+      // recebe o foco inicial da TV (hasTVPreferredFocus).
+      ListHeaderComponent={heroNode}
+      ListFooterComponent={<View style={{ height: 60 }} />}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      // Sem getItemLayout de propósito: a altura varia por tipo de seção (hero,
+      // fileira 2:3, fileira 16:9) e uma tabela de alturas fixas sairia errada
+      // no primeiro ajuste de card. Com ~9 itens, medir é barato e é exato.
+      //
+      // windowSize 3 = uma tela renderizada acima e outra abaixo (~1,5 seção de
+      // folga). Menos que isso e segurar "baixo" alcança o fim do renderizado
+      // antes do RN reagir; o pior caso é uma travada de um frame, não um beco
+      // sem saída — a trava nativa de foco não consome direcionais verticais.
+      windowSize={3}
+      initialNumToRender={2}
+      maxToRenderPerBatch={2}
+      updateCellsBatchingPeriod={50}
+      // Clipar destruiria a view nativa do card focado, e o foco vai junto.
+      removeClippedSubviews={false}
+    />
   );
 }
 

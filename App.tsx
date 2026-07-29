@@ -10,7 +10,7 @@ import * as KeepAwake from 'expo-keep-awake';
 import * as Updates from 'expo-updates';
 import { Linking, AppState } from 'react-native';
 import { useStore } from './src/store/useStore';
-import { useWatchProgress, computeContinueWatching } from './src/store/watchProgress';
+import { useWatchProgress, computeContinueWatching, flushWatchProgress } from './src/store/watchProgress';
 import { useUsageStats } from './src/store/usageStats';
 import { initNotifications } from './src/utils/notifications';
 import { syncContinueWatchingWidget } from './src/utils/widgetSync';
@@ -149,6 +149,7 @@ export default function App() {
     const appStateSub = AppState.addEventListener('change', (next) => {
       if (next === 'background' || next === 'inactive') {
         useStore.getState().saveChannelsToStorage().catch(() => {});
+        flushWatchProgress();
       }
     });
 
@@ -156,7 +157,10 @@ export default function App() {
     // então o save debounced podia se perder (cache zerava → cards sumiam no reload).
     // visibilitychange (aba oculta) roda com a página ainda viva → grava em tempo;
     // pagehide cobre o fechamento. Ambos persistem o cache completo em memória.
-    const flushChannels = () => { useStore.getState().saveChannelsToStorage().catch(() => {}); };
+    const flushChannels = () => {
+      useStore.getState().saveChannelsToStorage().catch(() => {});
+      flushWatchProgress();
+    };
     if (IS_WEB && typeof document !== 'undefined') {
       const onVisibility = () => { if (document.visibilityState === 'hidden') flushChannels(); };
       document.addEventListener('visibilitychange', onVisibility);

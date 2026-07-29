@@ -2,8 +2,15 @@ package expo.modules.tvfocus
 
 import android.os.Handler
 import android.os.Looper
+import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
+import android.view.ViewParent
 import android.view.ViewTreeObserver
+import android.view.Window
+import android.widget.EditText
+import android.widget.HorizontalScrollView
+import android.widget.ScrollView
 import com.facebook.react.bridge.ReactContext
 import com.facebook.react.uimanager.UIManagerModule
 import expo.modules.kotlin.modules.Module
@@ -40,7 +47,219 @@ class TvFocusModule : Module() {
           try { root.viewTreeObserver.removeOnGlobalFocusChangeListener(listener) } catch (_: Exception) {}
         }
         watched.clear()
+        removeRowTrap()
       }
+    }
+  }
+
+  // ── Navegação por D-pad em fileiras ─────────────────────────────────────────
+  // O FocusFinder do Android resolve TODA direção por busca geométrica na janela
+  // inteira, entregando a view mais bem pontuada. Numa UI de fileiras isso erra
+  // dos dois jeitos:
+  //
+  //   horizontal — na borda da fileira ele não para, escapa pra um card de outra
+  //                fileira (o pulo "pra lugar nenhum" ao segurar direita);
+  //   vertical   — pula pro card geometricamente melhor, que numa fileira rolada
+  //                pro lado é qualquer um, não o que está sob a coluna atual.
+  //
+  // Aqui o evento é interceptado antes da Activity: borda de fileira vira beco sem
+  // saída na horizontal (troca de fileira é cima/baixo, padrão de UI de TV), e o
+  // salto vertical é realinhado com a coluna de origem. Só vale onde existe um
+  // scroller horizontal como ancestral — grades verticais (FlatList com
+  // numColumns), sidebars e listas verticais seguem com o comportamento nativo.
+  private var trappedWindow: Window? = null
+  private var originalCallback: Window.Callback? = null
+
+  companion object {
+    // Faixa de conteúdo mantida visível além do item focado. Horizontal: ~40% de um
+    // card de 160dp, o "espia o próximo" dos trilhos de streaming. Vertical: o bastante
+    // para o título da seção acompanhar a fileira em vez de ficar cortado.
+    // São os dois números para calibrar se o movimento parecer curto ou exagerado.
+    private const val PEEK_ROW_DP = 64
+    private const val PEEK_COLUMN_DP = 48
+  }
+
+  private fun installRowTrap() {
+    val window = appContext.currentActivity?.window ?: return
+    val base = window.callback ?: return
+    if (base is RowTrapCallback) return
+    originalCallback = base
+    trappedWindow = window
+    window.callback = RowTrapCallback(base, window)
+  }
+
+  private fun removeRowTrap() {
+    val window = trappedWindow ?: return
+    if (window.callback is RowTrapCallback) window.callback = originalCallback
+    trappedWindow = null
+    originalCallback = null
+  }
+
+  private class RowTrapCallback(
+    private val base: Window.Callback,
+    private val window: Window,
+  ) : Window.Callback by base {
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+      // Só ACTION_DOWN: repetição de tecla também chega como DOWN, e consumir o
+      // UP de um direcional não muda nada (não há semântica de "clique" nele).
+      // Campo de texto fica de fora inteiro: lá os direcionais movem o CURSOR.
+      val focused = window.currentFocus
+      if (event.action == KeyEvent.ACTION_DOWN && focused != null && focused !is EditText) {
+        val dir = directionOf(event.keyCode)
+        if (dir != null) {
+          val move = resolveMove(focused, dir)
+          if (move.consume) return true
+          // A folga é calculada aqui, mas APLICADA num post. Este callback roda
+          // ANTES de ViewRootImpl.performFocusNavigation — no caminho normal o foco
+          // ainda nem se moveu neste ponto, e a rolagem nativa (animada) começa
+          // depois. O plano usa coordenadas de conteúdo, que não dependem da
+          // rolagem, então continua válido no frame seguinte.
+          val breathing = move.destination?.let { planBreathingRoom(it, dir) }
+          val handled = if (move.retarget) move.destination!!.requestFocus(dir)
+                        else base.dispatchKeyEvent(event)
+          if (breathing != null) focused.post(breathing)
+          return handled
+        }
+      }
+      return base.dispatchKeyEvent(event)
+    }
+
+    /**
+     * `consume`     — fica onde está, evento morre aqui.
+     * `destination` — view que VAI receber o foco (para calcular a folga de rolagem).
+     * `retarget`    — o destino difere do que o Android escolheria; pedimos o foco nós.
+     */
+    private class Move(val consume: Boolean, val destination: View?, val retarget: Boolean)
+
+    private fun resolveMove(focused: View, dir: Int): Move {
+      val currentRow = nearestHorizontalScroller(focused)
+      // focusSearch é exatamente o que o ViewRootImpl chamaria — prevê o destino
+      // real em vez de adivinhar.
+      val next = try { focused.focusSearch(dir) } catch (_: Exception) { null }
+
+      if (dir == View.FOCUS_LEFT || dir == View.FOCUS_RIGHT) {
+        // Fora de fileira (grade vertical, sidebar, barra de topo): comportamento
+        // nativo, que ali já é o certo.
+        if (currentRow == null) return Move(false, next, false)
+        // Dentro de fileira: borda é beco sem saída — sem isso o FocusFinder
+        // escapa pra um card de outra fileira.
+        if (next == null || !isDescendantOf(next, currentRow)) return Move(true, null, false)
+        return Move(false, next, false)
+      }
+
+      // Vertical: o destino nativo é o "melhor" geometricamente, o que numa fileira
+      // rolada para o lado vira um card qualquer. Corrige para o card da fileira de
+      // destino ALINHADO com a coluna de onde o usuário saiu — a memória de coluna
+      // que o Android não tem e que faz a navegação parecer previsível.
+      if (next == null) return Move(false, null, false)
+      val nextRow = nearestHorizontalScroller(next) ?: return Move(false, next, false)
+      if (nextRow === currentRow) return Move(false, next, false)
+      val aligned = alignedChild(nextRow, centerX(focused), dir)
+      if (aligned == null || aligned === next) return Move(false, next, false)
+      return Move(false, aligned, true)
+    }
+
+    // ── Folga de rolagem ("peek") ───────────────────────────────────────────
+    // O Android rola o mínimo para o item focado ficar visível — ou seja, colado
+    // na borda da tela. Numa UI de trilhos isso custa duas coisas: o usuário perde
+    // a pista de que existe mais conteúdo adiante, e ao descer a fileira nova nasce
+    // grudada no rodapé, com o título da seção fora da tela. Aqui o destino é
+    // reposicionado deixando uma faixa de respiro — o acabamento que separa um
+    // trilho de streaming de uma lista rolando.
+    private fun planBreathingRoom(target: View, dir: Int): (() -> Unit)? {
+      val horizontal = dir == View.FOCUS_LEFT || dir == View.FOCUS_RIGHT
+      val scroller = (if (horizontal) nearestHorizontalScroller(target)
+                      else nearestVerticalScroller(target)) ?: return null
+      val peek = dp(if (horizontal) PEEK_ROW_DP else PEEK_COLUMN_DP, target)
+
+      val loc = IntArray(2); target.getLocationOnScreen(loc)
+      val sLoc = IntArray(2); scroller.getLocationOnScreen(sLoc)
+
+      // Posição do alvo no espaço do CONTEÚDO (independe da rolagem atual)
+      val scroll    = if (horizontal) scroller.scrollX else scroller.scrollY
+      val start     = (if (horizontal) loc[0] - sLoc[0] else loc[1] - sLoc[1]) + scroll
+      val size      = if (horizontal) target.width else target.height
+      val viewport  = if (horizontal) scroller.width else scroller.height
+      if (viewport <= 0) return null
+
+      val newScroll = when {
+        start + size > scroll + viewport - peek -> start + size - viewport + peek
+        start < scroll + peek                   -> start - peek
+        else                                    -> return null
+      }
+      // smoothScrollTo já satura nos limites do conteúdo — a folga simplesmente
+      // desaparece no primeiro e no último item, que é o comportamento desejado.
+      return {
+        // Confere que o foco realmente parou onde previmos: se a navegação tomou
+        // outro rumo, rolar até aqui só desorientaria.
+        if (window.currentFocus === target) {
+          if (horizontal) (scroller as HorizontalScrollView).smoothScrollTo(newScroll, 0)
+          else (scroller as ScrollView).smoothScrollTo(0, newScroll)
+        }
+      }
+    }
+
+    private fun dp(value: Int, view: View) =
+      (value * view.resources.displayMetrics.density).toInt()
+
+    /** Focável da fileira cujo centro horizontal é o mais próximo de `targetX`. */
+    private fun alignedChild(row: ViewGroup, targetX: Int, dir: Int): View? {
+      val candidates = ArrayList<View>()
+      row.addFocusables(candidates, dir, View.FOCUSABLES_ALL)
+      var best: View? = null
+      var bestDist = Int.MAX_VALUE
+      for (v in candidates) {
+        if (!v.isShown || v === row) continue
+        val d = kotlin.math.abs(centerX(v) - targetX)
+        if (d < bestDist) { bestDist = d; best = v }
+      }
+      return best
+    }
+
+    private val tmpLoc = IntArray(2)
+    private fun centerX(view: View): Int {
+      view.getLocationOnScreen(tmpLoc)
+      return tmpLoc[0] + view.width / 2
+    }
+
+    private fun directionOf(keyCode: Int): Int? = when (keyCode) {
+      KeyEvent.KEYCODE_DPAD_LEFT  -> View.FOCUS_LEFT
+      KeyEvent.KEYCODE_DPAD_RIGHT -> View.FOCUS_RIGHT
+      KeyEvent.KEYCODE_DPAD_UP    -> View.FOCUS_UP
+      KeyEvent.KEYCODE_DPAD_DOWN  -> View.FOCUS_DOWN
+      else -> null
+    }
+
+    /** ScrollView horizontal mais próximo acima do item focado (null = não é fileira). */
+    private fun nearestHorizontalScroller(view: View): HorizontalScrollView? {
+      var parent: ViewParent? = view.parent
+      while (parent != null) {
+        // ReactHorizontalScrollView (ScrollView horizontal e FlatList horizontal)
+        // estende HorizontalScrollView — cobre os dois com um só teste.
+        if (parent is HorizontalScrollView) return parent
+        parent = parent.parent
+      }
+      return null
+    }
+
+    /** ScrollView vertical mais próximo — ReactScrollView e FlatList vertical. */
+    private fun nearestVerticalScroller(view: View): ScrollView? {
+      var parent: ViewParent? = view.parent
+      while (parent != null) {
+        if (parent is ScrollView) return parent
+        parent = parent.parent
+      }
+      return null
+    }
+
+    private fun isDescendantOf(view: View, ancestor: ViewGroup): Boolean {
+      var parent: ViewParent? = view.parent
+      while (parent != null) {
+        if (parent === ancestor) return true
+        parent = parent.parent
+      }
+      return false
     }
   }
 
@@ -54,6 +273,8 @@ class TvFocusModule : Module() {
       return
     }
     attach(root)
+    // Mesma janela do observer — instala junto, já com a Activity garantida
+    installRowTrap()
   }
 
   private fun watchRootOf(viewTag: Int) {

@@ -1,7 +1,7 @@
 // TVEPGScreen.tsx — TV Electronic Program Guide
 // Canais × horários com dados REAIS de XMLTV (epgStore: Xtream xmltv.php /
 // url-tvg do M3U). Blocos posicionados pelo horário verdadeiro dos programas.
-import React, { useRef, useState, useMemo, useEffect } from 'react';
+import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, ActivityIndicator, FlatList, TextInput,
 } from 'react-native';
@@ -154,6 +154,75 @@ export default function TVEPGScreen() {
 
   const isEmpty = liveChannels.length === 0;
 
+  // Estável: entra nas dependências dos memos da grade abaixo.
+  const handlePlay = useCallback((ch: Channel) => {
+    setCurrentChannel(ch);
+    navigation.navigate('Player', { channel: ch });
+  }, [setCurrentChannel, navigation]);
+
+  // A grade é o conteúdo mais pesado do app (60 canais × ~10 blocos ≈ 600 views
+  // focáveis, sem virtualização). Ela ficava DENTRO do render, então cada
+  // movimento do D-pad — que só atualiza o rodapé via setFocused — reconstruía
+  // tudo e rodava buildRowBlocks por canal. Era o travamento sentido no guia.
+  // Memoizada, um movimento de foco re-renderiza apenas o rodapé de detalhes.
+  const channelColumn = useMemo(() => liveChannels.map(ch => (
+    <TVFocusable key={ch.id} onPress={() => handlePlay(ch)} style={styles.channelCell}>
+      {ch.logo ? (
+        <Image source={ch.logo} style={styles.channelLogo} contentFit="contain" transition={0} recyclingKey={ch.id} />
+      ) : (
+        <View style={styles.channelLogoPlaceholder}>
+          <Text style={styles.channelLogoText}>{ch.name.slice(0, 2).toUpperCase()}</Text>
+        </View>
+      )}
+      <Text style={[styles.channelName, { fontSize: 11 * scale }]} numberOfLines={2}>{ch.name}</Text>
+    </TVFocusable>
+  )), [liveChannels, scale, handlePlay]);
+
+  const programRows = useMemo(() => {
+    // Uma leitura do relógio para a grade toda — antes eram duas por bloco.
+    const now = Date.now();
+    return liveChannels.map(ch => (
+      <View key={ch.id} style={styles.programsLine}>
+        {buildRowBlocks(epgByChannel[ch.id], winStart, winEnd).map(block => {
+          if (!block.program) {
+            return (
+              <View key={block.key} style={[styles.programBlock, styles.programBlockEmpty, { width: block.width - 2 }]}>
+                {block.width > 90 && (
+                  <Text style={styles.programEmptyText} numberOfLines={1}>Sem informação</Text>
+                )}
+              </View>
+            );
+          }
+          const p = block.program;
+          const isNow = p.start <= now && now < p.end;
+          return (
+            <TVFocusable
+              key={block.key}
+              onPress={() => handlePlay(ch)}
+              onFocus={() => setFocused({ channel: ch.name, program: p })}
+              style={[
+                styles.programBlock,
+                { width: block.width - 2 },
+                isNow && styles.programBlockNow,
+              ]}
+            >
+              <Text style={[styles.programTitle, { fontSize: 12 * scale }, isNow && styles.programTitleNow]} numberOfLines={1}>
+                {p.title}
+              </Text>
+              {/* Bloco estreito (programa curto/beira da janela): só o
+                  título — o horário espremido virava ruído ilegível */}
+              {block.width > 76 && (
+                <Text style={[styles.programTime, { fontSize: 10 * scale }]} numberOfLines={1}>
+                  {fmtTime(p.start)} — {fmtTime(p.end)}
+                </Text>
+              )}
+            </TVFocusable>
+          );
+        })}
+      </View>
+    ));
+  }, [liveChannels, epgByChannel, winStart, winEnd, scale, handlePlay]);
+
   const scrollRef = useRef<ScrollView>(null);   // eixo X — timeline única
   const leftColRef = useRef<ScrollView>(null);  // eixo Y — coluna de canais
   const rowsRef = useRef<ScrollView>(null);     // eixo Y — linhas de programas
@@ -165,11 +234,6 @@ export default function TVEPGScreen() {
   // porque a timeline inteira vive num único ScrollView horizontal.
   const syncY = (target: React.RefObject<ScrollView>) => (e: any) => {
     target.current?.scrollTo({ y: e.nativeEvent.contentOffset.y, animated: false });
-  };
-
-  const handlePlay = (ch: Channel) => {
-    setCurrentChannel(ch);
-    navigation.navigate('Player', { channel: ch });
   };
 
   // ── Celular: lista vertical (agora/a seguir) — a grade de timeline não cabe
@@ -330,18 +394,7 @@ export default function TVEPGScreen() {
                 onScroll={syncY(rowsRef)}
                 scrollEventThrottle={16}
               >
-                {liveChannels.map(ch => (
-                  <TVFocusable key={ch.id} onPress={() => handlePlay(ch)} style={styles.channelCell}>
-                    {ch.logo ? (
-                      <Image source={ch.logo} style={styles.channelLogo} contentFit="contain" transition={0} recyclingKey={ch.id} />
-                    ) : (
-                      <View style={styles.channelLogoPlaceholder}>
-                        <Text style={styles.channelLogoText}>{ch.name.slice(0, 2).toUpperCase()}</Text>
-                      </View>
-                    )}
-                    <Text style={[styles.channelName, { fontSize: 11 * scale }]} numberOfLines={2}>{ch.name}</Text>
-                  </TVFocusable>
-                ))}
+                {channelColumn}
               </ScrollView>
             </View>
 
@@ -372,46 +425,7 @@ export default function TVEPGScreen() {
                     onScroll={syncY(leftColRef)}
                     scrollEventThrottle={16}
                   >
-                    {liveChannels.map(ch => (
-                      <View key={ch.id} style={styles.programsLine}>
-                        {buildRowBlocks(epgByChannel[ch.id], winStart, winEnd).map(block => {
-                          if (!block.program) {
-                            return (
-                              <View key={block.key} style={[styles.programBlock, styles.programBlockEmpty, { width: block.width - 2 }]}>
-                                {block.width > 90 && (
-                                  <Text style={styles.programEmptyText} numberOfLines={1}>Sem informação</Text>
-                                )}
-                              </View>
-                            );
-                          }
-                          const p = block.program;
-                          const isNow = p.start <= Date.now() && Date.now() < p.end;
-                          return (
-                            <TVFocusable
-                              key={block.key}
-                              onPress={() => handlePlay(ch)}
-                              onFocus={() => setFocused({ channel: ch.name, program: p })}
-                              style={[
-                                styles.programBlock,
-                                { width: block.width - 2 },
-                                isNow && styles.programBlockNow,
-                              ]}
-                            >
-                              <Text style={[styles.programTitle, { fontSize: 12 * scale }, isNow && styles.programTitleNow]} numberOfLines={1}>
-                                {p.title}
-                              </Text>
-                              {/* Bloco estreito (programa curto/beira da janela): só o
-                                  título — o horário espremido virava ruído ilegível */}
-                              {block.width > 76 && (
-                                <Text style={[styles.programTime, { fontSize: 10 * scale }]} numberOfLines={1}>
-                                  {fmtTime(p.start)} — {fmtTime(p.end)}
-                                </Text>
-                              )}
-                            </TVFocusable>
-                          );
-                        })}
-                      </View>
-                    ))}
+                    {programRows}
                   </ScrollView>
                 </View>
               </ScrollView>

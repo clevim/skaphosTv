@@ -154,6 +154,106 @@ const thumbStyles = StyleSheet.create({
   },
 });
 
+// ── Card do rail de episódios (TV) ────────────────────────────────────────────
+// O destaque do foco (play, título forte, sinopse) mora AQUI, em estado local.
+// Antes era um `focusedEp` na SeriesScreen: cada tecla do D-pad re-renderizava a
+// tela inteira e, com o renderItem inline, todos os cards visíveis junto — o
+// engasgo ao percorrer episódios no Fire Stick. Agora só as duas views que
+// trocam de foco re-renderizam.
+// Props deliberadamente escalares (nada de objeto `fonts`): o React.memo aqui usa
+// comparação rasa, e um literal novo por render zeraria o ganho.
+interface EpCardProps {
+  item: Channel;
+  index: number;
+  label: string;
+  epName: string;
+  fallbackSynopsis: string;
+  cardW: number;
+  cardH: number;
+  fCode: number;
+  fTitle: number;
+  fSyn: number;
+  fDur: number;
+  watched: boolean;
+  frac: number;
+  preferred: boolean;
+  onPlay: (item: Channel) => void;
+  onMark: (item: Channel) => void;
+  onFocus: (index: number) => void;
+}
+
+const EpisodeRailCard = React.memo(function EpisodeRailCard({
+  item, index, label, epName, fallbackSynopsis, cardW, cardH,
+  fCode, fTitle, fSyn, fDur, watched, frac, preferred, onPlay, onMark, onFocus,
+}: EpCardProps) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <TVFocusable
+      onFocus={() => { setFocused(true); onFocus(index); }}
+      onBlur={() => setFocused(false)}
+      onPress={() => onPlay(item)}
+      onLongPress={() => onMark(item)}
+      // Web renderiza ESTE layout (IS_TV inclui web) — botão direito
+      // também abre o menu de marcar, como na lista mobile.
+      onContextMenu={IS_WEB ? (e: any) => { e?.preventDefault?.(); onMark(item); } : undefined}
+      style={[tvStyles.epCard, { width: cardW }, focused && tvStyles.epCardFocused]}
+      // O destaque genérico (bg violeta + zoom) virava um quadradão por
+      // cima do card — o foco aqui já tem linguagem própria: card sobe,
+      // overlay de play, título forte e sinopse revelada.
+      focusScale={1}
+      focusStyle={tvStyles.epCardFocusReset}
+      hasTVPreferredFocus={preferred}
+    >
+      <View style={[tvStyles.epThumbWrap, { width: cardW, height: cardH }]}>
+        <EpThumb logo={item.logo} size={{ w: cardW, h: cardH }} />
+        {watched && (
+          <View style={tvStyles.epWatchedBadge}>
+            <Ionicons name="checkmark" size={Math.round(cardW * 0.06)} color={colors.textInverse} />
+          </View>
+        )}
+        {frac > 0 && (
+          <View style={tvStyles.epProgress}>
+            <View style={[tvStyles.epProgressFill, { width: `${Math.round(frac * 100)}%` }]} />
+          </View>
+        )}
+        {focused && (
+          <View style={tvStyles.epPlayOverlay}>
+            <View
+              style={[
+                tvStyles.epPlayBtn,
+                {
+                  width: Math.round(cardW * 0.22),
+                  height: Math.round(cardW * 0.22),
+                  borderRadius: Math.round(cardW * 0.11),
+                },
+              ]}
+            >
+              <Ionicons name="play" size={Math.round(cardW * 0.08)} color={colors.textInverse} />
+            </View>
+          </View>
+        )}
+      </View>
+      <View style={tvStyles.epMeta}>
+        <Text style={[tvStyles.epCode, { fontSize: fCode }]}>{label}</Text>
+        <Text
+          style={[tvStyles.epTitle, focused && tvStyles.epTitleFocused, { fontSize: fTitle }]}
+          numberOfLines={1}
+        >
+          {epName}
+        </Text>
+      </View>
+      {focused ? (
+        <Text style={[tvStyles.epSynopsis, { fontSize: fSyn, maxWidth: cardW }]} numberOfLines={2}>
+          {item.plot || fallbackSynopsis}
+        </Text>
+      ) : null}
+      <Text style={[tvStyles.epDur, { fontSize: fDur }]}>
+        {item.quality ? `${item.quality} · ` : ''}{epDurationLabel(item)}
+      </Text>
+    </TVFocusable>
+  );
+});
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function SeriesScreen() {
@@ -332,35 +432,40 @@ export default function SeriesScreen() {
 
   const seasonKeys = Array.from(seasons.keys());
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
-  const [focusedEp, setFocusedEp] = useState(0);
 
   // Episódio a retomar, considerando TODAS as temporadas — define a temporada que abre
   // por padrão e o card que recebe foco. Prioriza: (1) em curso mais recente,
   // (2) próximo após o último assistido. Sem progresso → null (abre a 1ª temporada).
+  // Lista achatada na ordem real de exibição (T1E1, T1E2, … T2E1, …) — allEpisodes vem
+  // na ordem do provedor, que nem sempre é essa.
+  const orderedEps = useMemo(() => [...seasons.values()].flat(), [seasons]);
+
   const resumeEpisode = useMemo(() => {
     let inProgress: Channel | null = null;
     let inProgressTs = 0;
-    let lastWatched: Channel | null = null;
+    let lastWatchedIdx = -1;
     let lastWatchedTs = 0;
-    allEpisodes.forEach(ep => {
+    orderedEps.forEach((ep, i) => {
       const e = watchEntries[ep.id];
       if (!e) return;
-      if (!e.watched && progressFractionFor(e) > 0 && e.updatedAt > inProgressTs) {
+      if (!e.watched && progressFractionFor(e) > 0 && e.updatedAt >= inProgressTs) {
         inProgressTs = e.updatedAt;
         inProgress = ep;
       }
-      if (e.watched && e.updatedAt > lastWatchedTs) {
+      // >= (não >): "marcar este e todos os anteriores" grava o MESMO updatedAt em
+      // todos, e com > o vencedor era o primeiro da lista — o "continuar" voltava
+      // pro início da série em vez de ir pro episódio seguinte ao último marcado.
+      if (e.watched && e.updatedAt >= lastWatchedTs) {
         lastWatchedTs = e.updatedAt;
-        lastWatched = ep;
+        lastWatchedIdx = i;
       }
     });
     if (inProgress) return inProgress;
-    if (lastWatched) {
-      const idx = allEpisodes.findIndex(ep => ep.id === (lastWatched as Channel).id);
-      return allEpisodes[idx + 1] ?? lastWatched; // próximo episódio, ou o último se for o fim
+    if (lastWatchedIdx >= 0) {
+      return orderedEps[lastWatchedIdx + 1] ?? orderedEps[lastWatchedIdx]; // próximo, ou o último se for o fim
     }
     return null;
-  }, [allEpisodes, watchEntries]);
+  }, [orderedEps, watchEntries]);
 
   // Atualiza temporada selecionada quando episódios são carregados — abre na temporada
   // do episódio a retomar (assistido/em curso), não sempre na primeira.
@@ -380,8 +485,7 @@ export default function SeriesScreen() {
   const handleEpisodeMark = useCallback((item: Channel) => {
     const wp = useWatchProgress.getState();
     const watched = !!wp.entries[item.id]?.watched;
-    const ordered = [...seasons.values()].flat();
-    const idx = ordered.findIndex(c => c.id === item.id);
+    const idx = orderedEps.findIndex(c => c.id === item.id);
     const buttons: AlertButton[] = [
       watched
         ? { text: 'Marcar como não assistido', onPress: () => wp.clear(item.id) }
@@ -390,7 +494,7 @@ export default function SeriesScreen() {
     if (idx > 0) {
       buttons.push({
         text: 'Marcar este e todos os anteriores',
-        onPress: () => wp.markManyWatched(ordered.slice(0, idx + 1).map(c => c.id)),
+        onPress: () => wp.markManyWatched(orderedEps.slice(0, idx + 1).map(c => c.id)),
       });
     }
     buttons.push({ text: 'Cancelar', style: 'cancel' });
@@ -400,7 +504,7 @@ export default function SeriesScreen() {
       ? `${item.plot.slice(0, 240).trimEnd()}…` : item.plot;
     const meta = [item.releaseDate, item.quality, epDurationLabel(item)].filter(Boolean).join(' · ');
     showAlert(item.name, [meta, plot].filter(Boolean).join('\n\n') || undefined, buttons);
-  }, [seasons]);
+  }, [orderedEps]);
 
   const currentEpIdx = useMemo(() => {
     // 1) Episódio em curso (progresso salvo, ainda não assistido) — o mais recente
@@ -424,8 +528,17 @@ export default function SeriesScreen() {
   }, [episodes, recentChannels, watchEntries]);
 
   const currentEp = episodes[currentEpIdx];
-  const currentEpLbl = currentEp ? epLabel(currentEp.name, currentEpIdx) : 'E01';
-  const seasonNum = selectedSeason;
+
+  // CTA principal: ponto mais avançado da SÉRIE, não da temporada aberta. Antes usava
+  // o índice dentro de `episodes` (temporada selecionada), então trocar de pill fazia
+  // aparecer um "Continuar" por temporada em vez do contexto geral.
+  const continueEp = resumeEpisode ?? orderedEps[0];
+  const continueIdx = continueEp ? orderedEps.indexOf(continueEp) : -1;
+  const continueLbl = continueEp
+    ? `${resumeEpisode ? 'Continuar' : 'Assistir'} T${parseSeason(continueEp.name)} · ${
+        epLabel(continueEp.name, (seasons.get(parseSeason(continueEp.name)) || []).indexOf(continueEp))
+      }`
+    : '';
 
   // Ao abrir a série, foca/rola até o episódio a retomar (uma única vez). Só atua na
   // temporada que abriu automaticamente — trocas manuais de temporada começam do topo.
@@ -435,7 +548,6 @@ export default function SeriesScreen() {
     if (resumeEpisode && parseSeason(resumeEpisode.name) !== selectedSeason) return;
     didFocusResume.current = true;
     if (currentEpIdx > 0) {
-      setFocusedEp(currentEpIdx);
       if (IS_TV) {
         requestAnimationFrame(() => {
           railRef.current?.scrollToIndex({ index: currentEpIdx, viewPosition: 0.5, animated: false });
@@ -444,7 +556,7 @@ export default function SeriesScreen() {
     }
   }, [episodes, currentEpIdx, selectedSeason, resumeEpisode]);
 
-  const lockAndNavigate = (
+  const lockAndNavigate = useCallback((
     ch: Channel,
     subtitleIndex: number | null = null,
     subtitleTracks: import('../types').SubtitleTrack[] = [],
@@ -464,16 +576,23 @@ export default function SeriesScreen() {
       playlist: episodes,
       playlistIndex: playlistIndex >= 0 ? playlistIndex : 0,
     });
-  };
+  }, [episodes, setCurrentChannel, navigation]);
 
-  const handlePlay = (ch: Channel) => {
+  // Estável: é prop do EpisodeRailCard memoizado — uma arrow nova por render
+  // invalidaria o memo de todos os cards a cada movimento do D-pad.
+  const handlePlay = useCallback((ch: Channel) => {
     if (parseJellyfinVideoUrl(ch.url)) {
       pendingEpRef.current = ch;
       setTrackSheetUrl(ch.url);
       return;
     }
     lockAndNavigate(ch);
-  };
+  }, [lockAndNavigate]);
+
+  // Mantém o card focado visível — o destaque em si é estado local do card.
+  const focusEpisode = useCallback((index: number) => {
+    railRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+  }, []);
 
   const handleTrackConfirm = (
     _url: string,
@@ -598,10 +717,42 @@ export default function SeriesScreen() {
     // em telas menores a tag "SÉRIE · N TEMPORADAS" ficava POR BAIXO do botão.
     const padTop   = Math.max(clamp(sh * 0.07, 44, 110), Math.round(sh * 0.04) + 36 + 12);
 
-    // Mantém o card em foco visível e sincroniza o destaque (play + sinopse) com o D-pad
-    const focusEpisode = (index: number) => {
-      setFocusedEp(index);
-      railRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    // renderItem "solto" (não é hook — está dentro de um if): pode ter identidade
+    // nova a cada render sem custo, porque o EpisodeRailCard é memoizado por props
+    // escalares e os três handlers abaixo são estáveis.
+    const renderRailItem = ({ item, index }: { item: Channel; index: number }) => {
+      const isResumeEp = index === currentEpIdx;
+      let railPreferred = false;
+      if (isResumeEp && !railGrantRef.current) {
+        railGrantRef.current = true;
+        railPreferred = true;
+      }
+      const entry = watchEntries[item.id];
+      const epWatched = !!entry?.watched;
+      return (
+        <EpisodeRailCard
+          item={item}
+          index={index}
+          label={epLabel(item.name, index)}
+          epName={item.epTitle || item.name
+            .replace(/\s*[-–]?\s*S\d+\s*E\d+.*$/i, '')
+            .replace(baseName, '')
+            .trim() || item.name}
+          fallbackSynopsis={displayGenre}
+          cardW={cardW}
+          cardH={cardH}
+          fCode={fEpCode}
+          fTitle={fEpTitle}
+          fSyn={fEpSyn}
+          fDur={fEpDur}
+          watched={epWatched}
+          frac={epWatched ? 0 : progressFractionFor(entry)}
+          preferred={railPreferred}
+          onPlay={handlePlay}
+          onMark={handleEpisodeMark}
+          onFocus={focusEpisode}
+        />
+      );
     };
 
     return (
@@ -685,18 +836,16 @@ export default function SeriesScreen() {
                 caçar o episódio no rail. Retoma o episódio certo (currentEpIdx já
                 considera progresso) e recebe o foco preferido da TV. */}
             <View style={tvStyles.ctaRow}>
-              {currentEp && (
+              {continueEp && (
                 <TVFocusable
-                  onPress={() => handlePlay(currentEp)}
+                  onPress={() => handlePlay(continueEp)}
                   style={tvStyles.playCta}
                   // Foco padrão (violeta translúcido) apagaria o fundo claro — clareia sólido
                   focusStyle={tvStyles.playCtaFocused}
                   hasTVPreferredFocus
                 >
                   <Ionicons name="play" size={16} color={colors.textInverse} />
-                  <Text style={[tvStyles.playCtaText, { fontSize: fMeta }]}>
-                    {currentEpIdx > 0 ? `Continuar T${seasonNum} · ${currentEpLbl}` : `Assistir T${seasonNum} · ${currentEpLbl}`}
-                  </Text>
+                  <Text style={[tvStyles.playCtaText, { fontSize: fMeta }]}>{continueLbl}</Text>
                 </TVFocusable>
               )}
               <TVFocusable
@@ -735,7 +884,6 @@ export default function SeriesScreen() {
                     fontSize={fPill}
                     onPress={() => {
                       setSelectedSeason(s);
-                      setFocusedEp(0);
                       railRef.current?.scrollToOffset({ offset: 0, animated: false });
                     }}
                   />
@@ -760,94 +908,7 @@ export default function SeriesScreen() {
               initialScrollIndex={Math.min(currentEpIdx, Math.max(0, episodes.length - 1))}
               getItemLayout={(_, index) => ({ length: stride, offset: stride * index + pH, index })}
               onScrollToIndexFailed={() => {}}
-              renderItem={({ item, index }) => {
-                const focused = index === focusedEp;
-                const label = epLabel(item.name, index);
-                const isResumeEp = index === currentEpIdx;
-                let railPreferred = false;
-                if (isResumeEp && !railGrantRef.current) {
-                  railGrantRef.current = true;
-                  railPreferred = true;
-                }
-                const entry = watchEntries[item.id];
-                const epWatched = !!entry?.watched;
-                const epFrac = epWatched ? 0 : progressFractionFor(entry);
-                const epName = item.epTitle || item.name
-                  .replace(/\s*[-–]?\s*S\d+\s*E\d+.*$/i, '')
-                  .replace(baseName, '')
-                  .trim() || item.name;
-                return (
-                  <TVFocusable
-                    onFocus={() => focusEpisode(index)}
-                    onPress={() => { setFocusedEp(index); handlePlay(item); }}
-                    onLongPress={() => handleEpisodeMark(item)}
-                    // Web renderiza ESTE layout (IS_TV inclui web) — botão direito
-                    // também abre o menu de marcar, como na lista mobile.
-                    onContextMenu={IS_WEB ? (e: any) => { e?.preventDefault?.(); handleEpisodeMark(item); } : undefined}
-                    style={[tvStyles.epCard, { width: cardW }, focused && tvStyles.epCardFocused]}
-                    // O destaque genérico (bg violeta + zoom) virava um quadradão por
-                    // cima do card — o foco aqui já tem linguagem própria: card sobe,
-                    // overlay de play, título forte e sinopse revelada.
-                    focusScale={1}
-                    focusStyle={tvStyles.epCardFocusReset}
-                    hasTVPreferredFocus={railPreferred}
-                  >
-                    <View style={[tvStyles.epThumbWrap, { width: cardW, height: cardH }]}>
-                      <EpThumb logo={item.logo} size={{ w: cardW, h: cardH }} />
-                      {epWatched && (
-                        <View style={tvStyles.epWatchedBadge}>
-                          <Ionicons name="checkmark" size={Math.round(cardW * 0.06)} color={colors.textInverse} />
-                        </View>
-                      )}
-                      {epFrac > 0 && (
-                        <View style={tvStyles.epProgress}>
-                          <View style={[tvStyles.epProgressFill, { width: `${Math.round(epFrac * 100)}%` }]} />
-                        </View>
-                      )}
-                      {focused && (
-                        <View style={tvStyles.epPlayOverlay}>
-                          <View
-                            style={[
-                              tvStyles.epPlayBtn,
-                              {
-                                width: Math.round(cardW * 0.22),
-                                height: Math.round(cardW * 0.22),
-                                borderRadius: Math.round(cardW * 0.11),
-                              },
-                            ]}
-                          >
-                            <Ionicons name="play" size={Math.round(cardW * 0.08)} color={colors.textInverse} />
-                          </View>
-                        </View>
-                      )}
-                    </View>
-                    <View style={tvStyles.epMeta}>
-                      <Text style={[tvStyles.epCode, { fontSize: fEpCode }]}>{label}</Text>
-                      <Text
-                        style={[
-                          tvStyles.epTitle,
-                          focused && tvStyles.epTitleFocused,
-                          { fontSize: fEpTitle },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {epName}
-                      </Text>
-                    </View>
-                    {focused ? (
-                      <Text
-                        style={[tvStyles.epSynopsis, { fontSize: fEpSyn, maxWidth: cardW }]}
-                        numberOfLines={2}
-                      >
-                        {item.plot || displayGenre}
-                      </Text>
-                    ) : null}
-                    <Text style={[tvStyles.epDur, { fontSize: fEpDur }]}>
-                      {item.quality ? `${item.quality} · ` : ''}{epDurationLabel(item)}
-                    </Text>
-                  </TVFocusable>
-                );
-              }}
+              renderItem={renderRailItem}
             />
           </View>
         </View>
@@ -918,19 +979,18 @@ export default function SeriesScreen() {
         {/* Continue button */}
         <View style={styles.actionWrap}>
           <TVFocusable
-            onPress={() => currentEp && handlePlay(currentEp)}
+            onPress={() => continueEp && handlePlay(continueEp)}
             style={styles.continueBtn}
             focusStyle={styles.continueBtnFocused}
           >
             <View style={styles.continueBtnLeft}>
               <Ionicons name="play" size={16} color={colors.textInverse} />
-              <Text style={styles.continueBtnText}>
-                {currentEpIdx > 0 ? `Continuar T${seasonNum} · ${currentEpLbl}` : `Assistir T${seasonNum} · ${currentEpLbl}`}
-              </Text>
+              <Text style={styles.continueBtnText}>{continueLbl}</Text>
             </View>
           </TVFocusable>
           <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${Math.round((currentEpIdx / Math.max(episodes.length - 1, 1)) * 100)}%` }]} />
+            {/* Avanço na SÉRIE inteira, não na temporada aberta */}
+            <View style={[styles.progressFill, { width: `${Math.round((Math.max(continueIdx, 0) / Math.max(orderedEps.length - 1, 1)) * 100)}%` }]} />
           </View>
         </View>
 
