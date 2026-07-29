@@ -13,6 +13,7 @@ import { Platform } from 'react-native';
 import { APP_VERSION } from './version';
 import { useStore } from '../store/useStore';
 import { IS_DEV_BUILD } from './debugLog';
+import { showAlert } from '../components/AppAlert';
 
 const GH_REPO = 'clevim/skaphosTv';
 const RELEASES_API = `https://api.github.com/repos/${GH_REPO}/releases/latest`;
@@ -118,6 +119,77 @@ async function fetchLatestFromDevServer(devUrl: string): Promise<GithubRelease |
     return null;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// ── Convite ao abrir o app ────────────────────────────────────────
+// Atualização NATIVA não sai por OTA: exige baixar o APK novo. Até aqui isso
+// dependia do usuário lembrar de entrar em Ajustes → "Verificar atualização",
+// então na prática quase ninguém atualizava. Este convite avisa sozinho ao
+// abrir, uma vez por versão.
+//
+// Usa o showAlert padrão do app de propósito: é o mesmo diálogo que Ajustes já
+// mostra para esta decisão, com a paleta e o foco de D-pad do tema. Nada de
+// tela nova para manter em paralelo.
+
+/** Primeiras linhas úteis das notas — o corpo inteiro do release não cabe no diálogo. */
+function summarizeNotes(notes: string, maxChars = 260): string {
+  const body = notes
+    .split('\n')
+    .map(l => l.trim())
+    // Fora: título ("SkaphosTV v1.6.2"), cabeçalhos de seção e linhas vazias.
+    .filter(l => l && !l.startsWith('#') && !/^SkaphosTV v/i.test(l))
+    .join('\n');
+  if (!body) return '';
+  return body.length > maxChars ? `${body.slice(0, maxChars).trimEnd()}…` : body;
+}
+
+/**
+ * Checa o GitHub e, havendo versão nova com APK, oferece instalar na hora.
+ * Silenciosa em qualquer outro caso (sem rede, sem versão nova, já dispensada).
+ */
+export async function promptApkUpdateOnLaunch(): Promise<void> {
+  // Instalador de APK só existe no Android; no web/iOS não há o que oferecer.
+  if (Platform.OS !== 'android' || __DEV__) return;
+
+  const rel = await fetchLatestRelease();
+  if (!rel?.apkUrl || !isNewerVersion(rel.version, CURRENT_VERSION)) return;
+
+  const { settings, updateSettings } = useStore.getState();
+  if (settings.updateDismissedVersion === rel.version) return;
+
+  const summary = summarizeNotes(rel.notes);
+  showAlert(
+    'Atualização disponível',
+    `A versão ${rel.version} está pronta para instalar.` +
+      `\n\nVocê está na ${CURRENT_VERSION}.` +
+      (summary ? `\n\n${summary}` : ''),
+    [
+      {
+        text: 'Agora não',
+        style: 'cancel',
+        // Não insiste nesta versão — mas volta a avisar na próxima.
+        onPress: () => updateSettings({ updateDismissedVersion: rel.version }),
+      },
+      { text: 'Atualizar', onPress: () => runApkUpdate(rel) },
+    ],
+  );
+}
+
+/** Baixa com progresso e abre o instalador, reusando o mesmo diálogo. */
+async function runApkUpdate(rel: GithubRelease): Promise<void> {
+  // showAlert reescreve o estado do diálogo já aberto, então dá pra usá-lo como
+  // barra de progresso sem criar componente novo. "Ocultar" só fecha a caixa —
+  // o download segue e o instalador abre sozinho ao terminar.
+  const progress = (msg: string) =>
+    showAlert(`Baixando a v${rel.version}`, msg, [{ text: 'Ocultar', style: 'cancel' }]);
+
+  progress('Iniciando…');
+  try {
+    await downloadAndInstallApk(rel.apkUrl!, p => progress(`${Math.round(p * 100)}%`));
+    showAlert('Instalador aberto', 'Confirme a instalação para concluir a atualização.');
+  } catch {
+    showAlert('Falha na atualização', 'Não foi possível baixar o APK. Tente de novo em Ajustes → Verificar atualização.');
   }
 }
 

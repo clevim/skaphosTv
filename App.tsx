@@ -8,11 +8,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as KeepAwake from 'expo-keep-awake';
 import * as Updates from 'expo-updates';
-import { Linking, AppState } from 'react-native';
+import { Linking, AppState, InteractionManager } from 'react-native';
 import { useStore } from './src/store/useStore';
 import { useWatchProgress, computeContinueWatching, flushWatchProgress } from './src/store/watchProgress';
 import { useUsageStats } from './src/store/usageStats';
 import { initNotifications } from './src/utils/notifications';
+import { promptApkUpdateOnLaunch } from './src/utils/appUpdate';
 import { syncContinueWatchingWidget } from './src/utils/widgetSync';
 import { useRecentSearches } from './src/store/recentSearches';
 import { useGeistFonts } from './src/hooks/useGeistFonts';
@@ -98,6 +99,8 @@ export default function App() {
   const [splashVisible, setSplashVisible] = useState(true);
   // Guarda URL recebida antes de nav estar pronta (cold start via deep link)
   const pendingUrl = useRef<string | null>(null);
+  // OTA baixando → o app vai reiniciar sozinho; não oferece o APK por cima.
+  const otaPendingRef = useRef(false);
 
   useEffect(() => {
     useThemeStore.getState().loadTheme();
@@ -108,11 +111,13 @@ export default function App() {
 
     KeepAwake.activateKeepAwakeAsync();
 
-    // OTA auto-update (só roda em builds de produção, não no dev)
+    // OTA auto-update (só roda em builds de produção, não no dev). Cobre mudanças
+    // de JS dentro do MESMO runtimeVersion — aplica sozinho, sem perguntar nada.
     if (!__DEV__) {
       Updates.checkForUpdateAsync()
         .then(({ isAvailable }) => {
           if (isAvailable) {
+            otaPendingRef.current = true;
             Updates.fetchUpdateAsync().then(() => Updates.reloadAsync()).catch(() => {});
           }
         })
@@ -182,6 +187,20 @@ export default function App() {
   }, []);
 
   // Web: robustez do estado local + botão Voltar do navegador.
+  // Convite de atualização NATIVA (APK do GitHub) — o que o OTA não cobre.
+  // Só depois da splash sair: o AppAlert é um Modal, que no Android abre janela
+  // própria e apareceria POR CIMA da splash, roubando o foco do D-pad antes de o
+  // usuário ver o app. Se um OTA estiver baixando, cala a boca — o app vai
+  // reiniciar e o diálogo morreria no meio (ou pior, no meio de um download).
+  useEffect(() => {
+    if (splashVisible || __DEV__) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (otaPendingRef.current) return;
+      promptApkUpdateOnLaunch().catch(() => {});
+    });
+    return () => task.cancel();
+  }, [splashVisible]);
+
   useEffect(() => {
     if (!IS_WEB) return;
 

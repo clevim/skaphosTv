@@ -71,6 +71,9 @@ interface AppState {
     notifySourceExpiring: boolean;
     /** Ordenação das grades (Ao Vivo/Filmes/Séries/Favoritos/Ano) — 'default' é a ordem do catálogo. */
     sortMode: 'default' | 'az' | 'rating';
+    /** Versão cujo aviso de atualização o usuário dispensou ("Agora não") — o
+     *  convite ao abrir o app não reaparece para ELA, mas volta na próxima. */
+    updateDismissedVersion: string;
   };
 
   addSource: (source: IPTVSource) => void;
@@ -442,6 +445,7 @@ export const useStore = create<AppState>((set, get) => ({
     notifyCatalogUpdate: true,
     notifySourceExpiring: true,
     sortMode: 'default',
+    updateDismissedVersion: '',
   },
 
   addSource: (source) => {
