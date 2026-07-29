@@ -3,7 +3,7 @@
 // Native: simulated with semi-transparent bg + border
 import React from 'react';
 import { Text, StyleSheet, ViewStyle } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
 import { colors, radius } from '../utils/theme';
 import { IS_WEB } from '../utils/tvDetect';

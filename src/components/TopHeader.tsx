@@ -1,7 +1,7 @@
 // TopHeader.tsx — Mobile top header
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import TVFocusable from './TVFocusable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

@@ -1,7 +1,7 @@
 // BottomTabBar.tsx — Mobile bottom tab bar matching MTabBar design
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import TVFocusable from './TVFocusable';
 import { colors } from '../utils/theme';
@@ -61,6 +61,7 @@ export default function BottomTabBar({ active, onPress, jellyfinSources }: Props
             return (
               <TVFocusable
                 key={t.id}
+                accessibilityLabel={t.label}
                 onPress={() => onPress(t.id)}
                 style={styles.tab}
               >
@@ -105,10 +106,21 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 6,
     gap: 0,
+    // Centraliza quando as abas não preenchem a largura (tablet, celular
+    // deitado). Sem isto elas ficavam amontoadas à esquerda com um vazio à
+    // direita — a cara de "layout de celular esticado". Quando as abas passam
+    // da largura, o flexGrow não faz efeito e a rolagem volta a valer.
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   tab: {
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 3,
+    // 48dp é o mínimo de alvo de toque do Material. Com ícone 20 + rótulo 13 +
+    // gap, o padding de 4 deixava a aba em ~44dp — o TopHeader já resolvia o
+    // mesmo problema com hitSlop, aqui faltava.
+    minHeight: 48,
     paddingVertical: 4,
     paddingHorizontal: 14,
   },

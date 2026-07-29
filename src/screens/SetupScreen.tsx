@@ -5,7 +5,7 @@ import {
   Platform, Modal, useWindowDimensions, Keyboard, BackHandler,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import axios from 'axios';
 import { useStore, IPTVSource } from '../store/useStore';

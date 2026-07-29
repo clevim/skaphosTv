@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import { Image } from 'expo-image';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import { colors, fontSize, radius, spacing } from '@/utils/theme';
@@ -50,7 +50,7 @@ export default function PlayerSidebar({
               style={[styles.item, isActive && styles.itemActive]}
             >
               {item.logo ? (
-                <Image source={item.logo} style={styles.logo} contentFit="contain" transition={0} recyclingKey={item.id} />
+                <Image source={item.logo} style={styles.logo} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={item.id} />
               ) : (
                 <View style={styles.logoPlaceholder}>
                   <Text style={styles.logoText}>{item.name.slice(0, 2).toUpperCase()}</Text>

@@ -114,8 +114,21 @@ android {
         applicationId 'com.skaphostv.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10602
-        versionName "1.6.2"
+        versionCode 10603
+        versionName "1.6.3"
+
+        // Só ARM no APK. `reactNativeArchitectures` (gradle.properties) limita
+        // apenas o que o React Native COMPILA — os AARs de terceiros já vêm com
+        // .so pré-compilado de todas as ABIs e entravam do mesmo jeito: no APK
+        // 1.6.1, x86 + x86_64 somavam 43 MB dos 99 MB, e nenhum aparelho alvo
+        // (Fire TV, Android TV, celular Android) usa x86 — só emulador.
+        //
+        // abiFilters e não `splits abi` de propósito: a distribuição é UM APK no
+        // release do GitHub, que o próprio app baixa para se atualizar. Gerar
+        // vários APKs quebraria o updater (ver appUpdate.ts).
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
     }
     signingConfigs {
         debug {

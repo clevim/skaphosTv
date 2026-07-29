@@ -1,11 +1,11 @@
-import React, { useMemo, useState, useEffect, memo } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, memo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, InteractionManager, useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import PulsingDot from './PulsingDot';
@@ -36,6 +36,12 @@ interface Props {
 }
 
 const MAX = 20;
+
+// Fora do componente: identidade fixa. Uma arrow inline aqui faria a FlatList
+// tratar todas as células como novas a cada render.
+const renderSection = ({ item }: { item: { node: React.ReactNode } }) => <>{item.node}</>;
+const sectionKey = (s: { key: string }) => s.key;
+const listFooter = <View style={{ height: 60 }} />;
 
 // Larguras dos cards — fonte única: o estilo do card E o getItemLayout da fileira
 // leem daqui. Divergir os dois desalinha a virtualização do layout real.
@@ -486,13 +492,15 @@ export default function HomeContent({
     [recentChannels, watchEntries],
   );
 
-  const handlePress = (ch: Channel) => {
+  // Estável: é capturado por TODA seção memoizada abaixo — uma função nova por
+  // render invalidaria todas elas.
+  const handlePress = useCallback((ch: Channel) => {
     if (onChannelPress) {
       onChannelPress(ch);
     } else {
       (navigation as any).navigate('Player', { channel: ch });
     }
-  };
+  }, [onChannelPress, navigation]);
 
   // Pick hero: prefer recent, then favorite, then first live, then any channel
   const heroChannel = useMemo(() =>
@@ -577,40 +585,19 @@ export default function HomeContent({
     : heroType === 'series' ? 'SÉRIE'
     : 'AO VIVO';
 
-  if (isEmpty && sourcesEmpty) {
-    return (
-      <View style={[styles.empty, { height: contentH }]}>
-        <View style={styles.emptyIconWrap}>
-          <Ionicons name="tv-outline" size={IS_TV ? 56 : 44} color={colors.text3} />
-        </View>
-        <Text style={styles.emptyTitle}>Bem-vindo ao SkaphosTV</Text>
-        <Text style={styles.emptySubtitle}>
-          Adicione uma lista IPTV para começar a assistir
-        </Text>
-        <TVFocusable
-          onPress={() => (navigation as any).navigate('Setup')}
-          style={styles.addBtn}
-          focusStyle={styles.addBtnFocused}
-          hasTVPreferredFocus
-        >
-          <Ionicons name="add-circle-outline" size={18} color={colors.textInverse} />
-          <Text style={styles.addBtnText}>Adicionar Lista IPTV</Text>
-        </TVFocusable>
-      </View>
-    );
-  }
-
   // Fallback live channels if filtering returns nothing (provider hasn't ♦ markers)
-  const displayLive = liveChannels.length > 0
+  const displayLive = useMemo(() => (liveChannels.length > 0
     ? liveChannels
-    : (channels.length > 0 ? channels : [...recentChannels, ...favoriteChannels]).slice(0, 12);
+    : (channels.length > 0 ? channels : [...recentChannels, ...favoriteChannels]).slice(0, 12)),
+    [liveChannels, channels, recentChannels, favoriteChannels]);
 
-  // Hero em destaque — vira o ListHeaderComponent da lista abaixo.
-  const heroNode = !heroChannel ? null : (
+  // Hero em destaque — vira o ListHeaderComponent da lista abaixo. Memoizado: um
+  // elemento novo a cada render remontaria o header da FlatList sem parar.
+  const heroNode = useMemo(() => !heroChannel ? null : (
     <View style={IS_TV ? styles.heroWrapTV : styles.heroWrap}>
       <View style={IS_TV ? styles.heroTV : styles.hero}>
         {heroChannel.logo ? (
-          <Image source={heroChannel.logo} style={styles.heroImg} contentFit="cover" transition={150} />
+          <Image source={heroChannel.logo} style={styles.heroImg} contentFit="cover" transition={150} cachePolicy="memory-disk" />
         ) : (
           <View style={styles.heroFallback}>
             <Text style={styles.heroInitials}>{heroChannel.name.slice(0, 3).toUpperCase()}</Text>
@@ -687,12 +674,21 @@ export default function HomeContent({
         </View>
       </View>
     </View>
-  );
+  ), [heroChannel, heroType, isHeroJellyfin, heroBadgeLabel, favorites, toggleFavorite, onWatch, onDetails, handlePress]);
 
   // ── Seções da página, em ordem ────────────────────────────────────────────
   // Construir estes elementos é barato: a Row recebe `data` e só cria o
   // descritor da fileira — nenhum card é criado aqui. Quem decide o que
   // MONTA é a FlatList lá embaixo, que só instancia as seções na janela.
+  //
+  // MEMOIZADO, e isso não é micro-otimização: sem o useMemo, cada render do
+  // HomeContent (tique de progresso, favoritar, qualquer mudança de store) cria
+  // elementos NOVOS para as 9 seções. O React perde a identidade e re-renderiza
+  // todas elas e as 8 listas horizontais aninhadas — trabalho suficiente para
+  // saturar a thread JS, deixando o toque sem resposta e a lista vertical
+  // recalculando a janela (cards sumindo). Com identidade estável o React
+  // simplesmente pula as seções que não mudaram.
+  const sections = useMemo(() => {
   const sections: { key: string; node: React.ReactNode }[] = [];
   const pushSection = (key: string, node: React.ReactNode) => sections.push({ key, node });
 
@@ -859,16 +855,49 @@ export default function HomeContent({
     ));
   });
 
+    return sections;
+  }, [
+    ready, continueItems, favoriteChannels, displayLive, movieChannels,
+    seriesChannelsDisplay, yearChannels, seed, becauseYouWatchedDisplay, topGenres,
+    watchEntries, renderCard, cardWidth, handlePress, onWatch, onNavPress,
+  ]);
+
+  // Estado vazio DEPOIS de todos os hooks: um return antecipado acima deles
+  // pularia os useMemo abaixo, e a ordem dos hooks mudaria entre um render sem
+  // fontes e um render com fontes — o React quebra nesse caso.
+  if (isEmpty && sourcesEmpty) {
+    return (
+      <View style={[styles.empty, { height: contentH }]}>
+        <View style={styles.emptyIconWrap}>
+          <Ionicons name="tv-outline" size={IS_TV ? 56 : 44} color={colors.text3} />
+        </View>
+        <Text style={styles.emptyTitle}>Bem-vindo ao SkaphosTV</Text>
+        <Text style={styles.emptySubtitle}>
+          Adicione uma lista IPTV para começar a assistir
+        </Text>
+        <TVFocusable
+          onPress={() => (navigation as any).navigate('Setup')}
+          style={styles.addBtn}
+          focusStyle={styles.addBtnFocused}
+          hasTVPreferredFocus
+        >
+          <Ionicons name="add-circle-outline" size={18} color={colors.textInverse} />
+          <Text style={styles.addBtnText}>Adicionar Lista IPTV</Text>
+        </TVFocusable>
+      </View>
+    );
+  }
+
   return (
     <FlatList
       style={{ height: contentH }}
       data={sections}
-      keyExtractor={s => s.key}
-      renderItem={({ item }) => <>{item.node}</>}
+      keyExtractor={sectionKey}
+      renderItem={renderSection}
       // Hero fica no header: rola junto, mas nunca é desmontado — é ele que
       // recebe o foco inicial da TV (hasTVPreferredFocus).
       ListHeaderComponent={heroNode}
-      ListFooterComponent={<View style={{ height: 60 }} />}
+      ListFooterComponent={listFooter}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
       // Sem getItemLayout de propósito: a altura varia por tipo de seção (hero,

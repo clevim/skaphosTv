@@ -4,7 +4,7 @@
 import React, { useRef, useState, useCallback } from 'react';
 import { View, StyleSheet, Pressable, Text } from 'react-native';
 import Video, { ResizeMode } from 'react-native-video';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useMiniPlayer } from '../store/miniPlayer';
 import { useWatchProgress } from '../store/watchProgress';
 import { resolveChannelType } from '../store/useStore';

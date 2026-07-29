@@ -3,7 +3,7 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, PanResponder, GestureResponderEvent, ScrollView, useWindowDimensions } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
 import { colors, radius, fontFamily, shadow } from '../utils/theme';
 

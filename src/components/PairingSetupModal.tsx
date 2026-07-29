@@ -15,7 +15,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Modal, ActivityIndicator } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
 import { colors, fontSize, radius, spacing, fontFamily, shadow } from '../utils/theme';
 import { IS_WEB } from '../utils/tvDetect';

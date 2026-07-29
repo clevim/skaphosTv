@@ -11,7 +11,7 @@
  */
 import React from 'react';
 import { View, Text, StyleSheet, Modal } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { create } from 'zustand';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, fontSize, radius, shadow } from '../utils/theme';

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, ActivityIndicator, Pressable,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable, { TVFocusableHandle } from './TVFocusable';
 import { colors, radius, fontFamily, shadow } from '../utils/theme';
 import {

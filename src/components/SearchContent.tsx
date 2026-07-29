@@ -4,7 +4,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
@@ -84,7 +84,7 @@ function ResultRow({ channel, onPress }: { channel: Channel; onPress: () => void
     <TVFocusable onPress={onPress} style={rowStyles.row}>
       <View style={rowStyles.thumb}>
         {channel.logo ? (
-          <Image source={channel.logo} style={rowStyles.thumbImg} contentFit="cover" transition={0} recyclingKey={channel.id} />
+          <Image source={channel.logo} style={rowStyles.thumbImg} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
         ) : (
           <View style={rowStyles.thumbFallback}>
             <Text style={rowStyles.thumbInitials}>{displayName.slice(0, 2).toUpperCase()}</Text>

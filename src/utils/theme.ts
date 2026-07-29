@@ -18,8 +18,11 @@ export const colors = {
 
   text1: '#f4f4f5',
   text2: '#a1a1aa',
-  // 4.6:1 sobre bg0 (era #5b5b63, 2.9:1 — ilegível a 3m da TV)
-  text3: '#7a7a85',
+  // Piso de contraste, validado contra as TRÊS superfícies e não só o fundo da
+  // página: 5.8:1 em bg0 · 5.5:1 em bg1 · 5.2:1 em bg2 (AA pede 4.5:1).
+  // O valor anterior (#7a7a85) passava só sobre bg0 (4.7:1) e reprovava dentro
+  // de card e sheet — 4.4:1 e 4.2:1 —, justo onde ele mais aparece.
+  text3: '#8a8a95',
   // Texto/ícone escuro sobre superfícies claras (botões brancos, chips ativos)
   textInverse: '#0a0a0b',
 

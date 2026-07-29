@@ -12,7 +12,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Modal, ActivityIndicator, Pressable, Vibration, ScrollView } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import axios from 'axios';
 import { colors, fontSize, radius, spacing, shadow } from '../utils/theme';
 import { useStore, IPTVSource } from '../store/useStore';

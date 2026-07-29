@@ -5,7 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import Video, { ResizeMode, SelectedTrackType, TextTracksType } from 'react-native-video';
 import type { ISO639_1 } from 'react-native-video/src/types/language';
 // ^^ ISO639_1 usado como cast de tipo no externalTextTracks — TS precisa do import explícito
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useStore } from '../store/useStore';
 import { colors, fontSize } from '../utils/theme';

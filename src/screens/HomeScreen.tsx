@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore, IPTVSource, resolveChannelType } from '../store/useStore';
 import ChannelCard from '../components/ChannelCard';
 import HomeContent from '../components/HomeContent';

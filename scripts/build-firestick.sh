@@ -32,6 +32,14 @@ fi
 # Limpa caches do Metro
 rm -rf node_modules/.cache "$TMPDIR/metro-"* "$TMPDIR/haste-map-"*
 
+# Assets gerados pelo bundle (fontes, imagens): o Metro ESCREVE aqui mas nunca
+# apaga o que sobrou de um build anterior, e o Gradle empacota o diretório
+# inteiro. Sem esta limpeza, um asset que deixou de ser referenciado continua
+# viajando dentro do APK para sempre — foi assim que 19 fontes de ícone não
+# usadas (~3,4 MB) sobreviveram à troca para o import direto do Ionicons.
+rm -rf android/app/build/generated/res/createBundleReleaseJsAndAssets \
+       android/app/build/generated/assets/createBundleReleaseJsAndAssets
+
 # Build via Gradle (o RNGP faz o bundle JS automaticamente)
 cd android
 ./gradlew assembleRelease -PreactNativeArchitectures=armeabi-v7a,arm64-v8a

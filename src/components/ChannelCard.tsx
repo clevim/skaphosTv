@@ -1,7 +1,7 @@
 import React, { memo } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Image } from 'expo-image';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
 import { colors, radius, fontSize } from '../utils/theme';
 import { useThemeStore } from '../store/useThemeStore';

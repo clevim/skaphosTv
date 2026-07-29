@@ -8,7 +8,7 @@ import {
 import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore } from '../store/useStore';
 import { useEpgStore } from '../store/epgStore';
 import { EpgProgram, nowNextFor } from '../utils/epg';
@@ -72,7 +72,7 @@ function MobileEpgRow({ ch, programs, onPress }: {
   return (
     <TVFocusable onPress={onPress} style={mStyles.row}>
       {ch.logo ? (
-        <Image source={ch.logo} style={mStyles.logo} contentFit="contain" transition={0} recyclingKey={ch.id} />
+        <Image source={ch.logo} style={mStyles.logo} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={ch.id} />
       ) : (
         <View style={mStyles.logoPlaceholder}>
           <Text style={mStyles.logoText}>{ch.name.slice(0, 2).toUpperCase()}</Text>
@@ -168,7 +168,7 @@ export default function TVEPGScreen() {
   const channelColumn = useMemo(() => liveChannels.map(ch => (
     <TVFocusable key={ch.id} onPress={() => handlePlay(ch)} style={styles.channelCell}>
       {ch.logo ? (
-        <Image source={ch.logo} style={styles.channelLogo} contentFit="contain" transition={0} recyclingKey={ch.id} />
+        <Image source={ch.logo} style={styles.channelLogo} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={ch.id} />
       ) : (
         <View style={styles.channelLogoPlaceholder}>
           <Text style={styles.channelLogoText}>{ch.name.slice(0, 2).toUpperCase()}</Text>

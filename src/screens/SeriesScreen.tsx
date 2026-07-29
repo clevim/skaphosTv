@@ -11,7 +11,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore } from '../store/useStore';
 import { useWatchProgress, progressFractionFor } from '../store/watchProgress';
 import TVFocusable from '../components/TVFocusable';
@@ -136,7 +136,7 @@ function EpThumb({ logo, size }: { logo?: string; size: { w: number; h: number }
   return (
     <View style={[thumbStyles.ph, { width: size.w, height: size.h }]}>
       {logo ? (
-        <Image source={logo} style={StyleSheet.absoluteFill} contentFit="contain" transition={0} recyclingKey={logo} />
+        <Image source={logo} style={StyleSheet.absoluteFill} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={logo} />
       ) : (
         <Ionicons name="play" size={size.w * 0.18} color="rgba(255,255,255,0.25)" />
       )}
@@ -477,7 +477,10 @@ export default function SeriesScreen() {
     }
   }, [seasonKeys.length, resumeEpisode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const episodes = seasons.get(selectedSeason) || [];
+  // Memoizado por causa do `|| []`: um array novo a cada render invalidaria
+  // lockAndNavigate → handlePlay → o memo de TODOS os cards do rail, a cada
+  // tecla do D-pad — exatamente o que a memoização do card veio evitar.
+  const episodes = useMemo(() => seasons.get(selectedSeason) || [], [seasons, selectedSeason]);
 
   // Menu "marcar assistido" — segurar (toque/OK da TV) ou botão direito (web).
   // "Este e os anteriores" atravessa temporadas: marcar S2E4 marca S2E1–E3 e
@@ -619,6 +622,7 @@ export default function SeriesScreen() {
             style={StyleSheet.absoluteFillObject}
             contentFit="cover"
             blurRadius={IS_TV ? 8 : 12}
+            cachePolicy="memory-disk"
           />
         ) : null}
         <LinearGradient
@@ -765,6 +769,7 @@ export default function SeriesScreen() {
             style={tvStyles.backdrop}
             contentFit={backdropIsLogo ? 'contain' : 'cover'}
             contentPosition="center"
+            cachePolicy="memory-disk"
           />
         ) : (
           <View style={[tvStyles.backdrop, { backgroundColor: colors.bg2 }]} />
@@ -935,6 +940,7 @@ export default function SeriesScreen() {
               style={styles.heroImg}
               contentFit={backdropIsLogo ? 'contain' : 'cover'}
               contentPosition="center"
+              cachePolicy="memory-disk"
             />
           ) : (
             <View style={[styles.heroImg, styles.heroFallback]}>

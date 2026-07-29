@@ -10,7 +10,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore, resolveChannelType } from '../store/useStore';
 import { useWatchProgress, progressFractionFor, resumePositionFor } from '../store/watchProgress';
 import TVFocusable from '../components/TVFocusable';
@@ -209,7 +209,7 @@ export default function DetailScreen() {
               >
                 <View style={styles.relPoster}>
                   {ch.logo ? (
-                    <Image source={ch.logo} style={styles.relPosterImg} contentFit="cover" transition={0} recyclingKey={ch.id} />
+                    <Image source={ch.logo} style={styles.relPosterImg} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={ch.id} />
                   ) : (
                     <View style={styles.relPosterFallback}>
                       <Text style={styles.relPosterInitials}>{rName.slice(0, 2).toUpperCase()}</Text>
@@ -251,6 +251,7 @@ export default function DetailScreen() {
               contentFit={heroIsLogo ? 'contain' : 'cover'}
               contentPosition="center"
               transition={150}
+              cachePolicy="memory-disk"
             />
           ) : (
             <View style={[tvStyles.backdrop, tvStyles.backdropFallback]}>
@@ -369,6 +370,7 @@ export default function DetailScreen() {
               contentFit={heroIsLogo ? 'contain' : 'cover'}
               contentPosition="center"
               transition={150}
+              cachePolicy="memory-disk"
             />
           ) : (
             <View style={styles.heroFallback}>

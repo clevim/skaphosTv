@@ -1,7 +1,7 @@
 // TVCatalogLayout.tsx — Two-panel TV browse layout: left sidebar + right grid
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
 import { cleanGroupName } from '../utils/channelUtils';

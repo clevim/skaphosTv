@@ -4,7 +4,7 @@ import {
   View, Text, StyleSheet, TextInput, ScrollView,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
@@ -82,7 +82,7 @@ function ResultItem({ channel, onPress }: { channel: Channel; onPress: () => voi
     <TVFocusable onPress={onPress} style={styles.resultItem}>
       <View style={styles.resultThumb}>
         {channel.logo ? (
-          <Image source={channel.logo} style={styles.resultThumbImg} contentFit="contain" transition={0} recyclingKey={channel.id} />
+          <Image source={channel.logo} style={styles.resultThumbImg} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
         ) : (
           <View style={styles.resultThumbFallback}>
             <Text style={styles.resultThumbText}>{displayName.slice(0, 2).toUpperCase()}</Text>
