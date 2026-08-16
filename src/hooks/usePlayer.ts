@@ -170,7 +170,13 @@ export function usePlayer(
     const t = playingChannel.streamType;
     return t ? channels.filter(c => c.streamType === t) : channels;
   }, [hasPlaylist, playlist, channels, playingChannel.streamType]);
-  const currentIndex = siblings.findIndex(c => c.id === playingChannel.id);
+  // Memoizado pelo mesmo motivo do sidebarChannels: sem playlist explícita,
+  // `siblings` é o catálogo de ao vivo inteiro e este findIndex rodava a cada
+  // render — inclusive nos disparados pelo onProgress durante a reprodução.
+  const currentIndex = useMemo(
+    () => siblings.findIndex(c => c.id === playingChannel.id),
+    [siblings, playingChannel.id],
+  );
 
   // Refs p/ uso em callbacks assíncronos (onEnd) sem closures stale
   const siblingsRef = useRef(siblings);
@@ -616,7 +622,16 @@ export function usePlayer(
     if (!max) return;
     const next = Math.max(0, Math.min(max, pct * max));
     seekToSeconds(next);
-  }, [duration, seekableDuration, isLive, seekToSeconds]);
+    // Rearma o timer do OSD (o seekBy já fazia isso; aqui faltava). Não é só
+    // conforto: quem chama isto é o PanResponder da barra de progresso, e o
+    // PlayerOSD DESMONTA quando o OSD esconde. Arrastar por mais tempo que o
+    // timeout do OSD desmontava o componente no meio do gesto — aí nem
+    // onPanResponderRelease nem Terminate rodam, e o handle de interação que o
+    // PanResponder abriu no grant fica preso PARA SEMPRE. Com a fila do
+    // InteractionManager travada, todo runAfterInteractions do app morre: era
+    // assim que a Home voltava só com o hero, sem fileira nenhuma.
+    showOSDTemporarily();
+  }, [duration, seekableDuration, isLive, seekToSeconds, showOSDTemporarily]);
 
   /**
    * Troca a faixa de áudio Jellyfin durante a reprodução.

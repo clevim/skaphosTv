@@ -5,6 +5,7 @@ import { ChannelIndex, buildChannelIndex, mergeChannelIndexes } from './channelI
 import { saveSourceSecrets, loadSourceSecrets, deleteSourceSecrets } from '../utils/secrets';
 import { resolveContentType, yieldToUI } from '../utils/channelUtils';
 import { notify } from '../utils/notifications';
+import { IS_WEB } from '../utils/tvDetect';
 
 export interface IPTVSource {
   id: string;
@@ -104,6 +105,13 @@ interface AppState {
 
 // Canais são salvos em chunks de 500 para não exceder o limite do AsyncStorage (2MB por item)
 const CHUNK_SIZE = 500;
+// WEB: o AsyncStorage é o localStorage, e a cota (~5 MB) é do APP INTEIRO — não só
+// dos canais. Um catálogo Xtream típico (30 mil itens) serializa ~12 MB: gravá-lo
+// inteiro enchia a cota e fazia QUALQUER escrita seguinte falhar em silêncio —
+// era isto que perdia o "marcar como assistido" (o progresso não conseguia
+// crescer). Aqui o cache fica no teto abaixo e o resto vem da rede no boot, que o
+// loadAllSources já faz de qualquer forma (cache parcial → recarrega a fonte).
+const WEB_MAX_BYTES = 1_500_000; // ~1,5 MB de canais — sobra a cota pro estado do usuário
 // Formato v1 (legado): chunks únicos pro catálogo inteiro — migrado no boot.
 const CHANNELS_KEY = 'skaphostv_channels';
 const CHANNELS_META_KEY = 'skaphostv_channels_meta';
@@ -248,23 +256,51 @@ async function flushChannelsSave(
   const meta: V2Meta = { groups, savedAt: Date.now(), sources: {} };
   const writes: Promise<void>[] = [];
   const nextOnDisk: Record<string, number> = {};
+  // Orçamento de bytes do cache (só web — ver WEB_MAX_BYTES); nativo é ilimitado.
+  const budget = IS_WEB ? WEB_MAX_BYTES : Infinity;
+  let spent = 0;
+
+  // Web: apaga TODAS as chaves de canais antes de regravar. Sem isto, chunks de
+  // versões anteriores (ou de quando a fonte era maior) ficam presos na cota —
+  // ninguém os lê, mas continuam impedindo as escritas do usuário. Como tudo é
+  // apagado, todo bucket é regravado (nada de "intocado em disco").
+  let dirtyNow = dirty;
+  if (IS_WEB) {
+    const keys = await AsyncStorage.getAllKeys();
+    await Promise.all(
+      keys.filter(k => k.startsWith(CHANNELS_KEY)).map(k => AsyncStorage.removeItem(k)),
+    );
+    chunksOnDisk = {};
+    legacyChunksToClear = -1; // a varredura acima já levou o formato v1
+    dirtyNow = new Set(buckets.keys());
+  }
 
   for (const [b, chans] of buckets) {
     const prevChunks = chunksOnDisk[b];
-    const nChunks = Math.ceil(chans.length / CHUNK_SIZE);
+    let nChunks = Math.ceil(chans.length / CHUNK_SIZE);
+
+    // Bucket intocado e já em disco → nada a regravar (só entra no meta).
+    if (dirtyNow.has(b) || prevChunks === undefined) {
+      // Redação de segredos SÓ nos canais desta fonte (antes: catálogo inteiro)
+      const src = b === '_' ? undefined : bySrc.get(b);
+      const safe = src ? transformChannelSecrets(chans, [src], 'redact') : chans;
+      // Chunks ANTES do meta e em paralelo — se o app morrer no meio, o meta
+      // antigo ainda aponta pra chunks válidos (dados completos, só defasados).
+      let written = 0;
+      for (let i = 0; i < nChunks; i++) {
+        const payload = JSON.stringify(safe.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE));
+        if (spent + payload.length > budget) break;   // web: cota — grava o que couber
+        spent += payload.length;
+        written = i + 1;
+        writes.push(AsyncStorage.setItem(v2ChunkKey(b, i), payload));
+      }
+      nChunks = written;
+    }
+
     meta.sources[b] = { chunks: nChunks };
     nextOnDisk[b] = nChunks;
-    // Bucket intocado e já em disco → nada a regravar (só entra no meta).
-    if (!dirty.has(b) && prevChunks !== undefined) continue;
-    // Redação de segredos SÓ nos canais desta fonte (antes: catálogo inteiro)
-    const src = b === '_' ? undefined : bySrc.get(b);
-    const safe = src ? transformChannelSecrets(chans, [src], 'redact') : chans;
-    // Chunks ANTES do meta e em paralelo — se o app morrer no meio, o meta
-    // antigo ainda aponta pra chunks válidos (dados completos, só defasados).
-    for (let i = 0; i < nChunks; i++) {
-      writes.push(AsyncStorage.setItem(v2ChunkKey(b, i), JSON.stringify(safe.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE))));
-    }
-    // Órfãos deste bucket (fonte encolheu)
+    // Chunks a mais do que o gravado agora (fonte encolheu, ou orçamento do web)
+    // saem do disco — o meta já não os declara.
     for (let k = nChunks; k < (prevChunks ?? 0); k++) {
       writes.push(AsyncStorage.removeItem(v2ChunkKey(b, k)));
     }

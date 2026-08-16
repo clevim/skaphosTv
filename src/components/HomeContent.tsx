@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect, useCallback, memo } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, InteractionManager, useWindowDimensions,
+  View, Text, StyleSheet, FlatList, useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -12,6 +12,7 @@ import PulsingDot from './PulsingDot';
 import { colors, spacing, fontSize, radius, fontFamily, shadow } from '../utils/theme';
 import { getSeriesBaseName, isLaunchYear, LAUNCH_YEAR, cleanGroupName } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
+import { afterInteractions } from '../utils/afterInteractions';
 import { useWatchProgress, progressFractionFor, resumePositionFor, watchStatusFor, computeContinueWatching, WatchEntry } from '../store/watchProgress';
 import { useNowNext } from '../store/epgStore';
 import { useStore, resolveChannelType } from '../store/useStore';
@@ -478,11 +479,13 @@ export default function HomeContent({
   // O escalonamento manual que existia aqui (uma seção a cada 120ms) saiu: a
   // FlatList vertical já faz isso melhor via initialNumToRender +
   // maxToRenderPerBatch, e o timer ainda atrasava seções que estavam VISÍVEIS.
+  //
+  // Com PRAZO (afterInteractions): a fila do InteractionManager pode ficar presa
+  // para sempre por um handle vazado em qualquer canto do app, e aí este `ready`
+  // nunca virava true — a Home ficava só com o hero, sem nenhuma fileira, até
+  // reabrir o app. Era isso o "às vezes a home não é gerada".
   const [ready, setReady] = useState(false);
-  useEffect(() => {
-    const task = InteractionManager.runAfterInteractions(() => setReady(true));
-    return () => task.cancel();
-  }, []);
+  useEffect(() => afterInteractions(() => setReady(true)), []);
 
   // "Continue assistindo" com progresso REAL: itens em curso primeiro (mais
   // recentes antes), depois os demais recentes na ordem original. Séries usam

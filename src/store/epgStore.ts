@@ -13,9 +13,9 @@
 import { create } from 'zustand';
 import { useEffect, useMemo } from 'react';
 import { useIsFocused } from '@react-navigation/native';
-import { InteractionManager } from 'react-native';
 import axios from 'axios';
 import { dlog } from '../utils/debugLog';
+import { afterInteractions } from '../utils/afterInteractions';
 import { useStore } from './useStore';
 import { normalizeHost } from '../utils/xtreamApi';
 import {
@@ -173,8 +173,7 @@ export function useNowNext(channelId: string | undefined): { now?: EpgProgram; n
     // Espera a transição de navegação/animações assentarem antes de puxar o
     // guia — senão ele compete com o próprio "voltar pra Home" bem no momento
     // em que a tela ganha foco, e mesmo mais rápido, ainda dá pra sentir.
-    const task = InteractionManager.runAfterInteractions(() => load());
-    return () => task.cancel();
+    return afterInteractions(() => load());
   }, [channelId, isFocused, load]);
   return useMemo(() => nowNextFor(programs), [programs]);
 }

@@ -64,7 +64,14 @@ export function flushWatchProgress() {
     const sorted = keys.sort((a, b) => entries[b].updatedAt - entries[a].updatedAt).slice(0, MAX_ENTRIES);
     toSave = Object.fromEntries(sorted.map(k => [k, entries[k]]));
   }
-  AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(toSave)).catch(() => {});
+  AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(toSave)).catch(err => {
+    // Nunca engolir em silêncio: no navegador o AsyncStorage é localStorage, e uma
+    // cota cheia (cache de canais grande) rejeitava a gravação — os "assistidos"
+    // sumiam no reload sem nenhum sinal. Devolve pro pending: o próximo flush
+    // retenta (só se nada mais novo entrou na fila nesse meio-tempo).
+    console.warn('[watchProgress] falha ao gravar progresso (cota cheia?):', err);
+    if (!pending) pending = toSave;
+  });
 }
 
 function scheduleSave(entries: Record<string, WatchEntry>) {

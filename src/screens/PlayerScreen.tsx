@@ -233,10 +233,15 @@ export default function PlayerScreen() {
   // Lista lateral do player:
   //  • Série: episódios da temporada atual (a própria playlist passada pela SeriesScreen).
   //  • Filme/Ao vivo: outras mídias da MESMA subcategoria (mesmo grupo).
-  const groupChannels = channels.filter(c => c.group === playingChannel.group);
-  const sidebarChannels = playlist.length > 0
-    ? playlist
-    : (groupChannels.length > 0 ? groupChannels : channels);
+  // useMemo obrigatório: sem ele este filtro varria o catálogo INTEIRO (dezenas de
+  // milhares de itens) a cada render — e o onProgress do player re-renderiza a tela
+  // várias vezes por segundo. Numa Fire Stick isso é a JS thread parada em loop,
+  // que é o que fazia o vídeo "engasgar" com o OSD na tela.
+  const sidebarChannels = useMemo(() => {
+    if (playlist.length > 0) return playlist;
+    const group = channels.filter(c => c.group === playingChannel.group);
+    return group.length > 0 ? group : channels;
+  }, [playlist, channels, playingChannel.group]);
 
   // URL estável — não varia com audioIndex/subtitleIndex.
   // Para Direct Play (static=true) o servidor ignora audioStreamIndex de qualquer forma;
@@ -449,6 +454,18 @@ export default function PlayerScreen() {
             bufferForPlaybackMs: 2500,
             bufferForPlaybackAfterRebufferMs: 5000,
           }}
+          // SurfaceView em vez de TextureView (o padrão da lib). O TextureView
+          // desenha cada frame como textura NÃO-OPACA dentro da janela do app:
+          // todo frame passa pela UI thread e ainda é alfa-composto. Em aparelho
+          // fraco (Fire Stick) qualquer trabalho de JS/UI atrasa a entrega do
+          // frame → engasgo. O SurfaceView ganha um plano de hardware próprio e
+          // fica imune a isso; as overlays (OSD, buffering) continuam por cima.
+          // O MiniPlayer segue com TextureView de propósito: lá o vídeo é
+          // recortado por borderRadius, coisa que o SurfaceView não respeita.
+          useTextureView={false}
+          // Padrão da lib é 250 ms — 4 travessias de bridge por segundo só pra
+          // mexer no relógio do OSD. 1 s basta (a barra é em segundos).
+          progressUpdateInterval={1000}
           ignoreSilentSwitch="ignore"
           // Android mobile: mantém a reprodução ao entrar em PiP do sistema.
           // TV: PiP do sistema é bloqueado (buga o launcher) — sem ele, manter

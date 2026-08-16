@@ -32,6 +32,15 @@ export function useChannelFilter({
 }: UseChannelFilterProps) {
   const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
 
+  // Varredura ÚNICA do catálogo pelos favoritos. Antes o getGroupCount abaixo
+  // refazia este filter (mais três derivados) a cada linha de grupo desenhada —
+  // três varreduras completas por render numa Fire Stick, só pra escrever a
+  // contagem ao lado do nome do grupo.
+  const favChannels = useMemo(
+    () => channels.filter(c => favoritesSet.has(c.id)),
+    [channels, favoritesSet],
+  );
+
   // O(1) — índice já tem o map pronto
   const episodeCountMap = channelIndex?.episodeCountMap ?? EMPTY_MAP;
 
@@ -68,7 +77,7 @@ export function useChannelFilter({
     let list: Channel[];
 
     if (navKey === 'favorites') {
-      list = channels.filter(c => favoritesSet.has(c.id));
+      list = favChannels;
       if (selectedGroup === 'Ao vivo')      list = list.filter(c => resolveChannelType(c) === 'live');
       else if (selectedGroup === 'Filmes')  list = list.filter(c => resolveChannelType(c) === 'movies');
       else if (selectedGroup === 'Séries')  list = list.filter(c => resolveChannelType(c) === 'series');
@@ -143,7 +152,7 @@ export function useChannelFilter({
     }
 
     return list;
-  }, [channelIndex, navKey, selectedGroup, favoritesSet, categorySearch, channels, jellyfinServerName, filteredGroups, sortMode]);
+  }, [channelIndex, navKey, selectedGroup, favoritesSet, favChannels, categorySearch, channels, jellyfinServerName, filteredGroups, sortMode]);
 
   // O(1) — usa contagens pré-computadas
   const navCount = useCallback((key: string): number => {
@@ -160,7 +169,6 @@ export function useChannelFilter({
       if (group === 'Séries')  return channelIndex.yearSeries.length;
     }
     if (navKey === 'favorites') {
-      const favChannels = channels.filter(c => favoritesSet.has(c.id));
       if (group === 'Ao vivo') return favChannels.filter(c => resolveChannelType(c) === 'live').length;
       if (group === 'Filmes')  return favChannels.filter(c => resolveChannelType(c) === 'movies').length;
       if (group === 'Séries')  return favChannels.filter(c => resolveChannelType(c) === 'series').length;
@@ -169,7 +177,7 @@ export function useChannelFilter({
       return channelIndex.seriesByGroup.get(group)?.length ?? 0;
     }
     return channelIndex.byGroup.get(group)?.length ?? 0;
-  }, [channelIndex, navKey, channels, favoritesSet]);
+  }, [channelIndex, navKey, favChannels]);
 
   return {
     filteredGroups,

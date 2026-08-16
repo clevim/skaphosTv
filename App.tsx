@@ -8,11 +8,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as KeepAwake from 'expo-keep-awake';
 import * as Updates from 'expo-updates';
-import { Linking, AppState, InteractionManager } from 'react-native';
+import { Linking, AppState } from 'react-native';
 import { useStore } from './src/store/useStore';
 import { useWatchProgress, computeContinueWatching, flushWatchProgress } from './src/store/watchProgress';
 import { useUsageStats } from './src/store/usageStats';
 import { initNotifications } from './src/utils/notifications';
+import { afterInteractions } from './src/utils/afterInteractions';
 import { promptApkUpdateOnLaunch } from './src/utils/appUpdate';
 import { syncContinueWatchingWidget } from './src/utils/widgetSync';
 import { useRecentSearches } from './src/store/recentSearches';
@@ -194,11 +195,10 @@ export default function App() {
   // reiniciar e o diálogo morreria no meio (ou pior, no meio de um download).
   useEffect(() => {
     if (splashVisible || __DEV__) return;
-    const task = InteractionManager.runAfterInteractions(() => {
+    return afterInteractions(() => {
       if (otaPendingRef.current) return;
       promptApkUpdateOnLaunch().catch(() => {});
     });
-    return () => task.cancel();
   }, [splashVisible]);
 
   useEffect(() => {

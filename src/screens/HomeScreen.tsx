@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, ScrollView,
-  ActivityIndicator, useWindowDimensions, Animated, InteractionManager,
+  ActivityIndicator, useWindowDimensions, Animated,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -9,6 +9,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore, IPTVSource, resolveChannelType } from '../store/useStore';
 import ChannelCard from '../components/ChannelCard';
 import HomeContent from '../components/HomeContent';
+import { afterInteractions } from '../utils/afterInteractions';
 import SearchContent from '../components/SearchContent';
 import TVFocusable from '../components/TVFocusable';
 import TopHeader from '../components/TopHeader';
@@ -192,7 +193,9 @@ export default function HomeScreen() {
       // Espera o primeiro paint/gestos assentarem antes de disparar reload de rede
       // pesado — senão ele compete pela thread JS bem na janela em que o usuário
       // acabou de abrir o app e já tenta tocar em algo (ficava "travado" ao reabrir).
-      await new Promise<void>(resolve => InteractionManager.runAfterInteractions(() => resolve()));
+      // Com prazo: preso aqui, a reconciliação de catálogo abaixo nunca rodava e
+      // a Home ficava com o que houvesse (ou nada) em cache — ver afterInteractions.
+      await new Promise<void>(resolve => afterInteractions(() => resolve()));
 
       // Reconciliação por fonte: o cache de canais é debounced/serializado, então
       // pode ficar PARCIAL se o app fechar no meio. O Xtream carrega em 3 fases
