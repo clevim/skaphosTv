@@ -40,6 +40,21 @@ rm -rf node_modules/.cache "$TMPDIR/metro-"* "$TMPDIR/haste-map-"*
 rm -rf android/app/build/generated/res/createBundleReleaseJsAndAssets \
        android/app/build/generated/assets/createBundleReleaseJsAndAssets
 
+# O app.manifest do expo-updates (lista de assets EMBUTIDOS) sai de OUTRA task,
+# e ela não enxerga que o bundle mudou de assets — fica marcada como up-to-date
+# e o manifesto envelhece. Some junto, senão as duas metades discordam:
+#
+#   res/raw          → só as fontes que o bundle usa de verdade (5)
+#   app.manifest     → as 23 de quando o app importava @expo/vector-icons inteiro
+#
+# E discordar aí não é cosmético: no boot o expo-updates copia cada asset do
+# manifesto por getIdentifier(); quem não existe volta id 0 e o app morre com
+# "Resource ID #0x0" ANTES de desenhar qualquer coisa. Só detona no caminho de
+# fallback (LoaderTask.launchFallbackUpdateFromDisk), que é o que roda quando a
+# checagem de update não responde — por isso passava despercebido com rede boa.
+rm -rf android/app/build/generated/assets/createReleaseUpdatesResources \
+       android/app/build/generated/res/createReleaseUpdatesResources
+
 # Build via Gradle (o RNGP faz o bundle JS automaticamente)
 cd android
 ./gradlew assembleRelease -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
