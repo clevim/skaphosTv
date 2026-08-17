@@ -17,6 +17,7 @@ import TVFocusable from '../components/TVFocusable';
 import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
 import { RootStackParamList, Channel } from '../types';
 import { IS_MOBILE } from '../utils/tvDetect';
+import { useTVFocusMemory } from '../utils/tvFocusMemory';
 
 type Nav = StackNavigationProp<RootStackParamList>;
 
@@ -103,6 +104,9 @@ function MobileEpgRow({ ch, programs, onPress }: {
 }
 
 export default function TVEPGScreen() {
+  // Devolve o foco do D-pad pro item de onde o usuário saiu ao voltar pra cá
+  useTVFocusMemory();
+
   const navigation = useNavigation<Nav>();
   const channelIndex      = useStore(s => s.channelIndex);
   const scale             = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
@@ -160,13 +164,20 @@ export default function TVEPGScreen() {
     navigation.navigate('Player', { channel: ch });
   }, [setCurrentChannel, navigation]);
 
-  // A grade é o conteúdo mais pesado do app (60 canais × ~10 blocos ≈ 600 views
-  // focáveis, sem virtualização). Ela ficava DENTRO do render, então cada
-  // movimento do D-pad — que só atualiza o rodapé via setFocused — reconstruía
-  // tudo e rodava buildRowBlocks por canal. Era o travamento sentido no guia.
-  // Memoizada, um movimento de foco re-renderiza apenas o rodapé de detalhes.
-  const channelColumn = useMemo(() => liveChannels.map(ch => (
-    <TVFocusable key={ch.id} onPress={() => handlePlay(ch)} style={styles.channelCell}>
+  // A grade é o conteúdo mais pesado do app: 60 canais × ~10 blocos ≈ 600 views
+  // focáveis. Duas defesas, e as duas precisam continuar de pé:
+  //
+  //  1. renderItem memoizado — cada movimento do D-pad só atualiza o rodapé de
+  //     detalhes (setFocused); sem isto a grade inteira era reconstruída e
+  //     buildRowBlocks rodava por canal a cada tecla.
+  //  2. as duas listas são VIRTUALIZADAS (FlatList, não ScrollView): abrir o
+  //     Guia montava as 600 views de uma vez, e era isso a travada ao entrar.
+  //     Agora nasce com uma tela cheia e o resto entra em lotes.
+  //
+  // removeClippedSubviews FALSO nas duas: clipar destrói a view nativa focada e
+  // o foco vai junto (mesma regra das fileiras da Home).
+  const renderChannelCell = useCallback(({ item: ch }: { item: Channel }) => (
+    <TVFocusable onPress={() => handlePlay(ch)} style={styles.channelCell}>
       {ch.logo ? (
         <Image source={ch.logo} style={styles.channelLogo} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={ch.id} />
       ) : (
@@ -176,13 +187,15 @@ export default function TVEPGScreen() {
       )}
       <Text style={[styles.channelName, { fontSize: 11 * scale }]} numberOfLines={2}>{ch.name}</Text>
     </TVFocusable>
-  )), [liveChannels, scale, handlePlay]);
+  ), [scale, handlePlay]);
 
-  const programRows = useMemo(() => {
-    // Uma leitura do relógio para a grade toda — antes eram duas por bloco.
-    const now = Date.now();
-    return liveChannels.map(ch => (
-      <View key={ch.id} style={styles.programsLine}>
+  // Uma leitura do relógio para a grade toda — antes eram duas por bloco. Como
+  // agora as linhas nascem aos poucos, o valor vem de um memo com as mesmas
+  // dependências de antes (mesma frescura, sem Date.now() por linha).
+  const gridNow = useMemo(() => Date.now(), [liveChannels, epgByChannel, winStart, winEnd]);
+
+  const renderProgramRow = useCallback(({ item: ch }: { item: Channel }) => (
+      <View style={styles.programsLine}>
         {buildRowBlocks(epgByChannel[ch.id], winStart, winEnd).map(block => {
           if (!block.program) {
             return (
@@ -194,7 +207,7 @@ export default function TVEPGScreen() {
             );
           }
           const p = block.program;
-          const isNow = p.start <= now && now < p.end;
+          const isNow = p.start <= gridNow && gridNow < p.end;
           return (
             <TVFocusable
               key={block.key}
@@ -220,20 +233,27 @@ export default function TVEPGScreen() {
           );
         })}
       </View>
-    ));
-  }, [liveChannels, epgByChannel, winStart, winEnd, scale, handlePlay]);
+  ), [gridNow, epgByChannel, winStart, winEnd, scale, handlePlay]);
 
-  const scrollRef = useRef<ScrollView>(null);   // eixo X — timeline única
-  const leftColRef = useRef<ScrollView>(null);  // eixo Y — coluna de canais
-  const rowsRef = useRef<ScrollView>(null);     // eixo Y — linhas de programas
+  const epgKeyExtractor = useCallback((ch: Channel) => ch.id, []);
+  // Altura fixa por linha → a lista sabe posicionar sem medir, o que mantém a
+  // sincronia dos dois eixos exata mesmo com as linhas entrando aos poucos.
+  const epgItemLayout = useCallback(
+    (_: any, index: number) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index }),
+    [],
+  );
+
+  const scrollRef = useRef<ScrollView>(null);       // eixo X — timeline única
+  const leftColRef = useRef<FlatList<Channel>>(null); // eixo Y — coluna de canais
+  const rowsRef = useRef<FlatList<Channel>>(null);    // eixo Y — linhas de programas
 
   // Colunas de canais e linhas de programas rolam JUNTAS no eixo Y.
-  // scrollTo no mesmo offset não re-emite evento → converge sem loop.
+  // Rolar para o mesmo offset não re-emite evento → converge sem loop.
   // Roda do mouse: vertical rola os canais (webWheel global deixa o navegador
   // agir); Shift+roda/trackpad horizontal move o TEMPO — sempre em bloco,
   // porque a timeline inteira vive num único ScrollView horizontal.
-  const syncY = (target: React.RefObject<ScrollView>) => (e: any) => {
-    target.current?.scrollTo({ y: e.nativeEvent.contentOffset.y, animated: false });
+  const syncY = (target: React.RefObject<FlatList<Channel>>) => (e: any) => {
+    target.current?.scrollToOffset({ offset: e.nativeEvent.contentOffset.y, animated: false });
   };
 
   // ── Celular: lista vertical (agora/a seguir) — a grade de timeline não cabe
@@ -388,14 +408,24 @@ export default function TVEPGScreen() {
             {/* Coluna FIXA de canais — rola no eixo Y em sincronia com as linhas */}
             <View style={styles.channelCol}>
               <View style={styles.cornerCell} />
-              <ScrollView
+              <FlatList
                 ref={leftColRef}
+                // Altura limitada: sem isso a lista mede a si mesma pelo CONTEÚDO e
+                // virtualização nenhuma acontece (e no web o painel estica).
+                style={{ flex: 1, minHeight: 0 }}
+                data={liveChannels}
+                keyExtractor={epgKeyExtractor}
+                renderItem={renderChannelCell}
+                getItemLayout={epgItemLayout}
                 showsVerticalScrollIndicator={false}
                 onScroll={syncY(rowsRef)}
                 scrollEventThrottle={16}
-              >
-                {channelColumn}
-              </ScrollView>
+                removeClippedSubviews={false}
+                initialNumToRender={14}
+                maxToRenderPerBatch={8}
+                updateCellsBatchingPeriod={50}
+                windowSize={5}
+              />
             </View>
 
             {/* Timeline ÚNICA: cabeçalho + todas as linhas movem juntos no eixo X.
@@ -419,14 +449,24 @@ export default function TVEPGScreen() {
                   </View>
 
                   {/* Linhas de programas — eixo Y sincronizado com a coluna de canais */}
-                  <ScrollView
+                  <FlatList
                     ref={rowsRef}
+                    // Altura limitada: sem isso a lista mede a si mesma pelo CONTEÚDO e
+                    // virtualização nenhuma acontece (e no web o painel estica).
+                    style={{ flex: 1, minHeight: 0 }}
+                    data={liveChannels}
+                    keyExtractor={epgKeyExtractor}
+                    renderItem={renderProgramRow}
+                    getItemLayout={epgItemLayout}
                     showsVerticalScrollIndicator={false}
                     onScroll={syncY(leftColRef)}
                     scrollEventThrottle={16}
-                  >
-                    {programRows}
-                  </ScrollView>
+                    removeClippedSubviews={false}
+                    initialNumToRender={14}
+                    maxToRenderPerBatch={8}
+                    updateCellsBatchingPeriod={50}
+                    windowSize={5}
+                  />
                 </View>
               </ScrollView>
             </View>

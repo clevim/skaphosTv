@@ -1,7 +1,7 @@
 // TVSearchContent.tsx — TV search UI, two-panel layout
 import React, { useRef } from 'react';
 import {
-  View, Text, StyleSheet, TextInput, ScrollView,
+  View, Text, StyleSheet, TextInput, FlatList,
 } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -72,14 +72,16 @@ const TYPE_FILTERS: { key: SearchType; label: string }[] = [
 
 const SUGGESTIONS = ['Ao Vivo', 'Filmes', 'Séries', 'Lançamentos 2026'];
 
-function ResultItem({ channel, onPress }: { channel: Channel; onPress: () => void }) {
+function ResultItem({ channel, onPress, preferred }: {
+  channel: Channel; onPress: () => void; preferred?: boolean;
+}) {
   const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
   const type = resolveChannelType(channel);
   const displayName = type === 'series' ? getSeriesBaseName(channel.name) : channel.name;
   const groupClean = channel.group ? cleanGroupName(channel.group) : '';
 
   return (
-    <TVFocusable onPress={onPress} style={styles.resultItem}>
+    <TVFocusable onPress={onPress} style={styles.resultItem} hasTVPreferredFocus={preferred}>
       <View style={styles.resultThumb}>
         {channel.logo ? (
           <Image source={channel.logo} style={styles.resultThumbImg} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
@@ -109,6 +111,18 @@ export default function TVSearchContent({
   const inputRef = useRef<TextInput>(null);
   const hasResults = results.length > 0;
   const isEmpty = query.trim() === '';
+
+  // Escolher uma sugestão/busca recente DESMONTA a lista de sugestões (o painel
+  // troca para os resultados) — o Android então joga o foco no primeiro focável
+  // da tela, que é o campo de busca. Marcamos aqui e o primeiro resultado a
+  // montar puxa o foco pra si, que é pra onde o usuário está olhando.
+  const wantResultFocus = useRef(false);
+  const pickQuery = (q: string) => { wantResultFocus.current = true; onQueryChange(q); };
+  const takeResultFocus = () => {
+    if (!wantResultFocus.current) return false;
+    wantResultFocus.current = false;
+    return true;
+  };
 
   return (
     <View style={styles.root}>
@@ -202,7 +216,7 @@ export default function TVSearchContent({
                   </TVFocusable>
                 </View>
                 {recent.map((q) => (
-                  <TVFocusable key={q} onPress={() => onRecentPress(q)} style={styles.suggestionItem}>
+                  <TVFocusable key={q} onPress={() => { wantResultFocus.current = true; onRecentPress(q); }} style={styles.suggestionItem}>
                     <Ionicons name="time-outline" size={14} color={colors.text3} />
                     <Text style={styles.suggestionText} numberOfLines={1}>{q}</Text>
                   </TVFocusable>
@@ -213,7 +227,7 @@ export default function TVSearchContent({
             {SUGGESTIONS.map((s) => (
               <TVFocusable
                 key={s}
-                onPress={() => onQueryChange(s)}
+                onPress={() => pickQuery(s)}
                 style={styles.suggestionItem}
               >
                 <Ionicons name="trending-up-outline" size={14} color={colors.text3} />
@@ -226,15 +240,31 @@ export default function TVSearchContent({
             <Text style={styles.sectionLabel}>
               {results.length} RESULTADO{results.length !== 1 ? 'S' : ''}
             </Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {results.map(ch => (
+            {/* Virtualizada: eram até 100 linhas montadas de uma vez, cada uma
+                com imagem e listener de foco — caro demais pra uma Fire Stick.
+                removeClippedSubviews FALSO porque clipar destrói a view nativa
+                focada e o foco vai junto (mesma regra das fileiras da Home). */}
+            <FlatList
+              // flex + minHeight:0: a lista precisa de altura LIMITADA para
+              // virtualizar (e, no web, para rolar dentro do painel em vez de
+              // esticar o layout) — mesma regra do grid em TVCatalogLayout.
+              style={{ flex: 1, minHeight: 0 }}
+              data={results}
+              keyExtractor={ch => ch.id}
+              renderItem={({ item, index }) => (
                 <ResultItem
-                  key={ch.id}
-                  channel={ch}
-                  onPress={() => onResultPress(ch)}
+                  channel={item}
+                  onPress={() => onResultPress(item)}
+                  preferred={index === 0 && takeResultFocus()}
                 />
-              ))}
-            </ScrollView>
+              )}
+              showsVerticalScrollIndicator={false}
+              initialNumToRender={10}
+              maxToRenderPerBatch={6}
+              updateCellsBatchingPeriod={50}
+              windowSize={5}
+              removeClippedSubviews={false}
+            />
           </>
         ) : null}
       </View>

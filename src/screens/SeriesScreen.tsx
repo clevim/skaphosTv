@@ -13,7 +13,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore } from '../store/useStore';
-import { useWatchProgress, progressFractionFor } from '../store/watchProgress';
+import { useWatchProgress, useWatchEntries, progressFractionFor } from '../store/watchProgress';
 import TVFocusable from '../components/TVFocusable';
 import GlassButton from '../components/GlassButton';
 import { colors, radius, fontFamily } from '../utils/theme';
@@ -26,6 +26,7 @@ import { showAlert, AlertButton } from '../components/AppAlert';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import JellyfinTrackSheet from '../components/JellyfinTrackSheet';
 import ExpandableText from '../components/ExpandableText';
+import { useTVFocusMemory } from '../utils/tvFocusMemory';
 
 type SeriesRoute = RouteProp<RootStackParamList, 'Series'>;
 type Nav = StackNavigationProp<RootStackParamList>;
@@ -257,6 +258,9 @@ const EpisodeRailCard = React.memo(function EpisodeRailCard({
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function SeriesScreen() {
+  // Devolve o foco do D-pad pro item de onde o usuário saiu ao voltar pra cá
+  useTVFocusMemory();
+
   const navigation = useNavigation<Nav>();
   const route = useRoute<SeriesRoute>();
   const { seriesName, channels: routeChannels } = route.params;
@@ -266,7 +270,7 @@ export default function SeriesScreen() {
   const recentChannels    = useStore(s => s.recentChannels);
   const sources           = useStore(s => s.sources);
   // Progresso de reprodução local (por dispositivo) — badges de assistido / em curso
-  const watchEntries = useWatchProgress(s => s.entries);
+  const watchEntries = useWatchEntries();
 
   // Hook de dimensões — reage a rotação/redimensionamento em tempo real
   const { width: sw, height: sh } = useWindowDimensions();

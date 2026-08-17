@@ -1,4 +1,6 @@
+import { useRef } from 'react';
 import { create } from 'zustand';
+import { useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Channel } from '../types';
 import { resolveChannelType } from './useStore';
@@ -182,6 +184,26 @@ export const useWatchProgress = create<WatchProgressState>((set, get) => ({
 
   get: (id) => get().entries[id],
 }));
+
+/**
+ * `entries` para telas de catálogo — CONGELADO enquanto a tela está fora de foco.
+ *
+ * O player grava progresso a cada ~10s (onProgress → record). Como o Stack mantém
+ * a tela de baixo MONTADA atrás do player, cada gravação trocava a identidade de
+ * `entries` e re-renderizava a Home/Série inteira: renderCard novo → todas as
+ * fileiras memoizadas invalidadas → varredura de catálogo a cada 10 segundos.
+ * Numa Fire Stick esse pico de JS a cada 10s rouba CPU do decode do ExoPlayer —
+ * é o microtravamento periódico no vídeo. Sem foco ninguém vê os badges mesmo;
+ * ao voltar o foco o seletor devolve o valor fresco e a tela atualiza.
+ */
+export function useWatchEntries(): Record<string, WatchEntry> {
+  const focused = useIsFocused();
+  const frozen = useRef<Record<string, WatchEntry> | null>(null);
+  return useWatchProgress(s => {
+    if (focused || !frozen.current) frozen.current = s.entries;
+    return frozen.current;
+  });
+}
 
 /** Posição (segundos) para retomar um item, ou 0 se não vale retomar (curto/assistido). */
 export function resumePositionFor(entry: WatchEntry | undefined): number {

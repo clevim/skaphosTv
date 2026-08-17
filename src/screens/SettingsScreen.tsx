@@ -17,7 +17,8 @@ import {
 } from '../utils/appUpdate';
 import { APP_VERSION, VERSION_LABEL } from '../utils/version';
 import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
-import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import { IS_TV, IS_WEB, IS_NATIVE_TV } from '../utils/tvDetect';
+import { isAfrSupported } from '../utils/displayMode';
 import { showAlert } from '../components/AppAlert';
 import { IS_DEV_BUILD, dlog } from '../utils/debugLog';
 import { shareBackup, downloadBackupWeb, copyBackupToClipboard, pasteFromClipboard, pickBackupFileWeb, importBackup } from '../utils/backup';
@@ -26,6 +27,7 @@ import { useUsageStats, topChannelFor, formatWatchTime, computeWrapped, WrappedS
 import WrappedModal from '../components/WrappedModal';
 import { getAchievements, Achievement } from '../utils/achievements';
 import AchievementsModal from '../components/AchievementsModal';
+import { useTVFocusMemory } from '../utils/tvFocusMemory';
 
 // ── Shared sub-components ───────────────────────────────────────────────────
 
@@ -158,6 +160,12 @@ function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle
     </View>
   );
 
+  // CUIDADO (TV): `onPress` decide se existe um focável aqui. Passar undefined
+  // durante um estado transitório ("verificando…", "baixando…") DESMONTA a view
+  // nativa focada — o Android então devolve o foco ao primeiro focável da janela,
+  // que é a primeira categoria da sidebar. Era isso o "cliquei e a seleção pulou
+  // pro topo da página". Linha ocupada deve manter o onPress e ignorar o toque
+  // dentro do próprio handler.
   if (onPress) {
     return (
       <TVFocusable onPress={onPress} style={{ borderRadius: 0 }}>
@@ -325,7 +333,9 @@ function UpdateCheckRow() {
       label="Verificar atualização"
       sub={sub}
       value={busy ? '…' : undefined}
-      onPress={busy ? undefined : run}
+      // Sempre com onPress (run já ignora se busy): trocar por undefined
+      // desmontaria o focável e o D-pad perderia a seleção — ver SettingsRow.
+      onPress={run}
     />
   );
 }
@@ -393,7 +403,9 @@ function ForceUpdateRow() {
       label="Forçar atualização"
       sub={sub}
       value={busy ? '…' : undefined}
-      onPress={busy ? undefined : run}
+      // Sempre com onPress (run já ignora se busy): trocar por undefined
+      // desmontaria o focável e o D-pad perderia a seleção — ver SettingsRow.
+      onPress={run}
     />
   );
 }
@@ -459,7 +471,11 @@ function BackupRows() {
   const [importText, setImportText] = useState('');
   const [importBusy, setImportBusy] = useState(false);
 
+  // Guard em vez de `disabled` nos botões: disabled tira o focável da ordem de
+  // foco do Android e, se ele estiver focado, o D-pad é jogado pro primeiro item
+  // do modal. Estado transitório não deve mexer na focabilidade.
   const runExport = async (action: () => Promise<void> | void, doneMsg: string) => {
+    if (exportBusy) return;
     setExportBusy(true);
     try {
       await action();
@@ -478,7 +494,7 @@ function BackupRows() {
   };
 
   const handleImport = async () => {
-    if (!importText.trim()) return;
+    if (importBusy || !importText.trim()) return;
     setImportBusy(true);
     try {
       const { sourcesCount } = await importBackup(importText.trim());
@@ -518,7 +534,6 @@ function BackupRows() {
                 onPress={() => runExport(() => downloadBackupWeb(), 'Arquivo baixado.')}
                 style={backupStyles.optionRow}
                 hasTVPreferredFocus
-                disabled={exportBusy}
               >
                 <Ionicons name="cloud-download-outline" size={18} color={colors.accent} />
                 <Text style={backupStyles.optionText}>Baixar arquivo .json</Text>
@@ -529,7 +544,6 @@ function BackupRows() {
                 onPress={() => runExport(() => shareBackup(), 'Compartilhado.')}
                 style={backupStyles.optionRow}
                 hasTVPreferredFocus={!IS_WEB}
-                disabled={exportBusy}
               >
                 <Ionicons name="share-social-outline" size={18} color={colors.accent} />
                 <Text style={backupStyles.optionText}>Compartilhar / salvar arquivo</Text>
@@ -538,7 +552,6 @@ function BackupRows() {
             <TVFocusable
               onPress={() => runExport(() => copyBackupToClipboard(), 'Copiado — cole em outro aparelho ou app.')}
               style={backupStyles.optionRow}
-              disabled={exportBusy}
             >
               <Ionicons name="copy-outline" size={18} color={colors.accent} />
               <Text style={backupStyles.optionText}>Copiar para a área de transferência</Text>
@@ -587,7 +600,7 @@ function BackupRows() {
               <TVFocusable onPress={() => setShowImport(false)} style={backupStyles.btnCancel}>
                 <Text style={backupStyles.btnCancelText}>Cancelar</Text>
               </TVFocusable>
-              <TVFocusable onPress={handleImport} style={backupStyles.btnConfirm} disabled={importBusy}>
+              <TVFocusable onPress={handleImport} style={backupStyles.btnConfirm}>
                 <Text style={backupStyles.btnConfirmText}>{importBusy ? 'Importando…' : 'Importar'}</Text>
               </TVFocusable>
             </View>
@@ -790,6 +803,7 @@ function PlaybackRows({ settings, updateSettings }: {
         value={String(settings.bufferSize)}
         onChange={v => updateSettings({ bufferSize: parseInt(v, 10) })}
       />
+      <FrameRateRow settings={settings} updateSettings={updateSettings} />
       <SettingsRow
         icon="chatbox-ellipses-outline"
         label="Legendas automáticas"
@@ -799,6 +813,36 @@ function PlaybackRows({ settings, updateSettings }: {
         onToggle={v => updateSettings({ subtitleEnabled: v })}
       />
     </>
+  );
+}
+
+/**
+ * AFR — casar a taxa da TV com a do filme. Só faz sentido em TV física, e só
+ * aparece quando o aparelho oferece mais de uma taxa: num painel travado em
+ * 60 Hz o botão seria decorativo.
+ */
+function FrameRateRow({ settings, updateSettings }: {
+  settings: any; updateSettings: (s: any) => void;
+}) {
+  const [supported, setSupported] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!IS_NATIVE_TV) return;
+    let alive = true;
+    isAfrSupported().then(v => { if (alive) setSupported(v); });
+    return () => { alive = false; };
+  }, []);
+
+  if (!IS_NATIVE_TV || supported !== true) return null;
+
+  return (
+    <SettingsRow
+      icon="tv-outline"
+      label="Ajustar taxa da TV ao vídeo"
+      sub="Tira o solavanco de filmes 24p — a tela pisca uma vez ao iniciar"
+      toggle
+      on={settings.matchFrameRate}
+      onToggle={v => updateSettings({ matchFrameRate: v })}
+    />
   );
 }
 
@@ -1059,6 +1103,9 @@ function CategoryPanel({
 // ── Main component ──────────────────────────────────────────────────────────
 
 export default function SettingsScreen() {
+  // Devolve o foco do D-pad pro item de onde o usuário saiu ao voltar pra cá
+  useTVFocusMemory();
+
   const navigation = useNavigation();
   const settings       = useStore(s => s.settings);
   const updateSettings = useStore(s => s.updateSettings);

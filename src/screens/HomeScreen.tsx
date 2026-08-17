@@ -23,7 +23,7 @@ import { useAppLayout } from '../hooks/useAppLayout';
 import { getSeriesBaseName, LAUNCH_YEAR, NAV_ITEMS, cleanGroupName } from '../utils/channelUtils';
 import { searchChannels, SearchType } from '../utils/search';
 import { useRecentSearches } from '../store/recentSearches';
-import { useWatchProgress, watchStatusFor } from '../store/watchProgress';
+import { useWatchEntries, watchStatusFor } from '../store/watchProgress';
 import RemoteHints from '../components/RemoteHints';
 import TVCatalogLayout from '../components/TVCatalogLayout';
 import TVSearchContent from '../components/TVSearchContent';
@@ -32,6 +32,7 @@ import { IS_TV, IS_MOBILE, IS_WEB } from '../utils/tvDetect';
 import { dlog } from '../utils/debugLog';
 import { checkExpiringSources } from '../utils/xtreamApi';
 import { lockLandscape } from '../utils/orientation';
+import { useTVFocusMemory } from '../utils/tvFocusMemory';
 
 // Barra de abas inferior: layout de smartphone (TV e web usam a top bar).
 const HAS_BOTTOM_NAV = IS_MOBILE;
@@ -104,6 +105,9 @@ const FlatItem = memo(function FlatItem({
 );
 
 export default function HomeScreen() {
+  // Devolve o foco do D-pad pro item de onde o usuário saiu ao voltar pra cá
+  useTVFocusMemory();
+
   const { width } = useWindowDimensions();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   // Seletores por campo: a tela só re-renderiza quando o campo usado muda
@@ -117,7 +121,7 @@ export default function HomeScreen() {
   const favorites      = useStore(s => s.favorites);
   const recentChannels = useStore(s => s.recentChannels);
   const currentChannel = useStore(s => s.currentChannel);
-  const watchEntries   = useWatchProgress(s => s.entries);
+  const watchEntries   = useWatchEntries();
   const channelIndex   = useStore(s => s.channelIndex);
   const sortMode       = useStore(s => s.settings.sortMode);
   const updateSettings = useStore(s => s.updateSettings);

@@ -47,6 +47,9 @@ interface AppState {
     autoPlay: boolean;
     /** Buffer máximo do player em ms (15000 | 30000 | 60000). */
     bufferSize: number;
+    /** TV: casa a taxa de atualização da tela com o fps do vídeo (ver displayMode.ts).
+     *  Desligado por padrão — a troca de modo pisca a tela e algumas TVs não gostam. */
+    matchFrameRate: boolean;
     /** Relógio na top bar da TV. */
     showClock: boolean;
     /** Ativa legendas automaticamente quando o conteúdo tiver (Jellyfin). */
@@ -467,6 +470,7 @@ export const useStore = create<AppState>((set, get) => ({
   settings: {
     autoPlay: true,
     bufferSize: 30000,
+    matchFrameRate: false,
     showClock: true,
     subtitleEnabled: false,
     subtitleSize: 'medium',

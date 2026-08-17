@@ -44,9 +44,13 @@ export default function MiniPlayer({ onExpand }: Props) {
     positionRef.current = t;
     const dur = durationRef.current;
     const now = Date.now();
-    // Salva o progresso a cada ~10s → expandir/retomar continua de onde parou.
+    // Rede de segurança a cada 60s (só para o caso de o app morrer): expandir,
+    // fechar e terminar já gravam por saveNow(). Não pode ser frequente — cada
+    // record() troca a identidade de `entries` e re-renderiza a Home INTEIRA,
+    // que é justamente a tela por onde o usuário está navegando com o mini
+    // tocando. Na Fire Stick isso aparecia como engasgo no vídeo.
     // Ao vivo nunca grava (streams HLS reportam a janela de buffer como duração).
-    if (dur > 0 && now - lastSaveRef.current > 10_000) {
+    if (dur > 0 && now - lastSaveRef.current > 60_000) {
       lastSaveRef.current = now;
       if (channel?.id && resolveChannelType(channel) !== 'live') {
         record(channel.id, t, dur);
@@ -95,6 +99,19 @@ export default function MiniPlayer({ onExpand }: Props) {
             style={StyleSheet.absoluteFill}
             resizeMode={ResizeMode.CONTAIN}
             paused={paused}
+            // Sem isto o ExoPlayer usa o default dele (50s). Aqui o vídeo é um
+            // quadradinho tocando ENQUANTO o usuário navega o catálogo — a
+            // memória vale mais para as listas e as capas do que para meio
+            // minuto de vídeo adiantado.
+            bufferConfig={{
+              minBufferMs: 15000,
+              maxBufferMs: 20000,
+              bufferForPlaybackMs: 2500,
+              bufferForPlaybackAfterRebufferMs: 5000,
+            }}
+            // Default da lib é 250ms: 4 travessias de bridge por segundo durante
+            // a navegação. Aqui nem existe barra de progresso para alimentar.
+            progressUpdateInterval={1000}
             onLoad={onLoad}
             onProgress={onProgress}
             onEnd={onEnd}

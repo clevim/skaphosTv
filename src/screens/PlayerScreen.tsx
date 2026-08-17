@@ -454,6 +454,13 @@ export default function PlayerScreen() {
             bufferForPlaybackMs: 2500,
             bufferForPlaybackAfterRebufferMs: 5000,
           }}
+          // Mantém 15s JÁ REPRODUZIDOS em memória. O padrão do ExoPlayer é zero:
+          // voltar 10 segundos jogava fora o buffer inteiro e rebaixava tudo de
+          // novo — a travada clássica de quem perdeu uma fala e volta um pouco.
+          // Vai solto e não dentro do bufferConfig: no Android a lib lê esta prop
+          // no topo (o tipo do TS sugere o contrário e é ignorado lá). A própria
+          // lib zera isto sozinha se a memória livre estiver curta.
+          {...({ backBufferDurationMs: 15000 } as any)}
           // SurfaceView em vez de TextureView (o padrão da lib). O TextureView
           // desenha cada frame como textura NÃO-OPACA dentro da janela do app:
           // todo frame passa pela UI thread e ainda é alfa-composto. Em aparelho
@@ -564,6 +571,7 @@ export default function PlayerScreen() {
             showMinimize={!inPip}
             onMinimize={handleMinimize}
             scrubMode={scrubMode}
+            sidebarOpen={showSidebar}
             onControlsHover={IS_WEB ? setOsdHover : undefined}
           />
         )}

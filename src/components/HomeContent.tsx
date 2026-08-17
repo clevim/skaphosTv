@@ -13,7 +13,7 @@ import { colors, spacing, fontSize, radius, fontFamily, shadow } from '../utils/
 import { getSeriesBaseName, isLaunchYear, LAUNCH_YEAR, cleanGroupName } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
 import { afterInteractions } from '../utils/afterInteractions';
-import { useWatchProgress, progressFractionFor, resumePositionFor, watchStatusFor, computeContinueWatching, WatchEntry } from '../store/watchProgress';
+import { useWatchEntries, progressFractionFor, resumePositionFor, watchStatusFor, computeContinueWatching, WatchEntry } from '../store/watchProgress';
 import { useNowNext } from '../store/epgStore';
 import { useStore, resolveChannelType } from '../store/useStore';
 
@@ -466,7 +466,7 @@ export default function HomeContent({
   channels = [], topGenres = [], onChannelPress, onWatch, onDetails, onNavPress,
 }: Props) {
   const navigation = useNavigation();
-  const watchEntries = useWatchProgress(s => s.entries);
+  const watchEntries = useWatchEntries();
   const favorites = useStore(s => s.favorites);
   const toggleFavorite = useStore(s => s.toggleFavorite);
   const isEmpty = recentChannels.length === 0 && favoriteChannels.length === 0;

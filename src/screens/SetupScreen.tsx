@@ -29,6 +29,7 @@ import SendToTVModal from '../components/SendToTVModal';
 import { showAlert } from '../components/AppAlert';
 import { dlog } from '../utils/debugLog';
 import type { PairingPayload } from '../utils/pairingServer';
+import { useTVFocusMemory } from '../utils/tvFocusMemory';
 
 type TabType = 'm3u' | 'xtream' | 'jellyfin';
 
@@ -119,6 +120,9 @@ const PHASE_ICONS: Record<XtreamPhase, string> = {
 };
 
 export default function SetupScreen() {
+  // Devolve o foco do D-pad pro item de onde o usuário saiu ao voltar pra cá
+  useTVFocusMemory();
+
   const navigation = useNavigation();
   const addSource             = useStore(s => s.addSource);
   const updateSource          = useStore(s => s.updateSource);

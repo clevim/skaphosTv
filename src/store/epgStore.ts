@@ -159,7 +159,21 @@ export const useEpgStore = create<EpgState>((set, get) => ({
  * desativar (ex.: EPG desligado nos Ajustes) — o hook não dispara download.
  * O load respeita o TTL do guia (3h), então chamadas repetidas são baratas.
  */
-export function useNowNext(channelId: string | undefined): { now?: EpgProgram; next?: EpgProgram } {
+export function useNowNext(
+  channelId: string | undefined,
+  /**
+   * `true` = só LÊ o que já está em memória, nunca dispara o download.
+   *
+   * Para o OSD do player: o XMLTV de painel chega a dezenas de MB e, mesmo com o
+   * parser cedendo o event loop, baixar e varrer tudo isso é CPU que a Fire Stick
+   * não tem sobrando enquanto decodifica vídeo — o canal ao vivo engasgava nos
+   * primeiros segundos só para escrever "Agora/A seguir" numa linha de texto.
+   * Quem carrega o guia é a Home (cards ao vivo) e a tela do Guia; chegando no
+   * player, na prática já está em memória, e quando não está a linha só não
+   * aparece.
+   */
+  passive = false,
+): { now?: EpgProgram; next?: EpgProgram } {
   const programs = useEpgStore(s => (channelId ? s.byChannelId[channelId] : undefined));
   const load = useEpgStore(s => s.load);
   // Só dispara o download do XMLTV com a tela em foco — a Home fica montada
@@ -169,11 +183,11 @@ export function useNowNext(channelId: string | undefined): { now?: EpgProgram; n
   // parecer travado/lento sem motivo aparente.
   const isFocused = useIsFocused();
   useEffect(() => {
-    if (!channelId || !isFocused) return;
+    if (!channelId || !isFocused || passive) return;
     // Espera a transição de navegação/animações assentarem antes de puxar o
     // guia — senão ele compete com o próprio "voltar pra Home" bem no momento
     // em que a tela ganha foco, e mesmo mais rápido, ainda dá pra sentir.
     return afterInteractions(() => load());
-  }, [channelId, isFocused, load]);
+  }, [channelId, isFocused, passive, load]);
   return useMemo(() => nowNextFor(programs), [programs]);
 }

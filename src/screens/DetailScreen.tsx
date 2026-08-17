@@ -12,7 +12,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore, resolveChannelType } from '../store/useStore';
-import { useWatchProgress, progressFractionFor, resumePositionFor } from '../store/watchProgress';
+import { useWatchProgress, useWatchEntries, progressFractionFor, resumePositionFor } from '../store/watchProgress';
 import TVFocusable from '../components/TVFocusable';
 import PulsingDot from '../components/PulsingDot';
 import GlassButton from '../components/GlassButton';
@@ -24,6 +24,7 @@ import { getSeriesBaseName, cleanGroupName } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
 import { fetchVodInfo, parseMovieCredentials, XtreamVodDetails } from '../utils/xtreamApi';
 import { parseJellyfinVideoUrl } from '../utils/jellyfinLoader';
+import { useTVFocusMemory } from '../utils/tvFocusMemory';
 
 type DetailRoute = RouteProp<RootStackParamList, 'Detail'>;
 type Nav = StackNavigationProp<RootStackParamList>;
@@ -33,6 +34,9 @@ type Tab = typeof TABS[number];
 
 
 export default function DetailScreen() {
+  // Devolve o foco do D-pad pro item de onde o usuário saiu ao voltar pra cá
+  useTVFocusMemory();
+
   const navigation = useNavigation<Nav>();
   const route = useRoute<DetailRoute>();
   const { channel, relatedChannels = [] } = route.params;
@@ -79,7 +83,7 @@ export default function DetailScreen() {
   const isJellyfin = !!parseJellyfinVideoUrl(channel.url);
 
   // "Assistido" manual (só VOD — ao vivo não tem noção de assistido).
-  const watchEntry = useWatchProgress(s => s.entries[channel.id]);
+  const watchEntry = useWatchEntries()[channel.id];
   const isWatched = !!watchEntry?.watched;
   const toggleWatched = () => {
     const wp = useWatchProgress.getState();

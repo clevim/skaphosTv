@@ -132,6 +132,31 @@ class TvFocusModule : Module() {
      */
     private class Move(val consume: Boolean, val destination: View?, val retarget: Boolean)
 
+    // ── Memória de coluna ───────────────────────────────────────────────────
+    // O Android não lembra de qual coluna o foco saiu. Sem isso: você está no 5º
+    // card de uma fileira, sobe pro menu do topo, desce de novo — e cai no card
+    // embaixo do ITEM DE MENU, não no 5º. É a sensação de "apertei pra baixo e
+    // ele foi pro lado". Guardamos o centro horizontal ao sair de uma fileira e
+    // usamos ele ao entrar em outra vindo de fora (menu, hero, botão).
+    private var columnX = -1
+    // Página onde a coluna foi anotada (o scroller vertical que a contém): impede
+    // que uma coluna da Home mande o foco pro meio do rail de outra tela.
+    private var columnPage: java.lang.ref.WeakReference<View>? = null
+
+    private fun rememberColumn(focused: View) {
+      columnX = centerX(focused)
+      // Página sem scroller vertical (layout fixo, ex.: tela de série) fica com
+      // referência nula — e casa com outro destino também sem scroller.
+      columnPage = nearestVerticalScroller(focused)?.let { java.lang.ref.WeakReference<View>(it) }
+    }
+
+    private fun columnFor(destinationRow: View, focused: View): Int {
+      if (columnX < 0) return centerX(focused)
+      val savedPage = columnPage?.get()
+      return if (savedPage === nearestVerticalScroller(destinationRow)) columnX
+             else centerX(focused)
+    }
+
     private fun resolveMove(focused: View, dir: Int): Move {
       val currentRow = nearestHorizontalScroller(focused)
       // focusSearch é exatamente o que o ViewRootImpl chamaria — prevê o destino
@@ -140,22 +165,40 @@ class TvFocusModule : Module() {
 
       if (dir == View.FOCUS_LEFT || dir == View.FOCUS_RIGHT) {
         // Fora de fileira (grade vertical, sidebar, barra de topo): comportamento
-        // nativo, que ali já é o certo.
-        if (currentRow == null) return Move(false, next, false)
-        // Dentro de fileira: borda é beco sem saída — sem isso o FocusFinder
-        // escapa pra um card de outra fileira.
-        if (next == null || !isDescendantOf(next, currentRow)) return Move(true, null, false)
-        return Move(false, next, false)
+        // nativo, que ali já é o certo. Andar de lado FORA de fileira é troca de
+        // contexto (outra aba do topo, outro painel) — a coluna velha não vale
+        // mais e insistir nela seria pior que não lembrar de nada.
+        if (currentRow == null) { columnX = -1; return Move(false, next, false) }
+        if (next == null) return Move(true, null, false)
+        if (!isDescendantOf(next, currentRow)) {
+          // Escapou da fileira. Cair em OUTRA fileira é o pulo diagonal que não
+          // queremos (troca de fileira é cima/baixo) — vira beco sem saída. Mas
+          // sair para o que está ao lado e não é fileira (a coluna de canais do
+          // guia, uma sidebar) é navegação legítima e continua valendo.
+          return if (nearestHorizontalScroller(next) != null) Move(true, null, false)
+                 else Move(false, next, false)
+        }
+        // Mesmo DENTRO do scroller o destino pode estar em outra linha: a grade do
+        // guia é uma timeline única com todos os canais, então o FocusFinder acha
+        // "à direita" um programa de outro canal e a seta anda na diagonal. Andar
+        // de lado tem que ficar na linha; trocar de linha é cima/baixo.
+        if (overlapsVertically(focused, next)) return Move(false, next, false)
+        val sameLine = nearestOnSameLine(currentRow, focused, dir)
+        return if (sameLine != null) Move(false, sameLine, true) else Move(true, null, false)
       }
 
       // Vertical: o destino nativo é o "melhor" geometricamente, o que numa fileira
       // rolada para o lado vira um card qualquer. Corrige para o card da fileira de
       // destino ALINHADO com a coluna de onde o usuário saiu — a memória de coluna
       // que o Android não tem e que faz a navegação parecer previsível.
+      if (currentRow != null) rememberColumn(focused)
       if (next == null) return Move(false, null, false)
       val nextRow = nearestHorizontalScroller(next) ?: return Move(false, next, false)
       if (nextRow === currentRow) return Move(false, next, false)
-      val aligned = alignedChild(nextRow, centerX(focused), dir)
+      // Saindo de uma fileira: a coluna é a atual. Entrando vindo de fora (menu,
+      // hero, botão): a última coluna usada nesta mesma página, se houver.
+      val targetX = if (currentRow != null) centerX(focused) else columnFor(nextRow, focused)
+      val aligned = alignedChild(nextRow, targetX, dir)
       if (aligned == null || aligned === next) return Move(false, next, false)
       return Move(false, aligned, true)
     }
@@ -221,6 +264,37 @@ class TvFocusModule : Module() {
     private fun centerX(view: View): Int {
       view.getLocationOnScreen(tmpLoc)
       return tmpLoc[0] + view.width / 2
+    }
+
+    private fun top(view: View): Int {
+      view.getLocationOnScreen(tmpLoc)
+      return tmpLoc[1]
+    }
+
+    /** Duas views dividem a mesma linha? (faixas verticais se cruzam na tela) */
+    private fun overlapsVertically(a: View, b: View): Boolean {
+      val aTop = top(a); val aBottom = aTop + a.height
+      val bTop = top(b); val bBottom = bTop + b.height
+      return aTop < bBottom && bTop < aBottom
+    }
+
+    /** Focável mais próximo na MESMA linha, no sentido pedido. */
+    private fun nearestOnSameLine(row: ViewGroup, focused: View, dir: Int): View? {
+      val candidates = ArrayList<View>()
+      row.addFocusables(candidates, dir, View.FOCUSABLES_ALL)
+      val fromX = centerX(focused)
+      var best: View? = null
+      var bestDist = Int.MAX_VALUE
+      for (v in candidates) {
+        if (v === row || v === focused || !v.isShown) continue
+        if (!overlapsVertically(focused, v)) continue
+        val d = centerX(v) - fromX
+        val forward = if (dir == View.FOCUS_RIGHT) d > 0 else d < 0
+        if (!forward) continue
+        val dist = kotlin.math.abs(d)
+        if (dist < bestDist) { bestDist = dist; best = v }
+      }
+      return best
     }
 
     private fun directionOf(keyCode: Int): Int? = when (keyCode) {

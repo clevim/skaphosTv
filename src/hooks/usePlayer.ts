@@ -14,6 +14,7 @@ import { useWatchProgress, resumePositionFor } from '../store/watchProgress';
 import { loadSourceChannels } from '../utils/sourceLoader';
 import { useUsageStats } from '../store/usageStats';
 import { notify } from '../utils/notifications';
+import { matchFrameRate, restoreDisplayMode } from '../utils/displayMode';
 
 /** Live pelo TIPO do canal — nunca pela duração: streams HLS/TS ao vivo reportam a
  *  janela de buffer como duração, o que fazia o app tratá-los como VOD (resume
@@ -68,6 +69,8 @@ export function usePlayer(
   // senão o primeiro tick calcula elapsed = Date.now() - 0 (o epoch inteiro em
   // ms) e isso vira segundos de "tempo assistido" na hora, um valor absurdo.
   const lastProgressSaveRef = useRef(Date.now());
+  // Reconexão silenciosa de canal ao vivo já usada nesta sessão (ver onError).
+  const liveHiccupUsedRef   = useRef(false);
   useEffect(() => { sourcesRef.current = sources; }, [sources]);
 
   // Ações do store de progresso local (identidade estável no Zustand)
@@ -193,6 +196,8 @@ export function usePlayer(
     showOSDTemporarily();
     return () => {
       unlockOrientation();
+      // Devolve a TV ao modo em que estava (no-op se o AFR não trocou nada)
+      restoreDisplayMode();
       // Salva a posição ao sair do player (voltar, trocar de tela) — garante resume
       saveLocalProgress();
       clearAllTimers();
@@ -322,6 +327,7 @@ export function usePlayer(
     recordPlay(ch.sourceId, ch.id, ch.name);
     clearAllTimers();
     setAudioReady(false);
+    liveHiccupUsedRef.current = false;
     durationRef.current = 0;
     playingChannelRef.current = ch;
     setPlayingChannel(ch);
@@ -356,11 +362,24 @@ export function usePlayer(
 
   const onLoad = useCallback((data: any) => {
     setAudioReady(true); // ← libera selectedAudioTrack só agora (grupos ExoPlayer existem)
+
+    // AFR: casa a taxa de atualização da TV com o fps do vídeo. 24p numa saída de
+    // 60 Hz precisa repetir quadros em 3:2 e o movimento ganha um solavanco
+    // periódico — é vídeo, não buffer, então nenhum ajuste de rede resolve.
+    // O fps vem do container (patch do react-native-video expõe frameRate); MKV e
+    // TS costumam não declarar e aí não trocamos nada.
+    // ponytail: só o fps declarado. Medir pelos timestamps dos quadros cobriria
+    // MKV também — vale se aparecer acervo relevante sem fps no container.
+    if (useStore.getState().settings.matchFrameRate) {
+      const track = (data?.videoTracks ?? []).find((t: any) => (t?.frameRate ?? 0) > 0);
+      if (track) matchFrameRate(track.frameRate);
+    }
     setDuration(data.duration ?? 0);
     durationRef.current = data.duration ?? 0;
     setIsBuffering(false);
     setError(null);
     if (retryCount > 0) setRetryCount(0);
+    liveHiccupUsedRef.current = false; // voltou a tocar → nova cota de reconexão silenciosa
 
     // Seek pendente (após troca de faixa de áudio) — registra ANTES de limpar o ref
     const hadPendingSeek = pendingSeekRef.current !== null;
@@ -442,11 +461,17 @@ export function usePlayer(
     const t = data.currentTime ?? 0;
     positionRef.current = t;
     if (data.seekableDuration) seekDurRef.current = data.seekableDuration;
-    // Salva o progresso local a cada ~10s (independente do OSD) — alimenta o
+    // Salva o progresso local a cada ~30s (independente do OSD) — alimenta o
     // "continuar assistindo" e os badges. Ignorado para ao vivo (sem duração).
+    //
+    // 30s e não 10s: cada gravação serializa o mapa inteiro de progresso (até
+    // 600 entradas) e escreve no AsyncStorage, na mesma thread que desenha a
+    // tela. Sair do player grava de qualquer forma (ver o cleanup lá em cima),
+    // então os 30s só definem quanto se perde se o app for MORTO no meio do
+    // filme — meia dose de tolerância que ninguém percebe, um terço do trabalho.
     const now = Date.now();
     const elapsed = now - lastProgressSaveRef.current;
-    if (elapsed > 10_000) {
+    if (elapsed > 30_000) {
       lastProgressSaveRef.current = now;
       saveLocalProgress();
       // Métricas de uso contam AO VIVO também (diferente do progresso acima) —
@@ -537,6 +562,26 @@ export function usePlayer(
         refreshSourceAndRetry(ch, msg);
         return;
       }
+    }
+
+    // ── Soluço de feed ao vivo: reconecta na hora, sem tela de erro ───────────
+    // Num canal ao vivo a maioria das falhas é o feed piscando por um segundo,
+    // ou o player ficando para trás da janela do stream (BehindLiveWindow). O
+    // caminho normal — tela vermelha de erro + 2s de espera — transformava um
+    // engasgo de rede numa queda de canal.
+    //
+    // Uma tentativa silenciosa por sessão de reprodução: o onLoad zera o
+    // retryCount quando volta a tocar, então cada incidente isolado ganha a sua.
+    // Falhando de novo, cai no fluxo normal de erro e backoff — canal morto
+    // continua sendo reportado como morto.
+    const liveHiccup =
+      channelIsLive(playingChannelRef.current) || exception.includes('BehindLiveWindow');
+    if (liveHiccup && !liveHiccupUsedRef.current && !staleList) {
+      liveHiccupUsedRef.current = true;
+      setIsBuffering(true);
+      setError(null);
+      setVideoKey(k => k + 1);
+      return;
     }
 
     setError(msg);

@@ -17,6 +17,7 @@ import {
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import { shadow } from '../utils/theme';
 import { useReducedMotion } from '../utils/reducedMotion';
+import { reportTVFocus } from '../utils/tvFocusMemory';
 import { addFocusListener, watchView } from '../../modules/tv-focus';
 
 const FOCUS_SCALE = IS_TV ? 1.05 : 1;
@@ -120,8 +121,12 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
   onFocusPropRef.current = onFocusProp;
   onBlurPropRef.current  = onBlurProp;
 
+  // Identidade estável: é ela que a memória de foco da tela guarda para
+  // devolver o D-pad aqui quando o usuário voltar (ver tvFocusMemory).
+  const focusSelf = useRef(() => { (pressableRef.current as any)?.focus?.(); }).current;
+
   useImperativeHandle(ref, () => ({
-    focus:  () => { (pressableRef.current as any)?.focus?.(); },
+    focus:  focusSelf,
     getTag: () => findNodeHandle(pressableRef.current),
   }));
 
@@ -142,6 +147,7 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
     ensureFocusSub();
     focusHandlers.set(myTag, (focused) => {
       setIsFocused(focused);
+      if (focused) reportTVFocus(focusSelf);
       (focused ? onFocusPropRef : onBlurPropRef).current?.();
     });
     // Modais RN abrem outra janela nativa (Dialog) — garante que o observer de
@@ -170,7 +176,7 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
       // Mecanismo 2: Pressable.onFocus/onBlur — redundância para mecanismo 1.
       // Captura o foco inicial do hasTVPreferredFocus antes do listener ser subscrito,
       // e garante highlighting em casos que o ViewTreeObserver não alcança.
-      onFocus={IS_TV ? () => { setIsFocused(true);  onFocusPropRef.current?.(); } : undefined}
+      onFocus={IS_TV ? () => { setIsFocused(true);  reportTVFocus(focusSelf); onFocusPropRef.current?.(); } : undefined}
       onBlur ={IS_TV ? () => { setIsFocused(false); onBlurPropRef.current?.();  } : undefined}
       style={[
         { borderRadius },

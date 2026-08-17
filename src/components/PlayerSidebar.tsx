@@ -1,10 +1,11 @@
 import React from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, FlatList } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import { colors, fontSize, radius, spacing } from '@/utils/theme';
+import { IS_TV } from '../utils/tvDetect';
 
 
 interface Props {
@@ -24,15 +25,20 @@ export default function PlayerSidebar({
   title,
 }: Props) {
   const currentIndex = channels.findIndex(c => c.id === currentChannel.id);
+  // A lista abre já com o D-pad em cima do item atual — sem isso o foco fica no
+  // botão do OSD que abriu o painel e o usuário precisa "caçar" a lista. Uma vez
+  // só por abertura: a virtualização remonta o item ao rolar e ele roubaria o
+  // foco de volta a cada movimento.
+  const focusGrantedRef = React.useRef(false);
 
   return (
     <View style={styles.sidebar}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title} numberOfLines={1}>{title ?? currentChannel.group}</Text>
-        <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+        <TVFocusable accessibilityLabel="Fechar lista" onPress={onClose} style={styles.closeBtn}>
           <Ionicons name="close" size={20} color={colors.text2} />
-        </TouchableOpacity>
+        </TVFocusable>
       </View>
 
       {/* Lista */}
@@ -44,10 +50,16 @@ export default function PlayerSidebar({
         initialScrollIndex={Math.max(0, currentIndex)}
         renderItem={({ item }) => {
           const isActive = item.id === currentChannel.id;
+          let preferred = false;
+          if (IS_TV && isActive && !focusGrantedRef.current) {
+            focusGrantedRef.current = true;
+            preferred = true;
+          }
           return (
             <TVFocusable
               onPress={() => onSelectChannel(item)}
               style={[styles.item, isActive && styles.itemActive]}
+              hasTVPreferredFocus={preferred}
             >
               {item.logo ? (
                 <Image source={item.logo} style={styles.logo} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={item.id} />

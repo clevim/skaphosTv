@@ -7,7 +7,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Svg, { Circle } from 'react-native-svg';
 import { Channel } from '../types';
-import TVFocusable from './TVFocusable';
+import TVFocusable, { TVFocusableHandle } from './TVFocusable';
 import PulsingDot from './PulsingDot';
 import { colors, fontSize, radius, spacing } from '@/utils/theme';
 import { IS_TV, IS_NATIVE_TV, IS_WEB } from '../utils/tvDetect';
@@ -44,7 +44,9 @@ function SleepRing({ endAt, totalMinutes }: { endAt: number; totalMinutes: numbe
 function NowNextLine({ channel, isLive }: { channel: Channel; isLive: boolean }) {
   const showEpg = useStore(s => s.settings.showEpg);
   const enabled = isLive && showEpg && !channel.id.startsWith('jf-');
-  const { now, next } = useNowNext(enabled ? channel.id : undefined);
+  // passive: no player o guia é só LEITURA — baixar/parsear XMLTV aqui rouba
+  // CPU do decodificador de vídeo (ver useNowNext).
+  const { now, next } = useNowNext(enabled ? channel.id : undefined, true);
   if (!now && !next) return null;
   const fmt = (ms: number) => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   return (
@@ -105,6 +107,8 @@ interface Props {
   /** TV: modo scrubbing ativo (controlado pelo PlayerScreen). Esconde os controles,
    *  realça a barra e mostra a dica. O seek é feito pelo D-pad no PlayerScreen. */
   scrubMode?: boolean;
+  /** Lista lateral aberta: ao fechar, o foco volta pro play (ver efeito abaixo). */
+  sidebarOpen?: boolean;
   /** Web: avisa quando o mouse entra/sai dos controles — o OSD não se esconde
    *  enquanto o ponteiro estiver sobre algum botão/barra. */
   onControlsHover?: (hovering: boolean) => void;
@@ -149,10 +153,26 @@ export default function PlayerOSD({
   showNextEpisode, onNextEpisode,
   showMinimize, onMinimize,
   scrubMode = false,
+  sidebarOpen = false,
   onControlsHover,
 }: Props) {
   const progressPct = duration > 0 ? Math.min(1, position / duration) : 0;
   const seekBarWidth = useRef(0);
+
+  // Quando um focável some, o Android joga o foco no PRIMEIRO focável do player
+  // — o "voltar" do canto superior. Aí o OK, que o usuário espera que pause,
+  // fecha o player. Acontece em dois pontos: ao entrar no scrubbing (os botões de
+  // seek viram disabled) e ao fechar a lista lateral (o item focado desmonta).
+  // Nos dois, o foco volta pro play, que é o centro de comando do OSD.
+  const playRef = useRef<TVFocusableHandle>(null);
+  useEffect(() => {
+    if (IS_NATIVE_TV && scrubMode) playRef.current?.focus();
+  }, [scrubMode]);
+  const sidebarWasOpen = useRef(sidebarOpen);
+  useEffect(() => {
+    if (IS_NATIVE_TV && sidebarWasOpen.current && !sidebarOpen) playRef.current?.focus();
+    sidebarWasOpen.current = sidebarOpen;
+  }, [sidebarOpen]);
 
   // PanResponder é criado uma única vez (useRef): lê o callback via ref para não
   // congelar a primeira versão de onSeekTo — na primeira montagem duration ainda
@@ -310,7 +330,7 @@ export default function PlayerOSD({
           </TVFocusable>
         )}
 
-        <TVFocusable accessibilityLabel={isPlaying ? 'Pausar' : 'Reproduzir'} onPress={onTogglePlay} style={styles.playBtn} hasTVPreferredFocus>
+        <TVFocusable ref={playRef} accessibilityLabel={isPlaying ? 'Pausar' : 'Reproduzir'} onPress={onTogglePlay} style={styles.playBtn} hasTVPreferredFocus>
           <Ionicons name={isPlaying ? 'pause' : 'play'} size={IS_TV ? 28 : 24} color={colors.textInverse} />
         </TVFocusable>
 

@@ -1,8 +1,42 @@
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/api/VideoTrack.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/api/VideoTrack.kt
+index 60e5da2..ac838c7 100644
+--- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/api/VideoTrack.kt
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/api/VideoTrack.kt
+@@ -8,6 +8,9 @@ class VideoTrack {
+     var width = 0
+     var height = 0
+     var bitrate = 0
++    // fps declarado pelo container. 0 quando desconhecido (típico de MKV/TS) —
++    // usado pelo app para casar a taxa de atualização da TV com o conteúdo.
++    var frameRate = 0f
+     var codecs = ""
+     var id = -1
+     var trackId = ""
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.java
+index d87b6d8..dc14e04 100644
+--- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.java
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.java
+@@ -215,6 +215,7 @@ public class VideoEventEmitter {
+                 videoTrack.putInt("width", vTrack.getWidth());
+                 videoTrack.putInt("height",vTrack.getHeight());
+                 videoTrack.putInt("bitrate", vTrack.getBitrate());
++                videoTrack.putDouble("frameRate", vTrack.getFrameRate());
+                 videoTrack.putString("codecs", vTrack.getCodecs());
+                 videoTrack.putInt("trackId",vTrack.getId());
+                 videoTrack.putBoolean("selected", vTrack.isSelected());
 diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java
-index bb09f1a..e4f930f 100644
+index bb09f1a..8d4e0b0 100644
 --- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java
 +++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java
-@@ -1658,7 +1658,7 @@ public class ReactExoplayerView extends FrameLayout implements
+@@ -1234,6 +1234,7 @@ public class ReactExoplayerView extends FrameLayout implements
+         videoTrack.setWidth(format.width == Format.NO_VALUE ? 0 : format.width);
+         videoTrack.setHeight(format.height == Format.NO_VALUE ? 0 : format.height);
+         videoTrack.setBitrate(format.bitrate == Format.NO_VALUE ? 0 : format.bitrate);
++        videoTrack.setFrameRate(format.frameRate == Format.NO_VALUE ? 0 : format.frameRate);
+         if (format.codecs != null) videoTrack.setCodecs(format.codecs);
+         videoTrack.setTrackId(format.id == null ? String.valueOf(trackIndex) : format.id);;
+         return videoTrack;
+@@ -1658,7 +1659,7 @@ public class ReactExoplayerView extends FrameLayout implements
              disableTrack(rendererIndex);
              return;
          } else if (type.equals("language")) {
@@ -11,7 +45,7 @@ index bb09f1a..e4f930f 100644
                  Format format = groups.get(i).getFormat(0);
                  if (format.language != null && format.language.equals(value.asString())) {
                      groupIndex = i;
-@@ -1666,7 +1666,7 @@ public class ReactExoplayerView extends FrameLayout implements
+@@ -1666,7 +1667,7 @@ public class ReactExoplayerView extends FrameLayout implements
                  }
              }
          } else if (type.equals("title")) {
@@ -20,7 +54,7 @@ index bb09f1a..e4f930f 100644
                  Format format = groups.get(i).getFormat(0);
                  if (format.id != null && format.id.equals(value.asString())) {
                      groupIndex = i;
-@@ -1674,10 +1674,21 @@ public class ReactExoplayerView extends FrameLayout implements
+@@ -1674,10 +1675,21 @@ public class ReactExoplayerView extends FrameLayout implements
                  }
              }
          } else if (type.equals("index")) {
