@@ -8,7 +8,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useMiniPlayer } from '../store/miniPlayer';
 import { useWatchProgress } from '../store/watchProgress';
 import { resolveChannelType } from '../store/useStore';
-import { fixStreamUrl } from '../utils/m3uParser';
+import { fixStreamUrl, streamHeaders } from '../utils/m3uParser';
 import { Channel } from '../types';
 import { colors, shadow } from '../utils/theme';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
@@ -95,7 +95,7 @@ export default function MiniPlayer({ onExpand }: Props) {
         >
           <Video
             ref={videoRef}
-            source={{ uri: url, headers: { 'User-Agent': 'okhttp/4.9.0' } }}
+            source={{ uri: url, headers: streamHeaders(channel) }}
             style={StyleSheet.absoluteFill}
             resizeMode={ResizeMode.CONTAIN}
             paused={paused}

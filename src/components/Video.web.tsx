@@ -38,8 +38,25 @@ export const TextTracksType = {
 // Base do proxy CORS. Default: same-origin /proxy (nginx → serviço proxy).
 // Defina EXPO_PUBLIC_PROXY_URL='' para desabilitar (ex.: dev sem proxy).
 const PROXY_BASE = process.env.EXPO_PUBLIC_PROXY_URL ?? '/proxy';
-const viaProxy = (u?: string) =>
-  PROXY_BASE && u ? `${PROXY_BASE}?url=${encodeURIComponent(u)}` : (u ?? '');
+
+/**
+ * URL através do proxy, carregando os cabeçalhos que o stream exige.
+ *
+ * O navegador PROÍBE o JS de definir User-Agent e Referer numa requisição, então
+ * canais cujo provedor só responde ao agente publicado na lista (#EXTVLCOPT)
+ * simplesmente não tocavam na web — davam 403 enquanto funcionavam no Android.
+ * Aqui os valores viajam como parâmetro e o proxy os aplica na saída (ele já é
+ * quem fala com o servidor de verdade).
+ */
+function proxyUrl(u?: string, headers?: Record<string, string>): string {
+  if (!PROXY_BASE || !u) return u ?? '';
+  let out = `${PROXY_BASE}?url=${encodeURIComponent(u)}`;
+  const ua = headers?.['User-Agent'];
+  const ref = headers?.Referer;
+  if (ua) out += `&ua=${encodeURIComponent(ua)}`;
+  if (ref) out += `&ref=${encodeURIComponent(ref)}`;
+  return out;
+}
 
 type Kind = 'hls' | 'mpegts' | 'native';
 function kindOf(uri: string): Kind {
@@ -62,6 +79,8 @@ const Video = forwardRef(function Video(props: any, ref: any) {
   const liveTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const uri: string = source?.uri ?? '';
+  const srcHeaders: Record<string, string> | undefined = source?.headers;
+  const viaProxy = (u?: string) => proxyUrl(u, srcHeaders);
 
   useImperativeHandle(ref, () => ({
     seek: (seconds: number) => {

@@ -43,16 +43,26 @@ export async function parseM3U(content: string): Promise<ParseResult> {
     if (!line) { i++; continue; }
 
     if (line.startsWith('#EXTINF')) {
-      // Procura a próxima linha não-vazia como URL
+      // Procura a próxima linha não-vazia como URL, colhendo no caminho as
+      // diretivas #EXTVLCOPT do canal. Elas ficam ENTRE o #EXTINF e a URL, e
+      // eram descartadas junto com o resto dos comentários — canal que exige
+      // user-agent próprio respondia 403 e aparecia pro usuário como
+      // "Acesso negado. Verifique sua assinatura.", que é a mensagem errada.
       let urlLine = '';
+      let userAgent: string | undefined;
+      let referrer: string | undefined;
       let j = i + 1;
       while (j < lines.length) {
         const candidate = lines[j].trim();
         if (candidate && !candidate.startsWith('#')) { urlLine = candidate; break; }
+        const opt = parseVlcOpt(candidate);
+        if (opt?.key === 'http-user-agent') userAgent = opt.value;
+        // A grafia com dois "r" é a do VLC; a com um só aparece em listas por engano.
+        else if (opt?.key === 'http-referrer' || opt?.key === 'http-referer') referrer = opt.value;
         j++;
       }
       try {
-        const channel = parseExtInf(line, urlLine);
+        const channel = parseExtInf(line, urlLine, userAgent, referrer);
         if (channel) {
           channels.push(channel);
           if (channel.group) groupSet.add(channel.group);
@@ -77,7 +87,23 @@ export async function parseM3U(content: string): Promise<ParseResult> {
   };
 }
 
-function parseExtInf(extinf: string, url: string): Channel | null {
+/** `#EXTVLCOPT:http-user-agent=Mozilla/5.0` → { key, value }. */
+function parseVlcOpt(line: string): { key: string; value: string } | null {
+  if (!line.startsWith('#EXTVLCOPT:')) return null;
+  const body = line.slice('#EXTVLCOPT:'.length);
+  const eq = body.indexOf('=');
+  if (eq <= 0) return null;
+  const value = body.slice(eq + 1).trim();
+  if (!value) return null;
+  return { key: body.slice(0, eq).trim().toLowerCase(), value };
+}
+
+function parseExtInf(
+  extinf: string,
+  url: string,
+  userAgent?: string,
+  referrer?: string,
+): Channel | null {
   if (!url || url.startsWith('#')) return null;
 
   const tvgId = extractAttr(extinf, 'tvg-id') || extractAttr(extinf, 'tvg-ID');
@@ -111,6 +137,8 @@ function parseExtInf(extinf: string, url: string): Channel | null {
     tvgId: tvgId || undefined,
     quality,
     isFavorite: false,
+    httpUserAgent: userAgent,
+    httpReferrer: referrer,
   };
 }
 
@@ -141,6 +169,24 @@ function cleanName(name: string): string {
     .replace(/(HD|FHD|4K|SD|UHD)/gi, '')
     .trim()
     .replace(/\s+/g, ' ');
+}
+
+/**
+ * Cabeçalhos HTTP para tocar um canal.
+ *
+ * O provedor manda no assunto: quando a lista declara um user-agent para o
+ * canal (#EXTVLCOPT), é ELE que o servidor espera — mandar o nosso volta 403.
+ * Sem declaração, segue o padrão que os painéis Xtream aceitam.
+ */
+export function streamHeaders(ch: { httpUserAgent?: string; httpReferrer?: string }): Record<string, string> {
+  const headers: Record<string, string> = {
+    'User-Agent': ch.httpUserAgent || 'okhttp/4.9.0',
+    'Connection': 'keep-alive',
+  };
+  // Nome do cabeçalho é "Referer" (erro de grafia consagrado no HTTP), embora
+  // a diretiva do VLC seja "referrer".
+  if (ch.httpReferrer) headers.Referer = ch.httpReferrer;
+  return headers;
 }
 
 /**

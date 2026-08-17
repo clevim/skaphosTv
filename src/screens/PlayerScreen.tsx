@@ -17,7 +17,7 @@ import PlayerError from '@/components/PlayerError';
 import SubtitleSheet from '@/components/SubtitleSheet';
 import AudioTrackSheet from '@/components/AudioTrackSheet';
 import SleepTimerSheet from '@/components/SleepTimerSheet';
-import { fixStreamUrl } from '../utils/m3uParser';
+import { fixStreamUrl, streamHeaders } from '../utils/m3uParser';
 import { resolveSubtitleUri } from '../utils/subtitleSync';
 import { IS_TV, IS_WEB, IS_NATIVE_TV } from '../utils/tvDetect';
 import { setPipEnabled, setPipPlaying } from '../utils/pip';
@@ -72,7 +72,7 @@ export default function PlayerScreen() {
   }, [subtitleSize]);
 
   const {
-    videoRef, osdAnim, videoKey, paused,
+    videoRef, osdAnim, videoKey, paused, sourceType,
     playingChannel, isPlaying, isBuffering,
     isMuted, volume, error,
     rate, setRate,
@@ -431,13 +431,9 @@ export default function PlayerScreen() {
         <Video
           key={videoKey}
           ref={videoRef}
-          source={{
-            uri: streamUrl,
-            headers: {
-              'User-Agent': 'okhttp/4.9.0',
-              'Connection': 'keep-alive',
-            },
-          }}
+          // sourceType só é definido quando a extensão da URL enganou o player
+          // e a gente forçou o outro container (ver onError em usePlayer).
+          source={{ uri: streamUrl, type: sourceType, headers: streamHeaders(playingChannel) }}
           style={StyleSheet.absoluteFill}
           resizeMode={ResizeMode.CONTAIN}
           paused={paused}

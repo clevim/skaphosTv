@@ -278,6 +278,19 @@ app.use('/proxy', async (req, res) => {
     if (!STRIP_REQ_HEADERS.has(key.toLowerCase())) headers[key] = value;
   }
 
+  // User-Agent/Referer pedidos pelo player (?ua=&ref=). O navegador proíbe o JS
+  // de definir esses dois numa requisição, então canais cujo provedor só aceita
+  // o agente publicado na lista M3U (#EXTVLCOPT) não tocavam na web. Aqui a
+  // decisão vem do cliente mas quem aplica é o proxy, que é quem fala com o
+  // servidor de verdade. Não amplia a superfície de SSRF: o host já foi validado
+  // acima e continua sendo o mesmo.
+  const wantUa = typeof req.query.ua === 'string' ? req.query.ua.slice(0, 256) : '';
+  const wantRef = typeof req.query.ref === 'string' ? req.query.ref.slice(0, 512) : '';
+  // Quebra de linha em header = request splitting; corta fora antes de usar.
+  const clean = (v) => v.replace(/[\r\n]/g, '').trim();
+  if (wantUa) headers['user-agent'] = clean(wantUa);
+  if (wantRef) headers['referer'] = clean(wantRef);
+
   // Corpo para métodos não-GET (Jellyfin Quick Connect, playstate, etc.).
   let body;
   const method = req.method.toUpperCase();

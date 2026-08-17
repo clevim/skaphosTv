@@ -100,6 +100,12 @@ export function usePlayer(
     recordPlay(initialChannel.sourceId, initialChannel.id, initialChannel.name);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [videoKey, setVideoKey] = useState(0);
+  /**
+   * Container forçado para o player (`source.type`), quando a extensão da URL
+   * mentiu sobre o conteúdo. undefined = deixa o ExoPlayer inferir pela URL.
+   * Ver o tratamento de erro de parsing em onError.
+   */
+  const [sourceType, setSourceType] = useState<string | undefined>(undefined);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isBuffering, setIsBuffering] = useState(true);
   const [paused, setPaused] = useState(false);
@@ -328,6 +334,7 @@ export function usePlayer(
     clearAllTimers();
     setAudioReady(false);
     liveHiccupUsedRef.current = false;
+    setSourceType(undefined);
     durationRef.current = 0;
     playingChannelRef.current = ch;
     setPlayingChannel(ch);
@@ -527,8 +534,14 @@ export function usePlayer(
   }, [playChannel, scheduleRetry, retryCount]);
 
   const onError = useCallback((err: any) => {
+    // Android: a lib manda o código do media3 prefixado com "2" (ver
+    // ReactExoplayerView.onPlayerError). É bem mais confiável que caçar texto
+    // dentro da mensagem da exceção. No web o payload não tem código e só o
+    // casamento por texto abaixo vale — por isso os dois caminhos convivem.
     const code = err?.error?.errorCode;
     const exception = err?.error?.errorException || '';
+    const isParsingError  = code === '23001' || code === '23002' || code === '23003' || code === '23004';
+    const isDecoderError  = typeof code === 'string' && code.startsWith('24');
 
     let msg = 'Falha ao reproduzir o canal.';
     let staleList = false;
@@ -564,6 +577,31 @@ export function usePlayer(
       }
     }
 
+    // ── Container mentindo sobre o conteúdo ──────────────────────────────────
+    // Painel que serve HLS numa URL terminada em .ts (ou o contrário) faz o
+    // ExoPlayer escolher o extrator errado pela extensão e falhar no parsing —
+    // pro usuário o canal simplesmente "não abre", sempre. Uma segunda tentativa
+    // com o container oposto resolve, e é barata: uma por canal.
+    if (isParsingError && sourceType === undefined) {
+      const url = playingChannelRef.current?.url ?? '';
+      setSourceType(/\.m3u8(\?|$)/i.test(url) ? 'ts' : 'm3u8');
+      setIsBuffering(true);
+      setError(null);
+      setVideoKey(k => k + 1);
+      return;
+    }
+
+    // ── Aparelho não dá conta do codec ───────────────────────────────────────
+    // Insistir aqui é perda de tempo garantida: o decodificador não vai passar a
+    // existir na próxima tentativa. Antes o usuário encarava os 5 retries (2+4+
+    // 8+15+30s = mais de um minuto de espera) para chegar na mesma conclusão.
+    if (isDecoderError) {
+      setError('Este aparelho não consegue decodificar este canal (codec ou resolução acima do suportado).');
+      setIsBuffering(false);
+      setRetryingIn(null);
+      return;
+    }
+
     // ── Soluço de feed ao vivo: reconecta na hora, sem tela de erro ───────────
     // Num canal ao vivo a maioria das falhas é o feed piscando por um segundo,
     // ou o player ficando para trás da janela do stream (BehindLiveWindow). O
@@ -587,7 +625,7 @@ export function usePlayer(
     setError(msg);
     setIsBuffering(false);
     scheduleRetry(retryCount);
-  }, [retryCount, scheduleRetry, refreshSourceAndRetry]);
+  }, [retryCount, sourceType, scheduleRetry, refreshSourceAndRetry]);
 
   const onEnd = useCallback(() => {
     const ch = playingChannelRef.current;
@@ -718,7 +756,7 @@ export function usePlayer(
   }, [vttSubtitleIndex]);
 
   return {
-    videoRef, osdAnim, videoKey, paused,
+    videoRef, osdAnim, videoKey, paused, sourceType,
     playingChannel, isPlaying, isBuffering,
     isMuted, volume, error,
     rate, setRate,

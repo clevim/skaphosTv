@@ -19,6 +19,14 @@ export interface Channel {
   rating?: string;
   releaseDate?: string;
   backdrop?: string;
+  /**
+   * Cabeçalhos HTTP exigidos por ESTE stream, declarados na lista M3U via
+   * #EXTVLCOPT (http-user-agent / http-referrer). Vários provedores recusam
+   * (403) qualquer requisição que não use o agente que eles publicam na lista.
+   * Ausentes na esmagadora maioria dos canais — só ocupam espaço quando existem.
+   */
+  httpUserAgent?: string;
+  httpReferrer?: string;
   /** Episódios: título humano ("Pilot") — o `name` fica padronizado como "Série SxxEyy" */
   epTitle?: string;
   /** Episódios: duração real em segundos (Xtream duration_secs / Jellyfin RunTimeTicks) */
