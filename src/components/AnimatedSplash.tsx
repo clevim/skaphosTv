@@ -96,10 +96,20 @@ function useLimbRig(anim: TentacleAnim, growDurMs: number) {
 
   // rotation/scale + origin do react-native-svg = pivô explícito (ax,ay) —
   // o equivalente nativo do transform-box/transform-origin do CSS.
-  const growProps = useAnimatedProps(() => ({ opacity: growOp.value, scale: grow.value } as any));
-  const swayProps = useAnimatedProps(() => ({ rotation: sway.value } as any));
-  const sway2Props = useAnimatedProps(() => ({ rotation: sway2.value } as any));
-  const breatheProps = useAnimatedProps(() => ({ scale: breathe.value } as any));
+  //
+  // O origin PRECISA vir junto em cada frame, e não só no JSX. O <G> do
+  // react-native-svg monta a matriz de transform a partir dos props que RECEBE
+  // na atualização (G.setNativeProps → extractTransform), sem consultar os que
+  // já estavam lá. Mandando só `scale`, o origin vira (0,0) e o membro passa a
+  // escalar a partir do canto do desenho em vez da própria âncora: ele entrava
+  // voando da lateral e só "acertava" a posição no fim do crescimento, quando
+  // scale=1 torna o pivô irrelevante. No retrato ficava gritante porque o
+  // desenho é girado 90°, então esse canto cai fora da tela, à esquerda.
+  const ox = anim.ax, oy = anim.ay;
+  const growProps = useAnimatedProps(() => ({ opacity: growOp.value, scale: grow.value, originX: ox, originY: oy } as any));
+  const swayProps = useAnimatedProps(() => ({ rotation: sway.value, originX: ox, originY: oy } as any));
+  const sway2Props = useAnimatedProps(() => ({ rotation: sway2.value, originX: ox, originY: oy } as any));
+  const breatheProps = useAnimatedProps(() => ({ scale: breathe.value, originX: ox, originY: oy } as any));
   return { growProps, swayProps, sway2Props, breatheProps };
 }
 
