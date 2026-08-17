@@ -101,6 +101,12 @@ const SUBSIZE_OPTIONS = [
   { value: 'large',  label: 'Grande' },
 ] as const;
 
+const REBUFFER_OPTIONS = [
+  { value: '1500', label: '1,5 s · volta rápido' },
+  { value: '3000', label: '3 s · equilibrado' },
+  { value: '5000', label: '5 s · padrão' },
+] as const;
+
 const BUFFER_OPTIONS = [
   { value: '15000', label: '15 s · conexão instável' },
   { value: '30000', label: '30 s · padrão' },
@@ -802,6 +808,14 @@ function PlaybackRows({ settings, updateSettings }: {
         options={BUFFER_OPTIONS}
         value={String(settings.bufferSize)}
         onChange={v => updateSettings({ bufferSize: parseInt(v, 10) })}
+      />
+      <SettingsRowSelect
+        icon="refresh-circle-outline"
+        label="Retomada após travar"
+        sub="Quanto o player junta antes de voltar — menos espera, porém mais chance de travar de novo"
+        options={REBUFFER_OPTIONS}
+        value={String(settings.rebufferMs ?? 5000)}
+        onChange={v => updateSettings({ rebufferMs: parseInt(v, 10) })}
       />
       <FrameRateRow settings={settings} updateSettings={updateSettings} />
       <SettingsRow

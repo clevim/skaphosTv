@@ -55,6 +55,9 @@ export default function PlayerScreen() {
   const channels = useStore(s => s.channels);
   const subtitleSize = useStore(s => s.settings.subtitleSize);
   const bufferSizeMs = useStore(s => s.settings.bufferSize);
+  // Ajustável em Ajustes → Reprodução: trocar reinicia o player (setBufferConfig
+  // faz release+init na lib), então só vale a partir do próximo canal aberto.
+  const rebufferMs = useStore(s => s.settings.rebufferMs ?? 5000);
   // Ao terminar (filme ou último episódio) o player se fecha sozinho
   const handleRequestClose = useCallback(() => {
     if (navigation.canGoBack()) navigation.goBack();
@@ -448,7 +451,7 @@ export default function PlayerScreen() {
             // Configurável em Ajustes → Reprodução (15s conexão fraca / 30s / 60s estável)
             maxBufferMs: bufferSizeMs >= 15000 ? bufferSizeMs : 30000,
             bufferForPlaybackMs: 2500,
-            bufferForPlaybackAfterRebufferMs: 5000,
+            bufferForPlaybackAfterRebufferMs: rebufferMs,
           }}
           // Mantém 15s JÁ REPRODUZIDOS em memória. O padrão do ExoPlayer é zero:
           // voltar 10 segundos jogava fora o buffer inteiro e rebaixava tudo de

@@ -15,6 +15,7 @@ import { loadSourceChannels } from '../utils/sourceLoader';
 import { useUsageStats } from '../store/usageStats';
 import { notify } from '../utils/notifications';
 import { matchFrameRate, restoreDisplayMode } from '../utils/displayMode';
+import { setPlaybackActive } from '../utils/playbackGate';
 
 /** Live pelo TIPO do canal — nunca pela duração: streams HLS/TS ao vivo reportam a
  *  janela de buffer como duração, o que fazia o app tratá-los como VOD (resume
@@ -200,7 +201,10 @@ export function usePlayer(
   useEffect(() => {
     lockLandscape();
     showOSDTemporarily();
+    // Segura trabalho pesado de catálogo enquanto este player existir (ver playbackGate)
+    setPlaybackActive(true);
     return () => {
+      setPlaybackActive(false);
       unlockOrientation();
       // Devolve a TV ao modo em que estava (no-op se o AFR não trocou nada)
       restoreDisplayMode();

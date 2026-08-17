@@ -1,7 +1,7 @@
 // MiniPlayer.tsx — Player flutuante (PiP dentro do app).
 // Montado no root (App.tsx), acima do navegador, para continuar tocando enquanto
 // o usuário navega. Recebe o canal/posição do PlayerScreen via store useMiniPlayer.
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet, Pressable, Text } from 'react-native';
 import Video, { ResizeMode } from 'react-native-video';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -9,6 +9,7 @@ import { useMiniPlayer } from '../store/miniPlayer';
 import { useWatchProgress } from '../store/watchProgress';
 import { resolveChannelType } from '../store/useStore';
 import { fixStreamUrl, streamHeaders } from '../utils/m3uParser';
+import { setPlaybackActive } from '../utils/playbackGate';
 import { Channel } from '../types';
 import { colors, shadow } from '../utils/theme';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
@@ -79,6 +80,13 @@ export default function MiniPlayer({ onExpand }: Props) {
   }, [saveNow, close]);
 
   const onEnd = useCallback(() => { close(); }, [close]);
+
+  // Mini-player tocando também é reprodução: segura recarga de catálogo (ver playbackGate)
+  useEffect(() => {
+    if (!visible || !channel) return;
+    setPlaybackActive(true);
+    return () => setPlaybackActive(false);
+  }, [visible, channel]);
 
   if (!visible || !channel) return null;
 

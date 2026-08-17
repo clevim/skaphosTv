@@ -7,6 +7,7 @@ import TVFocusable from './TVFocusable';
 import { colors, spacing, radius, fontFamily } from '../utils/theme';
 import { LAUNCH_YEAR } from '../utils/channelUtils';
 import { useStore } from '../store/useStore';
+import { useIsFocused } from '@react-navigation/native';
 
 const TV_NAV_STATIC_BEFORE = [
   { key: 'home',      label: 'Início'    },
@@ -69,13 +70,18 @@ export default function TVTopBar({ active, onNavPress, onSettingsPress, jellyfin
   // Relógio local: antes vivia no HomeScreen e cada mudança de minuto
   // re-renderizava a tela inteira (hero + ~120 focusables) só pra este <Text>.
   const [clock, setClock] = useState('');
+  // Para de bater enquanto a tela está atrás de outra (player, ajustes, série):
+  // ninguém vê este relógio ali, e cada batida re-renderizava a barra inteira —
+  // ~10 focáveis — a cada 30s por cima de quem está decodificando vídeo.
+  const isFocused = useIsFocused();
   useEffect(() => {
+    if (!isFocused) return;
     const tick = () =>
       setClock(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
     tick();
     const interval = setInterval(tick, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isFocused]);
 
   const showClock = useStore(s => s.settings.showClock);
   const showEpg   = useStore(s => s.settings.showEpg);

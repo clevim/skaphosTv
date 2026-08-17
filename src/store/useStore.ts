@@ -50,6 +50,10 @@ interface AppState {
     /** TV: casa a taxa de atualização da tela com o fps do vídeo (ver displayMode.ts).
      *  Desligado por padrão — a troca de modo pisca a tela e algumas TVs não gostam. */
     matchFrameRate: boolean;
+    /** Quanto o player junta antes de VOLTAR depois de travar, em ms (1500|3000|5000).
+     *  Valor baixo volta rápido mas pode travar de novo; alto trava menos vezes,
+     *  porém cada travada dura mais. Padrão 5000 (o do ExoPlayer). */
+    rebufferMs: number;
     /** Relógio na top bar da TV. */
     showClock: boolean;
     /** Ativa legendas automaticamente quando o conteúdo tiver (Jellyfin). */
@@ -471,6 +475,7 @@ export const useStore = create<AppState>((set, get) => ({
     autoPlay: true,
     bufferSize: 30000,
     matchFrameRate: false,
+    rebufferMs: 5000,
     showClock: true,
     subtitleEnabled: false,
     subtitleSize: 'medium',

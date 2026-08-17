@@ -33,6 +33,7 @@ import { dlog } from '../utils/debugLog';
 import { checkExpiringSources } from '../utils/xtreamApi';
 import { lockLandscape } from '../utils/orientation';
 import { useTVFocusMemory } from '../utils/tvFocusMemory';
+import { whenNotPlaying } from '../utils/playbackGate';
 
 // Barra de abas inferior: layout de smartphone (TV e web usam a top bar).
 const HAS_BOTTOM_NAV = IS_MOBILE;
@@ -281,12 +282,20 @@ export default function HomeScreen() {
       dlog(`[perf][boot] bgRefresh: ${bgRefresh.length} fonte(s) (cacheStale=${cacheStale})`);
       // Atualização em background das fontes completas (Jellyfin sempre; todas se cache velho)
       if (bgRefresh.length > 0) beginRefreshing();
+      // A ENTREGA espera o vídeo parar. replaceSourceChannels varre o catálogo
+      // inteiro, refaz o índice, serializa megabytes pro disco e ainda troca o
+      // `channels` da store — o que re-renderiza até o player, que assina esse
+      // campo. Rodando por baixo de um filme, isso é travadinha na tela; e não
+      // tem urgência nenhuma, o usuário está assistindo (ver playbackGate).
       const bgPromises = bgRefresh.map((src) => {
         const tBg = Date.now();
         return loadOneSource(src)
           .then(({ channels: chs, groups: grps }) => {
             dlog(`[perf][boot] bgRefresh "${src.name}" terminou em ${Date.now() - tBg}ms, ${chs.length} canais`);
-            if (chs.length > 0) replaceSourceChannels(src.id, chs, grps);
+            // ponytail: a lista fica retida em memória até o vídeo parar (uma
+            // segunda cópia do catálogo). Se isso apertar a RAM da Fire Stick,
+            // o caminho é descartar e refazer a busca depois, não segurar.
+            if (chs.length > 0) whenNotPlaying(() => replaceSourceChannels(src.id, chs, grps));
           })
           .catch(() => {});
       });
