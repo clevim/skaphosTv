@@ -1,6 +1,6 @@
 {
   "name": "skaphostv",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
@@ -16,6 +16,9 @@
     "set-version": "node scripts/sync-version.js",
     "gen-icons": "node scripts/gen-icons.js",
     "check:web-storage": "node scripts/check-web-storage.js",
+    "check:grid-jump": "node --import ./scripts/ts-register.mjs scripts/check-grid-jump.mjs",
+    "check:detect-type": "node --import ./scripts/ts-register.mjs scripts/check-detect-type.mjs",
+    "check:recently-added": "node --import ./scripts/ts-register.mjs scripts/check-recently-added.mjs",
     "postinstall": "npx patch-package"
   },
   "dependencies": {
@@ -54,7 +57,7 @@
     "react-native-screens": "3.31.1",
     "react-native-svg": "15.2.0",
     "react-native-tcp-socket": "^6.4.1",
-    "react-native-video": "6.0.0-beta.6",
+    "react-native-video": "6.19.2",
     "react-native-web": "~0.19.10",
     "zustand": "^4.5.5"
   },

@@ -27,6 +27,17 @@ export interface XtreamRawStream {
   director?: string;
   releaseDate?: string;
   backdrop_path?: string | string[];
+  /** epoch em segundos, como string — live e VOD. */
+  added?: string | number;
+  /** epoch em segundos, como string — séries usam este nome. */
+  last_modified?: string | number;
+}
+
+/** `added`/`last_modified` chegam como string na maioria dos painéis. */
+function parseAddedAt(raw: string | number | undefined): number | undefined {
+  if (raw == null) return undefined;
+  const n = typeof raw === 'number' ? raw : parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 export function mapLiveStream(s: XtreamRawStream, host: string, user: string, pass: string, group: string): Channel {
@@ -42,6 +53,7 @@ export function mapLiveStream(s: XtreamRawStream, host: string, user: string, pa
     quality: detectQuality(`${name} ${url}`),
     isFavorite: false,
     streamType: 'live',
+    addedAt: parseAddedAt(s.added),
   };
 }
 
@@ -62,15 +74,27 @@ export function mapVodStream(s: XtreamRawStream, host: string, user: string, pas
     genre: s.genre || undefined,
     plot: s.plot || undefined,
     releaseDate: s.releaseDate || undefined,
+    addedAt: parseAddedAt(s.added),
   };
 }
 
+/**
+ * Série do catálogo — DELIBERADAMENTE enxuta.
+ *
+ * `get_series` devolve sinopse, elenco, diretor e backdrop de CADA série. Guardar
+ * isso no catálogo custa três vezes: memória o app inteiro, um JSON.stringify a
+ * cada save e um JSON.parse a cada boot — para texto que só aparece dentro da
+ * tela da série. E a SeriesScreen já chama `get_series_info` ao abrir (é de onde
+ * vêm os episódios); a MESMA resposta traz esse bloco `info` de novo. Guardar era
+ * pagar por uma cópia que já ia chegar de graça.
+ *
+ * Ficam os campos que a NAVEGAÇÃO usa: `genre` (carrosséis por gênero), `rating`
+ * (ordenação) e `releaseDate` (aba Ano) — todos curtos.
+ */
 export function mapSeriesStream(s: XtreamRawStream, host: string, user: string, pass: string, group: string): Channel {
   const name = String(s.name ?? '').trim() || 'Série';
   // URL é o endpoint da API da série — episódios carregados sob demanda no SeriesScreen
   const url  = `${host}/series/${user}/${pass}/${s.series_id}`;
-  const backdropRaw = s.backdrop_path;
-  const backdrop = Array.isArray(backdropRaw) ? backdropRaw[0] : (backdropRaw || undefined);
   return {
     id: `series-${s.series_id}`,
     name,
@@ -81,12 +105,9 @@ export function mapSeriesStream(s: XtreamRawStream, host: string, user: string, 
     quality: 'HD',
     isFavorite: false,
     streamType: 'series',
-    plot: s.plot || undefined,
-    cast: s.cast || undefined,
-    director: s.director || undefined,
     genre: s.genre || undefined,
     rating: s.rating != null ? String(s.rating) : undefined,
     releaseDate: s.releaseDate || undefined,
-    backdrop: backdrop || undefined,
+    addedAt: parseAddedAt(s.last_modified ?? s.added),
   };
 }

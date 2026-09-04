@@ -1,3 +1,3 @@
 // AUTO-GERADO por scripts/sync-version.js — não editar à mão.
-export const APP_VERSION = '1.7.0';
-export const BUILD_NUMBER = 10700;
+export const APP_VERSION = '1.8.0';
+export const BUILD_NUMBER = 10800;

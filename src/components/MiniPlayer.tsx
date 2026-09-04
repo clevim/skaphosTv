@@ -3,7 +3,7 @@
 // o usuário navega. Recebe o canal/posição do PlayerScreen via store useMiniPlayer.
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet, Pressable, Text } from 'react-native';
-import Video, { ResizeMode } from 'react-native-video';
+import Video, { ResizeMode, ViewType } from 'react-native-video';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useMiniPlayer } from '../store/miniPlayer';
 import { useWatchProgress } from '../store/watchProgress';
@@ -107,6 +107,13 @@ export default function MiniPlayer({ onExpand }: Props) {
             style={StyleSheet.absoluteFill}
             resizeMode={ResizeMode.CONTAIN}
             paused={paused}
+            // TextureView EXPLÍCITO. Aqui o vídeo é recortado pelo borderRadius do
+            // card, e SurfaceView não respeita recorte — ele ganha um plano de
+            // hardware próprio e sai desenhando o retângulo inteiro por cima.
+            // Era o default da lib até a 6.0.0-beta.6; da 6.19 em diante o default
+            // virou SurfaceView, então agora precisa ser pedido. (O player cheio
+            // quer o oposto — ver viewType={ViewType.SURFACE} na PlayerScreen.)
+            viewType={ViewType.TEXTURE}
             // Sem isto o ExoPlayer usa o default dele (50s). Aqui o vídeo é um
             // quadradinho tocando ENQUANTO o usuário navega o catálogo — a
             // memória vale mais para as listas e as capas do que para meio

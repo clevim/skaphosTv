@@ -29,10 +29,18 @@ export const SelectedTrackType = {
   INDEX: 'index',
 };
 
-export const TextTracksType = {
+export const TextTrackType = {
   SUBRIP: 'application/x-subrip',
   TTML: 'application/ttml+xml',
   VTT: 'text/vtt',
+};
+
+// Android-only na lib nativa (SurfaceView × TextureView); no <video> do navegador
+// não existe equivalente. Stub só para o import do PlayerScreen resolver no web.
+export const ViewType = {
+  TEXTURE: 0,
+  SURFACE: 1,
+  SURFACE_SECURE: 2,
 };
 
 // Base do proxy CORS. Default: same-origin /proxy (nginx → serviço proxy).

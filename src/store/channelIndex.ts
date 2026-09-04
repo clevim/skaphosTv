@@ -10,7 +10,7 @@
  * fraco (Firestick). Async + yield a cada 2000 itens no passe principal.
  */
 
-import { Channel } from '../types';
+import type { Channel } from '../types';
 import { resolveContentType, getSeriesBaseName, isLaunchYear, YEAR_GROUPS, yieldToUI } from '../utils/channelUtils';
 import type { IPTVSource } from './useStore';
 
@@ -36,6 +36,14 @@ export interface ChannelIndex {
   yearMovies: Channel[];
   yearSeries: Channel[];   // deduplicado
 
+  /**
+   * Filmes e séries que ENTRARAM no catálogo há pouco (campo `added` da API),
+   * mais novos primeiro. Diferente de `yearMovies`/`yearSeries`, que é o ano de
+   * LANÇAMENTO da obra — um filme de 1994 adicionado ontem entra aqui e não lá.
+   * Vazio quando o provedor não informa datas.
+   */
+  recentlyAdded: Channel[];
+
   // Gêneros mais frequentes entre filmes/séries (campo `genre` da API, dividido
   // por vírgula) — pra carrosséis tipo "Recomendados por gênero" na Home.
   // Ordenado por quantidade, só gêneros com pelo menos 4 itens.
@@ -49,12 +57,23 @@ export interface ChannelIndex {
   counts: { live: number; movies: number; series: number; year: number };
 }
 
+/**
+ * Janela de "adicionado recentemente" e teto da fileira.
+ *
+ * Janela e não "os N mais novos": num painel que ficou meses sem novidade, "os
+ * 20 mais novos" mostraria acervo velho sob um rótulo que promete o contrário.
+ * Com janela, a fileira simplesmente não aparece — que é a informação honesta.
+ */
+const RECENT_WINDOW_DAYS = 30;
+const RECENT_CAP = 24;
+
 const EMPTY_INDEX: ChannelIndex = {
   live: [], movies: [], series: [],
   byGroup: new Map(), seriesByGroup: new Map(),
   liveGroups: [], movieGroups: [], seriesGroups: [],
   episodeCountMap: new Map(),
   yearMovies: [], yearSeries: [],
+  recentlyAdded: [],
   topGenres: [],
   genreMap: new Map(),
   counts: { live: 0, movies: 0, series: 0, year: 0 },
@@ -80,6 +99,9 @@ export async function buildChannelIndex(channels: Channel[], sources: IPTVSource
 
   const yearMoviesArr: Channel[] = [];
   const yearSeriesRaw: Channel[] = [];
+  // Candidatos a "adicionados recentemente" — ordenados/cortados depois do passe.
+  const addedRaw: Channel[] = [];
+  const recentCutoff = Math.floor(Date.now() / 1000) - RECENT_WINDOW_DAYS * 86_400;
 
   // genre (string "Ação, Aventura" da API) → canais únicos daquele gênero.
   // Cap por gênero evita um gênero gigante (ex.: "Drama") inflar memória/render.
@@ -120,12 +142,14 @@ export async function buildChannelIndex(channels: Channel[], sources: IPTVSource
     } else if (type === 'movies') {
       movies.push(c);
       if (isLaunchYear(c.name, c.releaseDate)) yearMoviesArr.push(c);
+      if (c.addedAt && c.addedAt >= recentCutoff) addedRaw.push(c);
 
     } else {
       allSeries.push(c);
       const base = getSeriesBaseName(c.name);
       episodeCountMap.set(base, (episodeCountMap.get(base) || 0) + 1);
       if (isLaunchYear(c.name, c.releaseDate)) yearSeriesRaw.push(c);
+      if (c.addedAt && c.addedAt >= recentCutoff) addedRaw.push(c);
     }
 
     if (++i % 2000 === 0) await yieldToUI();
@@ -185,6 +209,18 @@ export async function buildChannelIndex(channels: Channel[], sources: IPTVSource
     .slice(0, 8)
     .map(([genre, chans]) => ({ genre, channels: chans }));
 
+  // Séries entram uma vez só: episódios soltos de M3U repetiriam o mesmo título.
+  const recentSeen = new Set<string>();
+  const recentlyAdded = addedRaw
+    .sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))
+    .filter(c => {
+      const key = resolveContentType(c) === 'series' ? getSeriesBaseName(c.name) : c.id;
+      if (recentSeen.has(key)) return false;
+      recentSeen.add(key);
+      return true;
+    })
+    .slice(0, RECENT_CAP);
+
   return {
     live,
     movies,
@@ -197,6 +233,7 @@ export async function buildChannelIndex(channels: Channel[], sources: IPTVSource
     episodeCountMap,
     yearMovies: yearMoviesArr,
     yearSeries,
+    recentlyAdded,
     topGenres,
     genreMap,
     counts: {
@@ -231,6 +268,7 @@ export function mergeChannelIndexes(parts: ChannelIndex[]): ChannelIndex {
   const episodeCountMap = new Map<string, number>();
   const yearMovies: Channel[] = [], yearSeries: Channel[] = [];
   const ySeen = new Set<string>();
+  const recentAll: Channel[] = [];
   const liveGroupsSet = new Set<string>(), movieGroupsSet = new Set<string>(), seriesGroupsSet = new Set<string>();
   const genreMap = new Map<string, Channel[]>();
 
@@ -259,6 +297,7 @@ export function mergeChannelIndexes(parts: ChannelIndex[]): ChannelIndex {
       const b = getSeriesBaseName(c.name);
       if (!ySeen.has(b)) { ySeen.add(b); yearSeries.push(c); }
     }
+    for (const c of p.recentlyAdded) recentAll.push(c);
     for (const g of p.liveGroups)   liveGroupsSet.add(g);
     for (const g of p.movieGroups)  movieGroupsSet.add(g);
     for (const g of p.seriesGroups) seriesGroupsSet.add(g);
@@ -292,6 +331,11 @@ export function mergeChannelIndexes(parts: ChannelIndex[]): ChannelIndex {
     seriesGroups: Array.from(seriesGroupsSet),
     episodeCountMap,
     yearMovies, yearSeries,
+    // Cada parcial já veio ordenado e cortado; refunde e corta de novo para o
+    // global respeitar o mesmo teto entre várias fontes.
+    recentlyAdded: recentAll
+      .sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))
+      .slice(0, RECENT_CAP),
     topGenres,
     genreMap,
     counts: {

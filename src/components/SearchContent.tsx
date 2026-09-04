@@ -309,6 +309,9 @@ export default function SearchContent({
           {otherResults.length > 0 && (
             <View>
               <Text style={styles.othersLabel}>OUTROS RESULTADOS</Text>
+              {/* ponytail: resultados do MOBILE, não virtualizados — limitados a
+                  100 pelo `limit` do searchChannels, então é teto conhecido e
+                  baixo. Na TV o caminho é o TVSearchContent, já em FlatList. */}
               {otherResults.map(ch => (
                 <ResultRow key={ch.id + ch.name} channel={ch} onPress={() => onResultPress(ch)} />
               ))}

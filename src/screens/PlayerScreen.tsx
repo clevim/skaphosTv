@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, Pressable, Platform, BackHandler, DeviceEventEmitter } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import Video, { ResizeMode, SelectedTrackType, TextTracksType } from 'react-native-video';
+import Video, { ResizeMode, SelectedTrackType, TextTrackType, ViewType } from 'react-native-video';
 import type { ISO639_1 } from 'react-native-video/src/types/language';
 // ^^ ISO639_1 usado como cast de tipo no externalTextTracks — TS precisa do import explícito
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useStore } from '../store/useStore';
+import { useStore, resolveChannelType } from '../store/useStore';
 import { colors, fontSize } from '../utils/theme';
 import { RootStackParamList } from '../types';
 import { MAX_RETRIES, RETRY_DELAYS, usePlayer } from '@/hooks/usePlayer';
@@ -52,7 +52,7 @@ export default function PlayerScreen() {
     playlist = [],
   } = route.params;
 
-  const channels = useStore(s => s.channels);
+  const channelIndex = useStore(s => s.channelIndex);
   const subtitleSize = useStore(s => s.settings.subtitleSize);
   const bufferSizeMs = useStore(s => s.settings.bufferSize);
   // Ajustável em Ajustes → Reprodução: trocar reinicia o player (setBufferConfig
@@ -216,7 +216,7 @@ export default function PlayerScreen() {
       title:    track.displayTitle,
       language: `jf-sub-${track.index}` as ISO639_1,
       uri:      resolvedVttUri,
-      type:     TextTracksType.VTT,
+      type:     TextTrackType.VTT,
     }];
   }, [vttSubtitleIndex, subtitleTracks, resolvedVttUri]);
 
@@ -236,15 +236,21 @@ export default function PlayerScreen() {
   // Lista lateral do player:
   //  • Série: episódios da temporada atual (a própria playlist passada pela SeriesScreen).
   //  • Filme/Ao vivo: outras mídias da MESMA subcategoria (mesmo grupo).
-  // useMemo obrigatório: sem ele este filtro varria o catálogo INTEIRO (dezenas de
-  // milhares de itens) a cada render — e o onProgress do player re-renderiza a tela
-  // várias vezes por segundo. Numa Fire Stick isso é a JS thread parada em loop,
-  // que é o que fazia o vídeo "engasgar" com o OSD na tela.
+  // O índice já mantém `byGroup` pronto: é lookup O(1), não varredura. O useMemo
+  // continua porque `playlist` e o fallback criam identidade nova, mas o custo
+  // real saiu daqui — antes este filtro varria o catálogo INTEIRO (dezenas de
+  // milhares de itens) e bastava o índice mudar (refresh de catálogo em
+  // background) para refazer tudo com o vídeo rodando. Era a JS thread parada em
+  // loop justamente durante a reprodução.
   const sidebarChannels = useMemo(() => {
     if (playlist.length > 0) return playlist;
-    const group = channels.filter(c => c.group === playingChannel.group);
-    return group.length > 0 ? group : channels;
-  }, [playlist, channels, playingChannel.group]);
+    const group = channelIndex?.byGroup.get(playingChannel.group ?? '');
+    if (group && group.length > 0) return group;
+    // Sem grupo casando: cai para as mídias do mesmo TIPO em vez do catálogo
+    // inteiro — a lista lateral do player nunca foi para misturar canal ao vivo
+    // com filme, e "tudo" num catálogo grande é lista impossível de percorrer.
+    return channelIndex?.[resolveChannelType(playingChannel)] ?? [];
+  }, [playlist, channelIndex, playingChannel]);
 
   // URL estável — não varia com audioIndex/subtitleIndex.
   // Para Direct Play (static=true) o servidor ignora audioStreamIndex de qualquer forma;
@@ -452,14 +458,12 @@ export default function PlayerScreen() {
             maxBufferMs: bufferSizeMs >= 15000 ? bufferSizeMs : 30000,
             bufferForPlaybackMs: 2500,
             bufferForPlaybackAfterRebufferMs: rebufferMs,
+            // Mantém 15s JÁ REPRODUZIDOS em memória. O padrão do ExoPlayer é zero:
+            // voltar 10 segundos jogava fora o buffer inteiro e rebaixava tudo de
+            // novo — a travada clássica de quem perdeu uma fala e volta um pouco.
+            // A própria lib zera isto sozinha se a memória livre estiver curta.
+            backBufferDurationMs: 15000,
           }}
-          // Mantém 15s JÁ REPRODUZIDOS em memória. O padrão do ExoPlayer é zero:
-          // voltar 10 segundos jogava fora o buffer inteiro e rebaixava tudo de
-          // novo — a travada clássica de quem perdeu uma fala e volta um pouco.
-          // Vai solto e não dentro do bufferConfig: no Android a lib lê esta prop
-          // no topo (o tipo do TS sugere o contrário e é ignorado lá). A própria
-          // lib zera isto sozinha se a memória livre estiver curta.
-          {...({ backBufferDurationMs: 15000 } as any)}
           // SurfaceView em vez de TextureView (o padrão da lib). O TextureView
           // desenha cada frame como textura NÃO-OPACA dentro da janela do app:
           // todo frame passa pela UI thread e ainda é alfa-composto. Em aparelho
@@ -468,7 +472,7 @@ export default function PlayerScreen() {
           // fica imune a isso; as overlays (OSD, buffering) continuam por cima.
           // O MiniPlayer segue com TextureView de propósito: lá o vídeo é
           // recortado por borderRadius, coisa que o SurfaceView não respeita.
-          useTextureView={false}
+          viewType={ViewType.SURFACE}
           // Padrão da lib é 250 ms — 4 travessias de bridge por segundo só pra
           // mexer no relógio do OSD. 1 s basta (a barra é em segundos).
           progressUpdateInterval={1000}

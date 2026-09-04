@@ -1,6 +1,6 @@
 // TVCatalogLayout.tsx — Two-panel TV browse layout: left sidebar + right grid
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, FlatList } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, fontSize, radius } from '../utils/theme';
@@ -55,29 +55,42 @@ export default function TVCatalogLayout({
             )}
           </View>
         </View>
-        <ScrollView
+        {/*
+          * VIRTUALIZADA. Era um ScrollView com `groups.map()` — TODA categoria
+          * do painel montada de uma vez. Um Xtream comum traz de 200 a 600
+          * categorias, e cada uma aqui é uma view nativa + uma entrada no mapa
+          * de foco + um Animated.Value + um post na UI thread (watchView). Isso
+          * era pago inteiro a cada entrada em Ao Vivo/Filmes/Séries, dentro da
+          * transição de tela — a grade ao lado já era virtualizada, a sidebar não.
+          *
+          * Sem getItemLayout de propósito: o nome quebra em até 2 linhas, então
+          * a altura varia por item e uma tabela fixa erraria os offsets (mesma
+          * decisão da lista de seções da Home).
+          */}
+        <FlatList
+          data={groups}
+          keyExtractor={g => g}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.sidebarList}
-        >
-          {/* All option */}
-          <TVFocusable
-            onPress={() => onGroupSelect(null)}
-            style={[styles.groupItem, !selectedGroup && styles.groupItemActive]}
-          >
-            <Text
-              style={[styles.groupName, !selectedGroup && styles.groupNameActive]}
-              numberOfLines={2}
+          // Redesenha os dois itens que trocam de estado ao mudar a seleção.
+          extraData={selectedGroup}
+          ListHeaderComponent={
+            <TVFocusable
+              onPress={() => onGroupSelect(null)}
+              style={[styles.groupItem, !selectedGroup && styles.groupItemActive]}
             >
-              Todos
-            </Text>
-          </TVFocusable>
-
-          {groups.map(g => {
-            const clean = cleanGroupName(g);
+              <Text
+                style={[styles.groupName, !selectedGroup && styles.groupNameActive]}
+                numberOfLines={2}
+              >
+                Todos
+              </Text>
+            </TVFocusable>
+          }
+          renderItem={({ item: g }) => {
             const isActive = selectedGroup === g;
             return (
               <TVFocusable
-                key={g}
                 onPress={() => onGroupSelect(isActive ? null : g)}
                 style={[styles.groupItem, isActive && styles.groupItemActive]}
               >
@@ -85,12 +98,20 @@ export default function TVCatalogLayout({
                   style={[styles.groupName, isActive && styles.groupNameActive]}
                   numberOfLines={2}
                 >
-                  {clean}
+                  {cleanGroupName(g)}
                 </Text>
               </TVFocusable>
             );
-          })}
-        </ScrollView>
+          }}
+          // Preenche a coluna inteira no primeiro frame: a sidebar tem ~600px de
+          // altura útil e o item ~40px, então nasce sem buraco visível.
+          initialNumToRender={16}
+          maxToRenderPerBatch={8}
+          updateCellsBatchingPeriod={50}
+          windowSize={5}
+          // Clipar destruiria a view nativa do item focado, e o foco vai junto.
+          removeClippedSubviews={false}
+        />
       </View>
 
       {/* Divider */}

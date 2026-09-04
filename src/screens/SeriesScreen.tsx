@@ -19,7 +19,7 @@ import GlassButton from '../components/GlassButton';
 import { colors, radius, fontFamily } from '../utils/theme';
 import { Channel, RootStackParamList } from '../types';
 import { getSeriesBaseName, cleanGroupName } from '../utils/channelUtils';
-import { fetchSeriesInfo, parseSeriesCredentials } from '../utils/xtreamApi';
+import { fetchSeriesInfo, parseSeriesCredentials, XtreamSeriesInfo } from '../utils/xtreamApi';
 import { parseJellyfinSeriesUrl, fetchJellyfinEpisodes, parseJellyfinVideoUrl } from '../utils/jellyfinLoader';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import { showAlert, AlertButton } from '../components/AppAlert';
@@ -279,6 +279,10 @@ export default function SeriesScreen() {
   const seriesChannel = routeChannels[0];
   const isXtreamSeries = routeChannels.length === 1 && seriesChannel?.streamType === 'series';
 
+  // Metadados ricos da série (sinopse/elenco/diretor/backdrop). NÃO ficam no
+  // catálogo — ver mapSeriesStream. Chegam no MESMO get_series_info que traz os
+  // episódios, ou seja, sem nenhuma requisição a mais.
+  const [seriesInfo, setSeriesInfo] = useState<XtreamSeriesInfo['info'] | null>(null);
   const [allEpisodes, setAllEpisodes] = useState<Channel[]>(isXtreamSeries ? [] : routeChannels);
   const [loadingEpisodes, setLoadingEpisodes] = useState(isXtreamSeries);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -337,6 +341,7 @@ export default function SeriesScreen() {
 
     fetchSeriesInfo(creds.host, creds.user, creds.pass, seriesId)
       .then(info => {
+        setSeriesInfo(info.info ?? null);
         const episodeList: Channel[] = [];
         const rawEpisodes = info.episodes || {};
         const seasonsData: Record<string, typeof rawEpisodes[string]> =
@@ -678,15 +683,24 @@ export default function SeriesScreen() {
   // ── Metadados para exibição ───────────────────────────────────────────────
   const groupClean = (heroChannel?.group ? cleanGroupName(heroChannel.group) : '') || '';
 
-  const displayPlot = seriesChannel?.plot
-    || (isXtreamSeries ? (seriesChannel?.genre || '') : groupClean);
+  // Precedência: o que o canal trouxer (M3U enriquecido ainda traz) → o bloco
+  // `info` do get_series_info (Xtream) → derivado do grupo.
+  const infoBackdropRaw = seriesInfo?.backdrop_path;
+  const infoBackdrop = Array.isArray(infoBackdropRaw) ? infoBackdropRaw[0] : infoBackdropRaw;
+  const seriesPlot     = seriesChannel?.plot     || seriesInfo?.plot;
+  const seriesCast     = seriesChannel?.cast     || seriesInfo?.cast;
+  const seriesDirector = seriesChannel?.director || seriesInfo?.director;
+  const seriesBackdrop = seriesChannel?.backdrop || infoBackdrop || undefined;
 
-  const displayGenre = seriesChannel?.genre || groupClean || 'Drama';
+  const displayPlot = seriesPlot
+    || (isXtreamSeries ? (seriesChannel?.genre || seriesInfo?.genre || '') : groupClean);
 
-  const backdropUri = seriesChannel?.backdrop || seriesChannel?.logo || heroChannel?.logo;
+  const displayGenre = seriesChannel?.genre || seriesInfo?.genre || groupClean || 'Drama';
+
+  const backdropUri = seriesBackdrop || seriesChannel?.logo || heroChannel?.logo;
   // Sem backdrop de verdade (paisagem) — caiu pro logo (retrato/quadrado).
   // "cover" recorta esquisito nesse caso e o banner parece torto; usa "contain".
-  const backdropIsLogo = !seriesChannel?.backdrop;
+  const backdropIsLogo = !seriesBackdrop;
 
   const trackSheet = (
     <JellyfinTrackSheet
@@ -918,6 +932,21 @@ export default function SeriesScreen() {
               getItemLayout={(_, index) => ({ length: stride, offset: stride * index + pH, index })}
               onScrollToIndexFailed={() => {}}
               renderItem={renderRailItem}
+              // Único rail do app que rodava nos defaults do RN (windowSize 21 =
+              // ~10 telas de folga para cada lado). Numa temporada curta não se
+              // nota; numa novela de 300 episódios são ~140 cards montados de
+              // uma vez, cada um com listener de foco, Animated.Value e pôster —
+              // na Fire Stick é memória e trabalho que a lista nem usa.
+              //
+              // Os três ajustes seguem a mesma regra das fileiras da Home:
+              // windowSize ≥ 3 garante uma tela renderizada à frente (senão
+              // segurar → alcança o vazio e o foco se perde), e clipar está
+              // proibido porque destrói a view nativa do card focado.
+              initialNumToRender={Math.ceil(sw / stride) + 2}
+              maxToRenderPerBatch={4}
+              updateCellsBatchingPeriod={50}
+              windowSize={5}
+              removeClippedSubviews={false}
             />
           </View>
         </View>
@@ -1024,16 +1053,16 @@ export default function SeriesScreen() {
               <Text style={styles.metaKey}>Gênero</Text>
               <Text style={styles.metaVal}>{displayGenre}</Text>
             </View>
-            {isXtreamSeries && seriesChannel?.cast ? (
+            {isXtreamSeries && seriesCast ? (
               <View style={styles.metaItem}>
                 <Text style={styles.metaKey}>Elenco</Text>
-                <Text style={styles.metaVal}>{seriesChannel.cast}</Text>
+                <Text style={styles.metaVal}>{seriesCast}</Text>
               </View>
             ) : null}
-            {isXtreamSeries && seriesChannel?.director ? (
+            {isXtreamSeries && seriesDirector ? (
               <View style={styles.metaItem}>
                 <Text style={styles.metaKey}>Direção</Text>
-                <Text style={styles.metaVal}>{seriesChannel.director}</Text>
+                <Text style={styles.metaVal}>{seriesDirector}</Text>
               </View>
             ) : null}
             <View style={styles.metaItem}>
@@ -1075,6 +1104,12 @@ export default function SeriesScreen() {
 
         {/* Episode list */}
         <View style={styles.episodeList}>
+          {/* ponytail: lista de episódios do MOBILE, não virtualizada — uma
+              novela com 300 episódios monta 300 linhas com pôster. Na TV este
+              caminho não existe (o rail acima é FlatList). Fica assim porque
+              está dentro do ScrollView da tela; virtualizar exige inverter a
+              hierarquia (FlatList como raiz + o hero no ListHeaderComponent).
+              Fazer quando doer no celular. */}
           {episodes.map((item, index) => {
             const label = epLabel(item.name, index);
             const epName = item.epTitle || item.name

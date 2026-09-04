@@ -27,6 +27,7 @@ import DetailScreen from './src/screens/DetailScreen';
 import TVEPGScreen from './src/screens/TVEPGScreen';
 import { useThemeStore } from './src/store/useThemeStore';
 import AnimatedSplash from './src/components/AnimatedSplash';
+import { setSplashCovering } from './src/utils/bootSplash';
 import MiniPlayer from './src/components/MiniPlayer';
 import AppAlertHost from './src/components/AppAlert';
 import DebugOverlay from './src/components/DebugOverlay';
@@ -47,6 +48,12 @@ import { activate as activateTvFocus } from './modules/tv-focus';
 
 export type { Channel, RootStackParamList } from './src/types';
 import type { RootStackParamList } from './src/types';
+
+// Teto de espera da splash. Se a leitura do cache demorar mais que isso (disco
+// lento, catálogo enorme), a splash sai assim mesmo: melhor uma Home carregando
+// do que uma animação que parece travada. Acima do mínimo visível da própria
+// splash (2,4 s + fade), então em boot normal quem manda continua sendo ela.
+const BOOT_GATE_MS = 6000;
 
 const Stack = createStackNavigator<RootStackParamList>();
 
@@ -95,9 +102,27 @@ function handleDeepLink(url: string | null) {
 }
 
 export default function App() {
-  const { fontsLoaded } = useGeistFonts();
-  // Splash animada de entrada (cobre o boot; some quando as fontes carregam)
+  const { fontsLoaded, fontError } = useGeistFonts();
+  // `Font.useFonts` devolve [loaded, error] e, em caso de erro, `loaded` NUNCA
+  // vira true. Como a splash só saía com ele, uma fonte que falhasse ao carregar
+  // prendia o app na animação para sempre — e nem o teto abaixo salvava, porque
+  // ele só libera o outro lado do `&&`. Sem a Geist o app cai na fonte do
+  // sistema, que é incomparavelmente melhor que uma splash eterna.
+  const fontsSettled = fontsLoaded || !!fontError;
+  // Splash animada de entrada — cobre o boot INTEIRO, não só as fontes.
+  //
+  // Antes ela saía assim que as fontes carregavam (rápido, vêm no bundle) e o
+  // usuário caía numa Home com spinner enquanto o cache de canais ainda era lido
+  // do disco. Agora espera também a hidratação da store, que é quando existe
+  // conteúdo para desenhar. `BOOT_GATE_MS` é o teto: se algo travar na leitura, a
+  // splash sai mesmo assim em vez de virar tela de bloqueio.
   const [splashVisible, setSplashVisible] = useState(true);
+  const hydrated = useStore(s => s.hydrated);
+  const [gateExpired, setGateExpired] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setGateExpired(true), BOOT_GATE_MS);
+    return () => clearTimeout(t);
+  }, []);
   // Guarda URL recebida antes de nav estar pronta (cold start via deep link)
   const pendingUrl = useRef<string | null>(null);
   // OTA baixando → o app vai reiniciar sozinho; não oferece o APK por cima.
@@ -279,7 +304,20 @@ export default function App() {
           <Stack.Navigator
             screenOptions={{
               headerShown: false,
-              animationEnabled: true,
+              // Fire Stick / Android TV: sem a transição de card. A animação
+              // compõe DUAS telas cheias por ~350 ms bem enquanto a de cima
+              // monta os primeiros cards — na Stick isso é o engasgo que se vê
+              // ao entrar num filme, e ainda atrasa o D-pad até ela terminar
+              // (a memória de foco só devolve o foco depois). Celular e web
+              // seguem com a transição normal.
+              animationEnabled: !IS_NATIVE_TV,
+              // A tela de baixo continua MONTADA (é disso que a memória de foco
+              // depende), mas para de re-renderizar enquanto está atrás. Sem
+              // isto, cada refresh de catálogo em background re-renderiza a Home
+              // inteira — 9 seções e milhares de itens — disputando a thread JS
+              // com a tela que o usuário está usando. No web não: lá o stack não
+              // desanexa telas, então não há o que congelar.
+              freezeOnBlur: !IS_WEB,
               cardStyle: { backgroundColor: colors.bg0 },
               // headerMode:'float' (não usamos header nativo — headerShown:false já
               // esconde) é o que faz o @react-navigation/stack manter
@@ -319,7 +357,10 @@ export default function App() {
         <DebugOverlay />
 
         {splashVisible && (
-          <AnimatedSplash ready={fontsLoaded} onFinish={() => setSplashVisible(false)} />
+          <AnimatedSplash
+            ready={fontsSettled && (hydrated || gateExpired)}
+            onFinish={() => { setSplashCovering(false); setSplashVisible(false); }}
+          />
         )}
       </SafeAreaProvider>
     </GestureHandlerRootView>

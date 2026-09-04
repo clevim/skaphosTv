@@ -229,6 +229,15 @@ export function enrichM3UChannels(opts: EnricherOptions): void {
 
   // Processa cada servidor em background (não bloqueia a chamada)
   const run = async () => {
+    // UMA cópia de trabalho, acumulada entre servidores.
+    //
+    // Antes cada volta fazia `[...channels]` a partir do array ORIGINAL: com dois
+    // servidores, os metadados do primeiro eram descartados quando o segundo
+    // publicava o dele (o último a terminar ganhava, os outros sumiam). E a cópia
+    // rasa do catálogo inteiro — dezenas de milhares de referências — era refeita
+    // por servidor, à toa.
+    let working: Channel[] | null = null;
+
     for (const entry of serverMap.values()) {
       try {
         const meta = await buildMetaMap(
@@ -236,18 +245,19 @@ export function enrichM3UChannels(opts: EnricherOptions): void {
         );
         if (meta.size === 0) continue;
 
-        // Cria cópia rasa do array de canais e aplica metadados
-        const updated = [...channels];
         let changed = false;
-
         for (const [key, idx] of entry.idMap) {
           const patch = meta.get(key);
           if (!patch) continue;
-          updated[idx] = { ...updated[idx], ...patch };
+          if (!working) working = [...channels];   // copia só quando há o que aplicar
+          working[idx] = { ...working[idx], ...patch };
           changed = true;
         }
 
-        if (changed) onEnriched(updated);
+        // Publica uma referência NOVA a cada rodada: `working` continua sendo
+        // mutado pelos servidores seguintes, e entregar o mesmo array faria um
+        // consumidor que compara por referência ignorar a atualização.
+        if (changed && working) onEnriched([...working]);
       } catch (e: any) {
         onError?.(entry.host, e?.message ?? 'Erro ao enriquecer canais');
       }

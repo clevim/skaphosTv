@@ -8,6 +8,21 @@ buildscript {
         targetSdkVersion = Integer.parseInt(findProperty('android.targetSdkVersion') ?: '34')
         kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.23'
 
+        // Media3 fixada porque o react-native-video 6.19 pede 1.8.0 por padrão, e
+        // a partir da 1.5.0 o AAR declara minCompileSdk=35. Este projeto compila
+        // com compileSdk 34 (AGP 8.2.1, herdado do React Native 0.74) e subir o
+        // compileSdk exigiria AGP 8.6+ — cascata pra dentro do Expo 51 muito maior
+        // que o problema. A 1.4.1 é a última que aceita compileSdk 34, e o
+        // react-native-video 6.19 compila inteiro contra ela (verificado).
+        //
+        // O que isso NÃO custa: as correções do próprio react-native-video (o
+        // motivo do upgrade) vêm todas. O que custa: as melhorias internas do
+        // Media3 1.5–1.8.
+        //
+        // ponytail: remover este pin quando o projeto subir de Expo/AGP — aí a
+        // versão que a lib escolhe sozinha passa a valer.
+        media3Version = '1.4.1'
+
         ndkVersion = "26.1.10909125"
     }
     repositories {

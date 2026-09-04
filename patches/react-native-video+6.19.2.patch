@@ -1,0 +1,38 @@
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/api/VideoTrack.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/api/VideoTrack.kt
+index 0000000..0000000 100644
+--- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/api/VideoTrack.kt
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/api/VideoTrack.kt
+@@ -8,6 +8,9 @@
+     var width = 0
+     var height = 0
+     var bitrate = 0
++    // fps declarado pelo container. 0 quando desconhecido (típico de MKV/TS) —
++    // usado pelo app para casar a taxa de atualização da TV com o conteúdo (AFR).
++    var frameRate = 0f
+     var codecs = ""
+     var index = -1
+     var trackId = ""
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.kt
+index 0000000..0000000 100644
+--- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.kt
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.kt
+@@ -349,6 +349,7 @@
+                         putInt("width", vTrack.width)
+                         putInt("height", vTrack.height)
+                         putInt("bitrate", vTrack.bitrate)
++                        putDouble("frameRate", vTrack.frameRate.toDouble())
+                         putString("codecs", vTrack.codecs)
+                         putString("trackId", vTrack.trackId)
+                         putInt("index", vTrack.index)
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java
+index 0000000..0000000 100644
+--- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java
+@@ -1578,6 +1578,7 @@
+         videoTrack.setWidth(format.width == Format.NO_VALUE ? 0 : format.width);
+         videoTrack.setHeight(format.height == Format.NO_VALUE ? 0 : format.height);
+         videoTrack.setBitrate(format.bitrate == Format.NO_VALUE ? 0 : format.bitrate);
++        videoTrack.setFrameRate(format.frameRate == Format.NO_VALUE ? 0 : format.frameRate);
+         videoTrack.setRotation(format.rotationDegrees);
+         if (format.codecs != null) videoTrack.setCodecs(format.codecs);
+         videoTrack.setTrackId(format.id == null ? String.valueOf(trackIndex) : format.id);

@@ -46,6 +46,40 @@ function indexOfAny(haystack: string, needles: string[]): number {
 }
 
 /**
+ * Veredito do GRUPO isolado — `null` quando o group-title não decide nada.
+ *
+ * Cacheado porque é o pedaço caro (duas alocações de string + 13 `indexOf`) e
+ * depende SÓ do grupo: um catálogo de 30 mil canais tem algumas centenas de
+ * categorias distintas, então o trabalho real cai para ~1% do que era. Sem isto
+ * a análise era refeita por canal em cada varredura — construção do índice,
+ * busca a cada tecla, seções da Home, `renderCard` de cada pôster.
+ *
+ * O mapa é determinístico (mesma entrada → mesma saída para sempre) e limitado
+ * pelo número de categorias da lista, então não precisa de invalidação.
+ * ponytail: sem teto. Se algum dia uma fonte gerar grupo por item, vira LRU.
+ */
+const groupVerdictCache = new Map<string, 'movies' | 'series' | null>();
+
+function groupVerdict(group: string): 'movies' | 'series' | null {
+  const cached = groupVerdictCache.get(group);
+  if (cached !== undefined) return cached;
+
+  const clean = group.replace(/\uFE0F/g, '').toLowerCase(); // normaliza ♦️ → ♦
+  let verdict: 'movies' | 'series' | null;
+  if (clean.includes('♦') || clean.includes('◆')) {
+    verdict = 'movies';
+  } else {
+    const sIdx = indexOfAny(clean, SERIES_KEYWORDS);
+    const mIdx = indexOfAny(clean, MOVIE_KEYWORDS);
+    if (sIdx !== -1 && (mIdx === -1 || sIdx <= mIdx)) verdict = 'series';
+    else if (mIdx !== -1) verdict = 'movies';
+    else verdict = null;
+  }
+  groupVerdictCache.set(group, verdict);
+  return verdict;
+}
+
+/**
  * Detecta o tipo do conteúdo pela group-title (e opcionalmente URL) do M3U,
  * em cadeia de sinais — do mais confiável ao mais fraco:
  *  1. Nome com S##E## → série, sempre (antes só valia com o marcador ♦).
@@ -61,12 +95,8 @@ export function detectType(group: string, name?: string, url?: string): 'live' |
   const isSeriesName = !!name && /S\d+\s*E\d+/i.test(name);
   if (isSeriesName) return 'series';
 
-  const clean = group.replace(/\uFE0F/g, '').toLowerCase(); // normaliza ♦️ → ♦
-  if (clean.includes('♦') || clean.includes('◆')) return 'movies';
-  const sIdx = indexOfAny(clean, SERIES_KEYWORDS);
-  const mIdx = indexOfAny(clean, MOVIE_KEYWORDS);
-  if (sIdx !== -1 && (mIdx === -1 || sIdx <= mIdx)) return 'series';
-  if (mIdx !== -1) return 'movies';
+  const fromGroup = groupVerdict(group);
+  if (fromGroup) return fromGroup;
   if (url && matchesAny(url.toLowerCase(), MOVIE_EXTENSIONS)) return 'movies';
   return 'live';
 }
@@ -141,15 +171,22 @@ export function getSeriesBaseName(name: string): string {
  * Verifica o nome primeiro (ex: "Filme (2026)", "Filme [2026]", "Filme 2026"),
  * e em seguida o releaseDate (ex: "2026-05-01", "2026", "01/2026").
  */
+// LAUNCH_YEAR é constante, então a regex também é. `new RegExp` com string
+// montada NÃO é cacheada pela engine — recompilava a cada chamada, e esta função
+// roda por CADA filme e CADA série na construção do índice (dezenas de milhares,
+// duas vezes quando há releaseDate) e de novo por card desenhado na Home, pro
+// selo "NOVO". Mesma lição já aplicada em m3uParser.ts e epg.ts.
+const LAUNCH_YEAR_RE = new RegExp(`\\b${LAUNCH_YEAR}\\b`);
+
 export function isLaunchYear(name: string, releaseDate?: string): boolean {
   if (
     name.includes(`(${LAUNCH_YEAR})`) ||
     name.includes(`[${LAUNCH_YEAR}]`) ||
-    new RegExp(`\\b${LAUNCH_YEAR}\\b`).test(name)
+    LAUNCH_YEAR_RE.test(name)
   ) return true;
 
   if (releaseDate) {
-    return new RegExp(`\\b${LAUNCH_YEAR}\\b`).test(releaseDate);
+    return LAUNCH_YEAR_RE.test(releaseDate);
   }
   return false;
 }

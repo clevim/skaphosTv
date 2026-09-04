@@ -27,6 +27,15 @@ export interface Channel {
    */
   httpUserAgent?: string;
   httpReferrer?: string;
+  /**
+   * Quando o item entrou no catálogo do provedor (epoch em SEGUNDOS).
+   *
+   * Vem do `added` (live/VOD) ou `last_modified` (séries) da API Xtream — dados
+   * que já eram baixados e descartados. É o que permite uma fileira de
+   * "Adicionados recentemente" de VERDADE, em vez de adivinhar pelo ano escrito
+   * no título (que é o ano de LANÇAMENTO da obra, coisa diferente).
+   */
+  addedAt?: number;
   /** Episódios: título humano ("Pilot") — o `name` fica padronizado como "Série SxxEyy" */
   epTitle?: string;
   /** Episódios: duração real em segundos (Xtream duration_secs / Jellyfin RunTimeTicks) */

@@ -185,6 +185,10 @@ export function useChannelFilter({
     navCount,
     getGroupCount,
     favoritesSet,
+    // Exposto porque a HomeScreen precisava da MESMA lista e recalculava um
+    // `channels.filter(favoritosSet.has)` idêntico — duas varreduras completas
+    // do catálogo a cada mudança de favoritos, para produzir o mesmo array.
+    favChannels,
     episodeCountMap,
   };
 }

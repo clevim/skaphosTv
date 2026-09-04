@@ -49,6 +49,18 @@ export function searchChannels(
   const seen = new Set<string>();
   const scored: { c: Channel; displayName: string; score: number; len: number }[] = [];
 
+  // `fold` faz normalize('NFD'), que é decomposição Unicode completa — cara, e
+  // rodava DUAS vezes por canal (nome + grupo). Grupo repete muito: um catálogo
+  // de 20 mil itens tem algumas centenas de categorias distintas, então cachear
+  // troca ~20 mil normalizações por ~300. O cache é local à chamada: nasce e
+  // morre com a busca, sem segurar memória entre pesquisas.
+  const foldedGroups = new Map<string, string>();
+  const foldGroup = (g: string): string => {
+    let v = foldedGroups.get(g);
+    if (v === undefined) { v = fold(g); foldedGroups.set(g, v); }
+    return v;
+  };
+
   for (const c of channels) {
     const ct = resolveContentType(c, c.sourceId ? overridesBySource.get(c.sourceId) : undefined);
     if (type !== 'all' && ct !== type) continue;
@@ -61,8 +73,10 @@ export function searchChannels(
     if (seen.has(key)) continue;
 
     const nameF = fold(displayName);
-    const groupF = fold(c.group || '');
     const inNameAll = terms.every(t => nameF.includes(t));
+    // Só olha o grupo quando o nome não resolveu — casar pelo nome é o caminho
+    // comum e não precisa nem tocar no grupo.
+    const groupF = inNameAll ? '' : foldGroup(c.group || '');
     const matched = inNameAll || terms.every(t => nameF.includes(t) || groupF.includes(t));
     if (!matched) continue;
     seen.add(key);

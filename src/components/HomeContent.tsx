@@ -28,6 +28,8 @@ interface Props {
   channels?: Channel[];
   /** Gêneros mais frequentes do catálogo (pré-computados em channelIndex.topGenres). */
   topGenres?: { genre: string; channels: Channel[] }[];
+  /** Entrou no catálogo do provedor nos últimos dias (channelIndex.recentlyAdded). */
+  recentlyAdded?: Channel[];
   onChannelPress?: (channel: Channel) => void;
   /** Hero "Assistir" — inicia a reprodução direto (filme/ao vivo → player). */
   onWatch?: (channel: Channel) => void;
@@ -463,7 +465,7 @@ const vStyles = StyleSheet.create({
 // ── Main HomeContent ──────────────────────────────────────────
 export default function HomeContent({
   recentChannels, favoriteChannels, sourcesEmpty, renderCard, cardWidth, contentH,
-  channels = [], topGenres = [], onChannelPress, onWatch, onDetails, onNavPress,
+  channels = [], topGenres = [], recentlyAdded = [], onChannelPress, onWatch, onDetails, onNavPress,
 }: Props) {
   const navigation = useNavigation();
   const watchEntries = useWatchEntries();
@@ -786,6 +788,32 @@ export default function HomeContent({
     </Section>
   ));
 
+  // Adicionados recentemente — o que ENTROU no catálogo, pela data do provedor.
+  // Não é a mesma coisa que "Lançamentos" logo abaixo: lá é o ano da obra, aqui
+  // é quando ela apareceu na lista. Só existe se o provedor informar as datas.
+  if (ready && recentlyAdded.length > 0) pushSection('recent', (
+    <Section title="Adicionados recentemente">
+      <Row
+        data={recentlyAdded}
+        itemWidth={VOD_W}
+        keyExtractor={ch => ch.id}
+        renderItem={ch => {
+          const status = badgeFor(ch, watchEntries);
+          return (
+            <VodCard
+              channel={ch}
+              onPress={() => handlePress(ch)}
+              displayName={resolveChannelType(ch) === 'series' ? getSeriesBaseName(ch.name) : ch.name}
+              isNew
+              watched={status.watched}
+              progress={status.progress}
+            />
+          );
+        }}
+      />
+    </Section>
+  ));
+
   // Lançamentos — filmes e séries do ano corrente
   if (ready && yearChannels.length > 0) pushSection('year', (
     <Section title={`Lançamentos ${LAUNCH_YEAR}`} trailing="Ver tudo" onTrailingPress={() => onNavPress?.('year')}>
@@ -861,7 +889,7 @@ export default function HomeContent({
     return sections;
   }, [
     ready, continueItems, favoriteChannels, displayLive, movieChannels,
-    seriesChannelsDisplay, yearChannels, seed, becauseYouWatchedDisplay, topGenres,
+    seriesChannelsDisplay, yearChannels, recentlyAdded, seed, becauseYouWatchedDisplay, topGenres,
     watchEntries, renderCard, cardWidth, handlePress, onWatch, onNavPress,
   ]);
 

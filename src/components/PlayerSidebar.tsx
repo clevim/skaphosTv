@@ -76,6 +76,20 @@ export default function PlayerSidebar({
             </TVFocusable>
           );
         }}
+        // Esta lista abre POR CIMA de um vídeo em reprodução, e alimenta-se de uma
+        // categoria inteira (centenas ou milhares de canais). Nos defaults do RN
+        // — windowSize 21, ~10 telas de folga para cada lado — são centenas de
+        // itens montados, cada um com pôster e listener de foco, disputando a
+        // thread com a decodificação. Aqui só a janela útil existe.
+        //
+        // windowSize 5 e não 3: é a lista de zapping, o usuário SEGURA o
+        // direcional; com folga curta ele alcança o vazio e o foco se perde.
+        // Clipar está proibido — destruiria a view nativa do item focado.
+        initialNumToRender={12}
+        maxToRenderPerBatch={8}
+        updateCellsBatchingPeriod={50}
+        windowSize={5}
+        removeClippedSubviews={false}
       />
     </View>
   );

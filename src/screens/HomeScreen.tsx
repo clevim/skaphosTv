@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState, useCallback, useMemo, memo } from '
 import {
   View, Text, StyleSheet, FlatList, ScrollView,
   ActivityIndicator, useWindowDimensions, Animated,
+  BackHandler, DeviceEventEmitter, Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore, IPTVSource, resolveChannelType } from '../store/useStore';
@@ -28,15 +29,24 @@ import RemoteHints from '../components/RemoteHints';
 import TVCatalogLayout from '../components/TVCatalogLayout';
 import TVSearchContent from '../components/TVSearchContent';
 
-import { IS_TV, IS_MOBILE, IS_WEB } from '../utils/tvDetect';
+import { IS_TV, IS_MOBILE, IS_WEB, IS_NATIVE_TV } from '../utils/tvDetect';
 import { dlog } from '../utils/debugLog';
 import { checkExpiringSources } from '../utils/xtreamApi';
 import { lockLandscape } from '../utils/orientation';
 import { useTVFocusMemory } from '../utils/tvFocusMemory';
 import { whenNotPlaying } from '../utils/playbackGate';
+import { splashIsCovering } from '../utils/bootSplash';
+import { pageJumpTarget } from '../utils/gridJump';
 
 // Barra de abas inferior: layout de smartphone (TV e web usam a top bar).
 const HAS_BOTTOM_NAV = IS_MOBILE;
+
+// Teclas do controle que o MainActivity repassa pro JS (android.view.KeyEvent).
+// Fora do player ninguém as ouvia — o controle da Fire Stick tem ⏪ ⏩ e ☰
+// parados enquanto o usuário segura o direcional por meio minuto num catálogo.
+const KEY_MENU         = 82;
+const KEY_REWIND       = 89;
+const KEY_FAST_FORWARD = 90;
 
 // Ordenação das grades — cicla nesta ordem ao tocar o botão de ordenar.
 const SORT_CYCLE = ['default', 'az', 'rating'] as const;
@@ -102,7 +112,11 @@ const FlatItem = memo(function FlatItem({
   prev.progress   === next.progress   &&
   prev.watched    === next.watched    &&
   prev.cardWidth  === next.cardWidth  &&
-  prev.cardHeight === next.cardHeight
+  prev.cardHeight === next.cardHeight &&
+  // Precisa entrar na comparação: é a mudança de `preferredFocus` para true que
+  // faz o Android chamar requestFocus() no card — memoizá-la fora mataria o
+  // salto de página (a grade rolava e o foco ficava para trás).
+  prev.preferredFocus === next.preferredFocus
 );
 
 export default function HomeScreen() {
@@ -200,7 +214,15 @@ export default function HomeScreen() {
       // acabou de abrir o app e já tenta tocar em algo (ficava "travado" ao reabrir).
       // Com prazo: preso aqui, a reconciliação de catálogo abaixo nunca rodava e
       // a Home ficava com o que houvesse (ou nada) em cache — ver afterInteractions.
-      await new Promise<void>(resolve => afterInteractions(() => resolve()));
+      //
+      // ATRÁS DA SPLASH essa espera não tem razão de existir: o usuário não
+      // alcança a tela, então não há interação com que competir, e a animação roda
+      // na UI thread (Reanimated) sem depender do JS. Adiantar o reload aqui é
+      // exatamente o "prefire": a rede começa a trabalhar dentro da janela que a
+      // animação de entrada já ia ocupar, em vez de só depois dela sair.
+      if (!splashIsCovering()) {
+        await new Promise<void>(resolve => afterInteractions(() => resolve()));
+      }
 
       // Reconciliação por fonte: o cache de canais é debounced/serializado, então
       // pode ficar PARCIAL se o app fechar no meio. O Xtream carrega em 3 fases
@@ -319,18 +341,28 @@ export default function HomeScreen() {
     setLoading(true);
     setLoadError(null);
     try {
-      // Carrega todas as fontes em paralelo, cada uma marcada com seu sourceId
-      const results = await Promise.allSettled(
-        sourcesToLoad.map(async (src) => ({ src, data: await loadOneSource(src) })),
-      );
+      // Carrega todas as fontes em paralelo, cada uma marcada com seu sourceId.
+      // Cada fonte é ENTREGUE assim que fica pronta, não no fim de todas.
+      //
+      // Antes o Promise.allSettled colhia tudo e só então o loop chamava
+      // replaceSourceChannels. Duas consequências: uma fonte rápida ficava
+      // refém da lenta (tela parada no spinner com o catálogo dela já baixado),
+      // e os canais de TODAS as fontes coexistiam na memória até a última
+      // terminar — o mesmo pico que o carregamento em fases foi criado para
+      // evitar, reintroduzido um nível acima. Entregando na hora, o array de
+      // cada fonte vira lixo assim que é commitado.
+      //
+      // O número de rebuilds do índice não muda: o loop antigo já chamava
+      // replaceSourceChannels uma vez por fonte. Muda só QUANDO.
       let anyLoaded = false;
-      for (const res of results) {
-        if (res.status === 'rejected') continue;
-        const { src, data } = res.value;
-        if (data.channels.length === 0) continue;
-        replaceSourceChannels(src.id, data.channels, data.groups);
-        anyLoaded = true;
-      }
+      await Promise.allSettled(
+        sourcesToLoad.map(async (src) => {
+          const data = await loadOneSource(src);
+          if (data.channels.length === 0) return;
+          await replaceSourceChannels(src.id, data.channels, data.groups);
+          anyLoaded = true;
+        }),
+      );
       if (!anyLoaded) setLoadError('Nenhum canal encontrado nas fontes configuradas');
     } finally {
       setLoading(false);
@@ -349,17 +381,27 @@ export default function HomeScreen() {
     const showSpinner = useStore.getState().channels.length === 0;
     if (showSpinner) { setLoading(true); setLoadError(null); }
     try {
-      const results = await Promise.allSettled(
-        sourcesToLoad.map(async (src) => ({ src, data: await loadOneSource(src) })),
-      );
+      // Cada fonte é ENTREGUE assim que fica pronta, não no fim de todas.
+      //
+      // Antes o Promise.allSettled colhia tudo e só então o loop chamava
+      // replaceSourceChannels. Duas consequências: uma fonte rápida ficava
+      // refém da lenta (tela parada no spinner com o catálogo dela já baixado),
+      // e os canais de TODAS as fontes coexistiam na memória até a última
+      // terminar — o mesmo pico que o carregamento em fases foi criado para
+      // evitar, reintroduzido um nível acima. Entregando na hora, o array de
+      // cada fonte vira lixo assim que é commitado.
+      //
+      // O número de rebuilds do índice não muda: o loop antigo já chamava
+      // replaceSourceChannels uma vez por fonte. Muda só QUANDO.
       let anyLoaded = false;
-      for (const res of results) {
-        if (res.status === 'rejected') continue;
-        const { src, data } = res.value;
-        if (data.channels.length === 0) continue;
-        replaceSourceChannels(src.id, data.channels, data.groups);
-        anyLoaded = true;
-      }
+      await Promise.allSettled(
+        sourcesToLoad.map(async (src) => {
+          const data = await loadOneSource(src);
+          if (data.channels.length === 0) return;
+          await replaceSourceChannels(src.id, data.channels, data.groups);
+          anyLoaded = true;
+        }),
+      );
       if (showSpinner && !anyLoaded) setLoadError('Nenhum canal encontrado nas fontes configuradas');
     } finally {
       if (showSpinner) setLoading(false);
@@ -382,6 +424,7 @@ export default function HomeScreen() {
     filteredGroups,
     filteredChannels,
     favoritesSet,
+    favChannels,
     episodeCountMap,
   } = useChannelFilter({ navKey, selectedGroup, channels, groups, favorites, categorySearch, channelIndex, sources, sortMode });
 
@@ -473,11 +516,14 @@ export default function HomeScreen() {
 
     if (type === 'movies') {
       const isJellyfinMovie = channel.id?.startsWith('jf-') && channel.streamType === 'movie';
-      const related = isJellyfinMovie
-        ? channels.filter(c => c.id !== channel.id && c.group === channel.group).slice(0, 9)
-        : channels
-            .filter(c => c.id !== channel.id && c.group === channel.group && resolveChannelType(c) === 'movies')
-            .slice(0, 9);
+      // `byGroup` já entrega só os canais deste grupo — antes cada OK num filme
+      // varria o catálogo INTEIRO para achar 9 relacionados, e é a última coisa
+      // que roda antes de navegar: era demora sentida entre apertar e a tela abrir.
+      const sameGroup = channelIndex?.byGroup.get(channel.group ?? '') ?? [];
+      const related = (isJellyfinMovie
+        ? sameGroup.filter(c => c.id !== channel.id)
+        : sameGroup.filter(c => c.id !== channel.id && resolveChannelType(c) === 'movies')
+      ).slice(0, 9);
       navigation.navigate('Detail', { channel, relatedChannels: related });
       return;
     }
@@ -486,7 +532,7 @@ export default function HomeScreen() {
     // Inicia o lock de orientação antes de navegar para evitar a rotação visível ao entrar no player
     lockLandscape();
     navigation.navigate('Player', { channel });
-  }, [navigation, setCurrentChannel, channels]);
+  }, [navigation, setCurrentChannel, channels, channelIndex]);
 
   // Hero "Assistir": inicia a reprodução direto (filme/ao vivo → player). Para série,
   // vai à tela da série (precisa escolher episódio). Diferente de handleChannelPress,
@@ -544,6 +590,33 @@ export default function HomeScreen() {
     updateSettings({ sortMode: SORT_CYCLE[(idx + 1) % SORT_CYCLE.length] });
   }, [sortMode, updateSettings]);
 
+  // ── Controle remoto ────────────────────────────────────────────────────────
+  //
+  // A Home é UMA tela só do stack, mas tem três níveis próprios dentro dela
+  // (seção → subcategoria → busca) que o histórico de navegação não enxerga.
+  // Sem isto, o Voltar do controle caía direto no comportamento padrão do
+  // Android e MINIMIZAVA o app de dentro de "Filmes › Ação" — a tecla que em
+  // qualquer app de TV significa "um nível acima" jogava o usuário pra fora.
+  //
+  // A Home continua MONTADA embaixo de Detalhe/Série/Player, e listener de
+  // BackHandler montado continua recebendo tecla. `focusedRef` é o que impede
+  // esta tela de roubar o Voltar (e as teclas de mídia) da tela de cima.
+  const isScreenFocused = useIsFocused();
+  const focusedRef = useRef(isScreenFocused);
+  focusedRef.current = isScreenFocused;
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!focusedRef.current) return false;
+      if (navKey === 'search' && searchQuery) { setSearchQuery(''); return true; }
+      if (selectedGroup)                      { setSelectedGroup(null); return true; }
+      if (navKey !== 'home')                  { setNavKey('home'); return true; }
+      return false;   // já está na raiz: deixa o Android minimizar
+    });
+    return () => sub.remove();
+  }, [navKey, selectedGroup, searchQuery, setSelectedGroup]);
+
   // Responsive card grid — formato portrait (poster 2:3)
   const CARD_MARGIN = IS_TV ? 6 : 4;
   const gridPadding = spacing.md;
@@ -568,13 +641,79 @@ export default function HomeScreen() {
   // Na TV/web não há header na lista (fica 0).
   const [listHeaderH, setListHeaderH] = useState(0);
 
+  // ⚠️ Com numColumns > 1 a FlatList empacota N cards por linha e a
+  // VirtualizedList passa a indexar LINHAS — o `index` que chega aqui já é o da
+  // linha, não o do card. Dividir por numColumns de novo fazia N linhas
+  // seguidas devolverem o MESMO offset: a altura total do conteúdo saía
+  // numColumns× menor que a real e a busca binária da janela visível caía em
+  // quadros sobrepostos. É a grade "pulando de posição" e travando ao rolar
+  // catálogo grande. (O `index` do renderItem continua sendo o do CARD — os dois
+  // espaços de índice convivem na mesma FlatList.)
   const getItemLayout = useCallback(
-    (_: any, index: number) => {
-      const row = Math.floor(index / numColumns);
-      return { length: ROW_H, offset: listHeaderH + gridPadding + ROW_H * row, index };
-    },
-    [ROW_H, numColumns, gridPadding, listHeaderH]
+    (_: any, rowIndex: number) => ({
+      length: ROW_H,
+      offset: listHeaderH + gridPadding + ROW_H * rowIndex,
+      index: rowIndex,
+    }),
+    [ROW_H, gridPadding, listHeaderH]
   );
+
+  // ── Salto de página (⏩ / ⏪) ───────────────────────────────────────────────
+  // Deslocamento atual da grade, anotado num ref: o onScroll já é entregue à
+  // FlatList para virtualizar, então piggyback nele não custa render nem
+  // travessia de bridge a mais.
+  const gridOffsetRef = useRef(0);
+  const onGridScroll = useCallback((e: any) => {
+    gridOffsetRef.current = e.nativeEvent.contentOffset.y;
+  }, []);
+
+  // Card que deve receber o foco no próximo render. No Android
+  // `hasTVPreferredFocus` chama requestFocus() toda vez que a prop VIRA true —
+  // serve tanto pro card que acabou de montar depois do salto quanto pro que já
+  // estava na tela, então o salto funciona a qualquer distância.
+  const [jumpIndex, setJumpIndex] = useState<number | null>(null);
+  useEffect(() => {
+    if (jumpIndex == null) return;
+    // Solta a concessão: mantida, remontar aquele card (rolagem, troca de
+    // filtro) puxaria o foco de volta pra ele do nada.
+    const t = setTimeout(() => setJumpIndex(null), 400);
+    return () => clearTimeout(t);
+  }, [jumpIndex]);
+
+  const pageJump = useCallback((dir: 1 | -1) => {
+    const target = pageJumpTarget({
+      dir,
+      total: filteredChannels.length,
+      numColumns,
+      rowHeight: ROW_H,
+      viewportHeight: mainContentH,
+      scrollY: gridOffsetRef.current,
+      contentTop: listHeaderH + gridPadding,
+    });
+    if (!target) return;
+    // scrollToIndex indexa LINHAS aqui (ver getItemLayout acima).
+    listRef.current?.scrollToIndex({ index: target.row, animated: false });
+    // Adianta o offset em vez de esperar o onScroll voltar: o MainActivity solta
+    // uma repetição a cada 130 ms enquanto ⏩ está segurado, e o evento de rolagem
+    // não fecha esse ciclo a tempo — sem isto o segundo salto lia a posição do
+    // primeiro e o avanço empacava no lugar.
+    gridOffsetRef.current = listHeaderH + gridPadding + target.row * ROW_H;
+    setJumpIndex(target.cardIndex);
+  }, [filteredChannels.length, mainContentH, ROW_H, numColumns, listHeaderH, gridPadding]);
+
+  // ⏩/⏪ saltam uma tela de conteúdo; ☰ cicla a ordenação (A-Z é o que torna um
+  // catálogo de 15 mil itens navegável, e estava escondido num ícone da sidebar).
+  // As três teclas já chegam do nativo; só o player as escutava.
+  useEffect(() => {
+    if (!IS_NATIVE_TV) return;
+    const sub = DeviceEventEmitter.addListener('SkaphosKeyDown', (keyCode: number) => {
+      if (!focusedRef.current || navKey === 'home' || navKey === 'search') return;
+      if (keyCode === KEY_FAST_FORWARD)  pageJump(1);
+      else if (keyCode === KEY_REWIND)   pageJump(-1);
+      else if (keyCode === KEY_MENU)     handleCycleSort();
+    });
+    return () => sub.remove();
+  }, [navKey, pageJump, handleCycleSort]);
 
   // hasTVPreferredFocus chama requestFocus() TODA vez que a view MONTA no
   // Android. O card 0 vive numa lista virtualizada: rolar longe e voltar, trocar
@@ -600,7 +739,9 @@ export default function HomeScreen() {
       // Passa o item com referência ESTÁVEL + displayName separado — evita criar
       // objeto novo por render (que quebrava o memo das séries).
       let preferredFocus = false;
-      if (index === 0 && IS_TV && !preferredGrantedRef.current) {
+      if (jumpIndex != null) {
+        preferredFocus = index === jumpIndex;
+      } else if (index === 0 && IS_TV && !preferredGrantedRef.current) {
         preferredGrantedRef.current = true;
         preferredFocus = true;
       }
@@ -624,7 +765,7 @@ export default function HomeScreen() {
         />
       );
     },
-    [currentChannel?.id, favoritesSet, handleChannelPress, toggleFavorite, episodeCountMap, cardWidth, cardHeight, watchEntries]
+    [currentChannel?.id, favoritesSet, handleChannelPress, toggleFavorite, episodeCountMap, cardWidth, cardHeight, watchEntries, jumpIndex]
   );
 
   const renderFlatItem = useCallback(
@@ -641,10 +782,10 @@ export default function HomeScreen() {
         : cleanGroupName(selectedGroup))
     : NAV_ITEMS.find(n => n.key === navKey)?.label || '';
 
-  const favoriteChannels = useMemo(
-    () => channels.filter(c => favoritesSet.has(c.id)),
-    [channels, favoritesSet]
-  );
+  // Vem pronta do useChannelFilter — antes esta linha refazia, idêntica, a
+  // varredura que o hook já fazia: dois passes no catálogo inteiro para o mesmo
+  // array, refeitos a cada favoritar/desfavoritar.
+  const favoriteChannels = favChannels;
 
   // Content area height: subtract tab bar on mobile, top bar on TV
   const contentH = HAS_BOTTOM_NAV ? mainContentH - 60 : mainContentH;
@@ -681,6 +822,7 @@ export default function HomeScreen() {
           contentH={contentH}
           channels={channels}
           topGenres={channelIndex?.topGenres ?? []}
+          recentlyAdded={channelIndex?.recentlyAdded ?? []}
           onChannelPress={handleChannelPress}
           onWatch={handleHeroWatch}
           onDetails={handleChannelPress}
@@ -812,6 +954,7 @@ export default function HomeScreen() {
               windowSize={5}
               removeClippedSubviews={false}
               getItemLayout={getItemLayout}
+              onScroll={onGridScroll}
             />
           </Animated.View>
         </TVCatalogLayout>
@@ -852,6 +995,12 @@ export default function HomeScreen() {
             contentContainerStyle={styles.chipRow}
             onLayout={(e) => { chipScrollWRef.current = e.nativeEvent.layout.width; }}
           >
+            {/* ponytail: barra de chips do MOBILE, não virtualizada — um painel
+                Xtream com 400 categorias monta 400 chips. Na TV este caminho não
+                existe (usa TVCatalogLayout, já virtualizado). Fica assim porque a
+                centralização do chip ativo depende do onLayout de CADA chip
+                (chipLayoutsRef); virtualizar exige trocar isso por getItemLayout
+                com largura fixa — mexe no visual. Fazer quando doer no celular. */}
             {filteredGroups.map((g) => {
               const cleanName = cleanGroupName(g);
               const isActive = selectedGroup === g;
@@ -935,8 +1084,18 @@ export default function HomeScreen() {
         <BottomTabBar active={navKey} onPress={handleNavPress} jellyfinSources={jellyfinSources} />
       )}
 
-      {/* Remote hints — TV only */}
-      {IS_TV && <RemoteHints />}
+      {/* Remote hints — TV only. No catálogo anuncia os atalhos novos: sem isso
+          ⏩/⏪/☰ existiriam mas ninguém descobriria que existem. */}
+      {IS_TV && (
+        <RemoteHints
+          hints={navKey === 'home' || navKey === 'search' ? undefined : [
+            { key: 'OK',    label: 'Selecionar' },
+            { key: '⏪ ⏩', label: 'Pular página' },
+            { key: '☰',     label: 'Ordenar' },
+            { key: '⬅',     label: 'Voltar' },
+          ]}
+        />
+      )}
     </View>
   );
 }

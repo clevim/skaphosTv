@@ -42,7 +42,7 @@ export function usePlayer(
 ) {
   // Seletores individuais — evita re-render do player a cada mudança não-relacionada
   // no store (ações têm identidade estável no Zustand).
-  const channels = useStore(s => s.channels);
+  const channelIndex = useStore(s => s.channelIndex);
   const sources = useStore(s => s.sources);
   const setCurrentChannel = useStore(s => s.setCurrentChannel);
 
@@ -165,8 +165,13 @@ export function usePlayer(
   const pendingSeekRef = useRef<number | null>(null);
   // Distingue primeira carga do player de reloads
   const isFirstLoadRef = useRef(true);
-  // true após onLoad — evita aplicar selectedAudioTrack antes dos grupos ExoPlayer existirem
-  // (quando groups.length=0, type:'index' com value.asInt() causa crash UnexpectedNativeTypeException)
+  // true após onLoad — evita aplicar selectedAudioTrack antes dos grupos ExoPlayer
+  // existirem. O motivo original era um CRASH (groups.length=0 com type:'index' →
+  // UnexpectedNativeTypeException no asInt() do lado nativo); desde o
+  // react-native-video 6.19 isso é impossível — o JS já serializa o value como
+  // string e o nativo lê com safeParseInt. O gate fica por semântica: escolher
+  // faixa antes de existir faixa não tem sentido, e é o que evita o flicker de
+  // áudio no primeiro segundo.
   const [audioReady, setAudioReady] = useState(false);
 
   const isLive = channelIsLive(playingChannel) || !duration || duration === 0;
@@ -177,9 +182,14 @@ export function usePlayer(
   const hasPlaylist = playlist.length > 0;
   const siblings = useMemo(() => {
     if (hasPlaylist) return playlist;
-    const t = playingChannel.streamType;
-    return t ? channels.filter(c => c.streamType === t) : channels;
-  }, [hasPlaylist, playlist, channels, playingChannel.streamType]);
+    // As listas por tipo já vêm prontas do índice — antes isto varria o catálogo
+    // INTEIRO, e a dependência era o array `channels`: qualquer refresh de
+    // catálogo em background refazia o filtro de dezenas de milhares de itens
+    // COM O VÍDEO RODANDO. O índice também classifica canal de M3U sem
+    // streamType (heurística por grupo/URL), então o zapping de Ao Vivo passa a
+    // funcionar em lista M3U — antes caía no catálogo todo e pulava pra filme.
+    return channelIndex?.[resolveChannelType(playingChannel)] ?? [];
+  }, [hasPlaylist, playlist, channelIndex, playingChannel]);
   // Memoizado pelo mesmo motivo do sidebarChannels: sem playlist explícita,
   // `siblings` é o catálogo de ao vivo inteiro e este findIndex rodava a cada
   // render — inclusive nos disparados pelo onProgress durante a reprodução.

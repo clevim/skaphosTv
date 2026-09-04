@@ -176,8 +176,19 @@ export default function TVEPGScreen() {
   //
   // removeClippedSubviews FALSO nas duas: clipar destrói a view nativa focada e
   // o foco vai junto (mesma regra das fileiras da Home).
-  const renderChannelCell = useCallback(({ item: ch }: { item: Channel }) => (
-    <TVFocusable onPress={() => handlePlay(ch)} style={styles.channelCell}>
+  // O foco inicial da tela é o primeiro canal da grade — o conteúdo, não o
+  // cabeçalho. Concedido UMA vez por visita: a célula 0 vive numa lista
+  // virtualizada e remonta ao rolar longe e voltar, o que puxaria o foco de
+  // volta ao topo do nada (mesmo padrão do preferredGrantedRef da Home).
+  const epgFocusGrantedRef = useRef(false);
+  const renderChannelCell = useCallback(({ item: ch, index }: { item: Channel; index: number }) => {
+    let preferred = false;
+    if (index === 0 && !epgFocusGrantedRef.current) {
+      epgFocusGrantedRef.current = true;
+      preferred = true;
+    }
+    return (
+    <TVFocusable onPress={() => handlePlay(ch)} style={styles.channelCell} hasTVPreferredFocus={preferred}>
       {ch.logo ? (
         <Image source={ch.logo} style={styles.channelLogo} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={ch.id} />
       ) : (
@@ -187,7 +198,8 @@ export default function TVEPGScreen() {
       )}
       <Text style={[styles.channelName, { fontSize: 11 * scale }]} numberOfLines={2}>{ch.name}</Text>
     </TVFocusable>
-  ), [scale, handlePlay]);
+    );
+  }, [scale, handlePlay]);
 
   // Uma leitura do relógio para a grade toda — antes eram duas por bloco. Como
   // agora as linhas nascem aos poucos, o valor vem de um memo com as mesmas
@@ -329,7 +341,12 @@ export default function TVEPGScreen() {
     <View style={styles.root}>
       {/* Header */}
       <View style={styles.header}>
-        <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.backBtn} hasTVPreferredFocus>
+        {/* Sem hasTVPreferredFocus: abrir o guia e cair no botão Voltar significa
+            que o primeiro OK — o reflexo natural de quem acabou de entrar numa
+            tela — joga o usuário para fora dela. O foco inicial vai para a
+            primeira linha da grade (ver renderChannelCell); daqui se chega
+            subindo. */}
+        <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={18} color={colors.text1} />
         </TVFocusable>
         <Text style={styles.headerTitle}>Guia de Programação</Text>

@@ -36,6 +36,10 @@ interface AppState {
    *  Painéis rotacionam ids de VOD — cache velho = URLs mortas (HTTP 406/404). */
   channelsSavedAt: number;
   channelIndex: ChannelIndex | null;
+  /** true depois que loadFromStorage terminou — deu certo, deu erro ou não havia
+   *  cache. É o sinal de "o que estava em disco já está em memória", usado pela
+   *  splash de entrada para só sair quando houver conteúdo para mostrar. */
+  hydrated: boolean;
   groups: string[];
   selectedGroup: string | null;
   isLoading: boolean;
@@ -386,6 +390,25 @@ function flushPendingChannelsSave(): Promise<void> {
   return saveChain;
 }
 
+/**
+ * Lê N chaves numa ÚNICA travessia de bridge.
+ *
+ * `AsyncStorage.getItem` não agrupa nada: cada chamada vira um `multiGet([key])`
+ * próprio — uma travessia de bridge, uma consulta SQLite e uma serialização por
+ * chunk. Um catálogo de 20 mil canais são 40 chunks POR FONTE, ou seja 40+
+ * idas e voltas antes do primeiro pixel. `multiGet` faz o mesmo trabalho em UMA
+ * chamada (o módulo nativo agrupa em `SELECT ... WHERE key IN (...)`), que é a
+ * maior fatia isolada do boot numa Fire Stick.
+ *
+ * A ordem do retorno do multiGet não é garantida — remapeia por chave.
+ */
+async function readMany(keys: string[]): Promise<(string | null)[]> {
+  if (keys.length === 0) return [];
+  const pairs = await AsyncStorage.multiGet(keys);
+  const byKey = new Map<string, string | null>(pairs.map(([k, v]) => [k, v]));
+  return keys.map(k => byKey.get(k) ?? null);
+}
+
 // Parse dos chunks com yields — JSON.parse de ~100 chunks num flatMap síncrono
 // bloqueava a thread por segundos bem no boot (era o "app abre travado").
 async function parseChunks(raws: (string | null)[], into: Channel[]): Promise<void> {
@@ -403,13 +426,15 @@ async function loadChannelsChunked(): Promise<{ channels: Channel[]; groups: str
     const meta: V2Meta = JSON.parse(v2Raw);
     const channels: Channel[] = [];
     chunksOnDisk = {};
+    // Todas as chaves de TODAS as fontes numa leitura só. Antes o loop era
+    // sequencial por fonte e disparava um getItem por chunk — duas fontes de
+    // 20 mil canais eram ~80 travessias de bridge encadeadas.
+    const keys: string[] = [];
     for (const [b, info] of Object.entries(meta.sources ?? {})) {
       chunksOnDisk[b] = info.chunks;
-      const raws = await Promise.all(
-        Array.from({ length: info.chunks }, (_, i) => AsyncStorage.getItem(v2ChunkKey(b, i))),
-      );
-      await parseChunks(raws, channels);
+      for (let i = 0; i < info.chunks; i++) keys.push(v2ChunkKey(b, i));
     }
+    await parseChunks(await readMany(keys), channels);
     return { channels, groups: meta.groups || [], savedAt: meta.savedAt ?? 0 };
   }
 
@@ -418,10 +443,8 @@ async function loadChannelsChunked(): Promise<{ channels: Channel[]; groups: str
   const metaRaw = await AsyncStorage.getItem(CHANNELS_META_KEY);
   if (!metaRaw) return null;
   const meta = JSON.parse(metaRaw);
-  const chunkRaws = await Promise.all(
-    Array.from({ length: meta.chunks }, (_, i) =>
-      AsyncStorage.getItem(`${CHANNELS_KEY}_${i}`)
-    )
+  const chunkRaws = await readMany(
+    Array.from({ length: meta.chunks }, (_, i) => `${CHANNELS_KEY}_${i}`),
   );
   const channels: Channel[] = [];
   await parseChunks(chunkRaws, channels);
@@ -464,6 +487,7 @@ export const useStore = create<AppState>((set, get) => ({
   channels: [],
   channelsSavedAt: 0,
   channelIndex: null,
+  hydrated: false,
   groups: [],
   selectedGroup: null,
   isLoading: false,
@@ -647,11 +671,11 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadFromStorage: async () => {
     try {
-      const [sourcesRaw, favRaw, recentRaw, settingsRaw] = await Promise.all([
-        AsyncStorage.getItem('skaphostv_sources'),
-        AsyncStorage.getItem('skaphostv_favorites'),
-        AsyncStorage.getItem('skaphostv_recent'),
-        AsyncStorage.getItem('skaphostv_settings'),
+      const [sourcesRaw, favRaw, recentRaw, settingsRaw] = await readMany([
+        'skaphostv_sources',
+        'skaphostv_favorites',
+        'skaphostv_recent',
+        'skaphostv_settings',
       ]);
 
       // Mescla os segredos (SecureStore) de volta nas fontes. Migra também o
@@ -709,6 +733,12 @@ export const useStore = create<AppState>((set, get) => ({
       }
     } catch (e) {
       console.warn('Erro ao carregar dados:', e);
+    } finally {
+      // No `finally` de propósito: o caminho feliz sai por `return` no meio e o
+      // de erro cai no `catch`. Se a bandeira ficasse só no fim do try, a splash
+      // esperaria o teto inteiro em toda inicialização com cache — que é
+      // justamente o caso comum.
+      set({ hydrated: true });
     }
   },
 
