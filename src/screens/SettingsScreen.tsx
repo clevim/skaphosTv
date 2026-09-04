@@ -14,6 +14,7 @@ import SonarLine from '../components/SonarLine';
 import {
   checkOtaUpdate, reloadApp, fetchLatestRelease, isNewerVersion,
   downloadAndInstallApk,
+  UpdateBlockedError,
 } from '../utils/appUpdate';
 import { APP_VERSION, VERSION_LABEL } from '../utils/version';
 import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
@@ -313,9 +314,15 @@ function UpdateCheckRow() {
               try {
                 await downloadAndInstallApk(rel.apkUrl!, p => setSub(`Baixando… ${Math.round(p * 100)}%`));
                 setSub('Abrindo instalador…');
-              } catch {
-                setSub('Falha ao baixar o APK');
-                showAlert('Erro', 'Não foi possível baixar/instalar o APK.');
+              } catch (e) {
+                // Permissão de instalação negada já foi explicada pelo diálogo
+                // do próprio fluxo — insistir aqui manda o usuário procurar o
+                // problema na rede, que não é onde ele está.
+                if (e instanceof UpdateBlockedError) { setSub(`Atual: ${VERSION_LABEL}`); }
+                else {
+                  setSub('Falha ao baixar o APK');
+                  showAlert('Erro', 'Não foi possível baixar/instalar o APK.');
+                }
               } finally {
                 setBusy(false);
               }
@@ -386,9 +393,15 @@ function ForceUpdateRow() {
               try {
                 await downloadAndInstallApk(rel.apkUrl!, p => setSub(`Baixando… ${Math.round(p * 100)}%`));
                 setSub('Abrindo instalador…');
-              } catch {
-                setSub('Falha ao baixar o APK');
-                showAlert('Erro', 'Não foi possível baixar/instalar o APK.');
+              } catch (e) {
+                // Permissão de instalação negada já foi explicada pelo diálogo
+                // do próprio fluxo — insistir aqui manda o usuário procurar o
+                // problema na rede, que não é onde ele está.
+                if (e instanceof UpdateBlockedError) { setSub(FORCE_SUB_IDLE); }
+                else {
+                  setSub('Falha ao baixar o APK');
+                  showAlert('Erro', 'Não foi possível baixar/instalar o APK.');
+                }
               } finally {
                 setBusy(false);
               }

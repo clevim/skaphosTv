@@ -5,11 +5,17 @@
  *     Cobre mudanças de JS/React dentro do mesmo runtimeVersion.
  *  2) GitHub Releases: quando a atualização é NATIVA (libs/manifesto), o Android
  *     exige um APK novo — baixa o asset .apk do release e abre o instalador.
+ *
+ * Os dois são complementares, mas por muito tempo só o (2) funcionava: o
+ * runtimeVersion acompanhava a versão do app, então TODO release mudava o
+ * runtime e nenhum binário no campo aceitava um OTA. Hoje o runtime é
+ * independente (ver scripts/sync-version.js) e o (1) volta a ter função —
+ * correção só de JS chega sem ninguém baixar 36 MB.
  */
 import * as Updates from 'expo-updates';
 import * as FileSystem from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
-import { Platform } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 import { APP_VERSION } from './version';
 import { useStore } from '../store/useStore';
 import { IS_DEV_BUILD } from './debugLog';
@@ -176,6 +182,63 @@ export async function promptApkUpdateOnLaunch(): Promise<void> {
   );
 }
 
+// ── Permissão de instalar APK ─────────────────────────────────────
+//
+// `REQUEST_INSTALL_PACKAGES` está no manifesto, mas do Android 8 em diante ela
+// NÃO é concedida na instalação: é permissão especial, ligada por app em
+// "Instalar apps desconhecidos". Sem ela o Intent do instalador não instala
+// nada — em vários aparelhos nem diálogo aparece.
+//
+// Era a causa da atualização automática "não funcionar" numa Fire Stick recém
+// configurada: o app baixava os 36 MB, abria o instalador e o usuário não via
+// nada acontecer. Nenhum erro, nenhuma pista.
+const SkaphosInstaller = (NativeModules as any)?.SkaphosInstaller;
+
+/** true se o app pode instalar APKs. Sem o módulo nativo (APK antigo atualizado
+ *  só por OTA), assume que sim e deixa o caminho antigo valer. */
+async function canInstallPackages(): Promise<boolean> {
+  if (!SkaphosInstaller?.canInstallPackages) return true;
+  try { return await SkaphosInstaller.canInstallPackages(); } catch { return true; }
+}
+
+/**
+ * Garante a permissão antes de gastar banda. Se faltar, explica e leva o usuário
+ * à tela certa — a permissão fica concedida para sempre, então isto acontece
+ * uma vez na vida do aparelho.
+ *
+ * @returns true se pode seguir com o download.
+ */
+async function ensureInstallPermission(): Promise<boolean> {
+  if (await canInstallPackages()) return true;
+  return new Promise<boolean>((resolve) => {
+    showAlert(
+      'Permissão necessária',
+      'Para instalar a atualização, o Android precisa que você autorize o SkaphosTV a instalar apps.' +
+        '\n\nVamos abrir a tela dessa permissão. Ligue "Permitir desta fonte" e volte aqui — ' +
+        'é uma vez só.',
+      [
+        { text: 'Agora não', style: 'cancel', onPress: () => resolve(false) },
+        {
+          text: 'Abrir ajustes',
+          onPress: () => {
+            SkaphosInstaller?.openInstallPermissionSettings?.()
+              .then((opened: boolean) => {
+                if (!opened) {
+                  showAlert(
+                    'Não foi possível abrir',
+                    'Vá em Ajustes do aparelho → Segurança → Instalar apps desconhecidos e autorize o SkaphosTV.',
+                  );
+                }
+              })
+              .catch(() => {});
+            resolve(false);
+          },
+        },
+      ],
+    );
+  });
+}
+
 /** Baixa com progresso e abre o instalador, reusando o mesmo diálogo. */
 async function runApkUpdate(rel: GithubRelease): Promise<void> {
   // showAlert reescreve o estado do diálogo já aberto, então dá pra usá-lo como
@@ -188,9 +251,19 @@ async function runApkUpdate(rel: GithubRelease): Promise<void> {
   try {
     await downloadAndInstallApk(rel.apkUrl!, p => progress(`${Math.round(p * 100)}%`));
     showAlert('Instalador aberto', 'Confirme a instalação para concluir a atualização.');
-  } catch {
+  } catch (e) {
+    // Falta de permissão já foi explicada pelo próprio diálogo — repetir com
+    // "não foi possível baixar" mandaria o usuário caçar o problema na rede.
+    if (e instanceof UpdateBlockedError) return;
     showAlert('Falha na atualização', 'Não foi possível baixar o APK. Tente de novo em Ajustes → Verificar atualização.');
   }
+}
+
+/** Usuário não concedeu (ainda) a permissão de instalar. Não é falha de rede —
+ *  os chamadores usam isto para NÃO mostrar "não foi possível baixar", que
+ *  mandaria o usuário tentar de novo no lugar errado. */
+export class UpdateBlockedError extends Error {
+  constructor() { super('Permissão de instalação não concedida'); this.name = 'UpdateBlockedError'; }
 }
 
 /** Baixa o APK e abre o instalador do Android. */
@@ -199,6 +272,11 @@ export async function downloadAndInstallApk(
   onProgress?: (pct: number) => void,
 ): Promise<void> {
   if (Platform.OS !== 'android') throw new Error('Instalação de APK disponível apenas no Android');
+  // Guarda aqui e não em cada chamador: Ajustes ("Verificar atualização" e
+  // "Forçar atualização") chama esta função direto. Baixar 36 MB para um
+  // instalador que não abre é o pior resultado possível — o usuário conclui que
+  // "a atualização não funciona" e nunca descobre que faltava uma permissão.
+  if (!(await ensureInstallPermission())) throw new UpdateBlockedError();
   const dest = `${FileSystem.cacheDirectory}skaphostv-update.apk`;
   try { await FileSystem.deleteAsync(dest, { idempotent: true }); } catch { /* noop */ }
 

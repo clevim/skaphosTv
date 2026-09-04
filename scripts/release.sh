@@ -4,8 +4,12 @@ set -euo pipefail
 # release.sh — publica um release no GitHub com o APK, para o updater do app.
 #
 # O app (src/utils/appUpdate.ts) lê o release MAIS RECENTE do GitHub, pega o asset
-# que termina em ".apk" e usa o corpo do release como notas. Como o runtimeVersion
-# muda a cada versão nativa, o upgrade entre versões exige o APK (OTA não cobre).
+# que termina em ".apk" e usa o corpo do release como notas.
+#
+# Nem todo release precisa passar por aqui: o runtimeVersion é independente da
+# versão (ver scripts/sync-version.js). Release só de JS mantém o runtime e chega
+# por OTA; release que mexe no nativo bumpa o runtime e AÍ exige este APK. Se você
+# rodou `sync-version.js --native`, este script é obrigatório.
 #
 # Fluxo:
 #   1. Resolve a versão (arg ou app.json) e valida semver.

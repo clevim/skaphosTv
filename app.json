@@ -15,7 +15,7 @@
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "1.8.0",
+    "runtimeVersion": "native-1",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
