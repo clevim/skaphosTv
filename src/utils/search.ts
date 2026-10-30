@@ -1,4 +1,5 @@
 // search.ts — busca de catálogo com tolerância a acentos, múltiplos termos e ranking.
+import { useEffect, useState } from 'react';
 import { Channel } from '../types';
 import { resolveContentType, getSeriesBaseName } from './channelUtils';
 import type { IPTVSource } from '../store/useStore';
@@ -96,4 +97,17 @@ export function searchChannels(
   // Maior score primeiro; empate → nome mais curto (mais específico) primeiro
   scored.sort((a, b) => b.score - a.score || a.len - b.len);
   return scored.slice(0, limit).map(s => ({ ...s.c, name: s.displayName }));
+}
+
+/** true enquanto a query acabou de mudar (> debounce de 200ms da tela) e o resultado ainda
+ *  pode estar velho — usado pra mostrar "Buscando…" em vez de painel em branco/"Sem resultados". */
+export function useSearchPending(query: string): boolean {
+  const [pending, setPending] = useState(false);
+  useEffect(() => {
+    if (!query.trim()) { setPending(false); return; }
+    setPending(true);
+    const t = setTimeout(() => setPending(false), 350);
+    return () => clearTimeout(t);
+  }, [query]);
+  return pending;
 }

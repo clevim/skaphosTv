@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Svg, { Circle } from 'react-native-svg';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Channel } from '../types';
 import TVFocusable, { TVFocusableHandle } from './TVFocusable';
 import PulsingDot from './PulsingDot';
@@ -112,6 +113,17 @@ interface Props {
   /** Web: avisa quando o mouse entra/sai dos controles — o OSD não se esconde
    *  enquanto o ponteiro estiver sobre algum botão/barra. */
   onControlsHover?: (hovering: boolean) => void;
+  /** Proporção de vídeo atual (rótulo) e ciclo. */
+  resizeLabel?: string;
+  onCycleResize?: () => void;
+  /** Velocidade de reprodução (VOD). */
+  rate?: number;
+  onCycleRate?: () => void;
+  /** Ao vivo: voltar ao canal anterior. */
+  hasRecall?: boolean;
+  onRecall?: () => void;
+  /** Rótulo do botão de lista lateral ("Canais"/"Episódios"). */
+  sidebarLabel?: string;
 }
 
 // CSS do slider de volume (web) — à la YouTube: <input type="range"> nativo com
@@ -129,6 +141,14 @@ if (IS_WEB && typeof document !== 'undefined') {
 .skv-vol::-moz-range-progress{height:3px;border-radius:2px;background:#fff}
 .skv-vol::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:#fff;border:none}`;
   document.head.appendChild(style);
+}
+
+/** "Série S01E01" + epTitle -> "Série · T1 · E01 · Título". */
+function displayTitle(ch: Channel): string {
+  if (!ch.epTitle) return ch.name;
+  const m = ch.name.match(/^(.*?)\s*S(\d+)\s*E(\d+)\s*$/i);
+  if (!m) return `${ch.name} · ${ch.epTitle}`;
+  return `${m[1]} · T${Number(m[2])} · E${m[3].padStart(2, '0')} · ${ch.epTitle}`;
 }
 
 function formatTime(seconds: number): string {
@@ -155,6 +175,8 @@ export default function PlayerOSD({
   scrubMode = false,
   sidebarOpen = false,
   onControlsHover,
+  resizeLabel, onCycleResize, rate = 1, onCycleRate,
+  hasRecall, onRecall, sidebarLabel = 'Lista de canais',
 }: Props) {
   const progressPct = duration > 0 ? Math.min(1, position / duration) : 0;
   const seekBarWidth = useRef(0);
@@ -215,11 +237,15 @@ export default function PlayerOSD({
 
   return (
     <Animated.View style={[styles.osd, { opacity: osdAnim }]}>
+      {/* Scrims (WCAG AA): gradiente abissal atrás do topo e da base para o texto
+          não depender do frame do vídeo. Não captam toque. */}
+      <LinearGradient pointerEvents="none" colors={['rgba(10,8,16,0.85)', 'rgba(10,8,16,0)']} style={styles.scrimTop} />
+      <LinearGradient pointerEvents="none" colors={['rgba(10,8,16,0)', 'rgba(10,8,16,0.9)']} style={styles.scrimBottom} />
 
       {/* Top bar — back + title + actions. Some no modo scrubbing (foco na barra),
           mas continua montado/focável para o foco poder voltar ao sair da barra. */}
       <View style={[styles.osdTop, scrubMode && styles.scrubHidden]} {...hoverProps}>
-        <TVFocusable accessibilityLabel={IS_TV ? 'Voltar' : 'Fechar player'} onPress={onBack} style={styles.backBtn} hitSlop={5}>
+        <TVFocusable accessibilityLabel={IS_TV ? 'Voltar' : 'Fechar player'} onPress={onBack} style={styles.backBtn} borderRadius={19} hitSlop={5}>
           <Ionicons name={IS_TV ? 'chevron-back' : 'chevron-down'} size={20} color={colors.white} />
         </TVFocusable>
 
@@ -228,7 +254,7 @@ export default function PlayerOSD({
             quantos ícones aparecem, descentralizando o título). */}
         <View style={styles.titleWrap} pointerEvents="none">
           <Text style={styles.titleLabel}>REPRODUZINDO</Text>
-          <Text style={styles.titleName} numberOfLines={1}>{channel.name}</Text>
+          <Text style={styles.titleName} numberOfLines={1}>{displayTitle(channel)}</Text>
           <NowNextLine channel={channel} isLive={isLive} />
         </View>
 
@@ -274,28 +300,44 @@ export default function PlayerOSD({
                   onPointerUp={() => setVolDragging(false)}
                 />
               </div>
-              <TVFocusable accessibilityLabel={isMuted || volume <= 0 ? 'Ativar som' : 'Silenciar'} onPress={onToggleMute} style={styles.iconBtn} hitSlop={5}>
+              <TVFocusable accessibilityLabel={isMuted || volume <= 0 ? 'Ativar som' : 'Silenciar'} onPress={onToggleMute} style={styles.iconBtn} borderRadius={19} hitSlop={5}>
                 <Ionicons name={volIcon} size={18} color={colors.white} />
               </TVFocusable>
             </Pressable>
           )}
+          {hasRecall && onRecall && (
+            <TVFocusable accessibilityLabel="Canal anterior" onPress={onRecall} style={styles.iconBtn} borderRadius={19} hitSlop={5}>
+              <Ionicons name="return-down-back" size={18} color={colors.white} />
+            </TVFocusable>
+          )}
+          {!isLive && onCycleRate && (
+            <TVFocusable accessibilityLabel={`Velocidade ${rate}x`} onPress={onCycleRate} style={styles.pillBtn} borderRadius={19} hitSlop={5}>
+              <Text style={styles.pillText}>{rate}x</Text>
+            </TVFocusable>
+          )}
+          {onCycleResize && resizeLabel && (
+            <TVFocusable accessibilityLabel={`Proporção: ${resizeLabel}`} onPress={onCycleResize} style={styles.pillBtn} borderRadius={19} hitSlop={5}>
+              <Ionicons name="expand-outline" size={16} color={colors.white} />
+              <Text style={styles.pillText}>{resizeLabel}</Text>
+            </TVFocusable>
+          )}
           {showMinimize && onMinimize && (
-            <TVFocusable accessibilityLabel="Minimizar player" onPress={onMinimize} style={styles.iconBtn} hitSlop={5}>
+            <TVFocusable accessibilityLabel="Minimizar player" onPress={onMinimize} style={styles.iconBtn} borderRadius={19} hitSlop={5}>
               <Ionicons name="contract-outline" size={18} color={colors.white} />
             </TVFocusable>
           )}
           {hasAudio && onToggleAudio && (
-            <TVFocusable accessibilityLabel="Faixas de áudio" onPress={onToggleAudio} style={styles.iconBtn} hitSlop={5}>
+            <TVFocusable accessibilityLabel="Faixas de áudio" onPress={onToggleAudio} style={styles.iconBtn} borderRadius={19} hitSlop={5}>
               <Ionicons name="musical-notes-outline" size={18} color={colors.white} />
             </TVFocusable>
           )}
           {hasSubtitles && onToggleSubtitles && (
-            <TVFocusable accessibilityLabel="Legendas" onPress={onToggleSubtitles} style={[styles.iconBtn, subtitleActive && styles.iconBtnActive]} hitSlop={5}>
+            <TVFocusable accessibilityLabel="Legendas" onPress={onToggleSubtitles} style={[styles.iconBtn, subtitleActive && styles.iconBtnActive]} borderRadius={19} hitSlop={5}>
               <Ionicons name="chatbox-ellipses-outline" size={18} color={subtitleActive ? colors.accent : colors.white} />
             </TVFocusable>
           )}
           {onToggleSleepTimer && (
-            <TVFocusable accessibilityLabel="Timer de desligamento" onPress={onToggleSleepTimer} style={styles.iconBtn} hitSlop={5}>
+            <TVFocusable accessibilityLabel="Timer de desligamento" onPress={onToggleSleepTimer} style={styles.iconBtn} borderRadius={19} hitSlop={5}>
               <Ionicons name="moon-outline" size={18} color={sleepTimerActive ? colors.accent : colors.white} />
               {/* Enquanto roda, o estado "ativo" é só o anel regredindo — sem também
                   pintar o botão, que duplicava a indicação (círculo cheio + anel). */}
@@ -305,12 +347,13 @@ export default function PlayerOSD({
             </TVFocusable>
           )}
           {showSidebarButton && (
-            <TVFocusable accessibilityLabel="Lista de canais" onPress={onToggleSidebar} style={styles.iconBtn} hitSlop={5}>
-              <Ionicons name="scan-outline" size={18} color={colors.white} />
+            <TVFocusable accessibilityLabel={sidebarLabel} onPress={onToggleSidebar} style={styles.pillBtn} borderRadius={19} hitSlop={5}>
+              <Ionicons name="list" size={18} color={colors.white} />
+              <Text style={styles.pillText}>{sidebarLabel === 'Episódios' ? 'Episódios' : 'Canais'}</Text>
             </TVFocusable>
           )}
           {showNextEpisode && onNextEpisode && (
-            <TVFocusable accessibilityLabel="Próximo episódio" onPress={onNextEpisode} style={styles.iconBtn} hitSlop={5}>
+            <TVFocusable accessibilityLabel="Próximo episódio" onPress={onNextEpisode} style={styles.iconBtn} borderRadius={19} hitSlop={5}>
               <Ionicons name="play-skip-forward" size={18} color={colors.white} />
             </TVFocusable>
           )}
@@ -325,17 +368,17 @@ export default function PlayerOSD({
             Ao vivo não tem como avançar/voltar — some com os botões de seek,
             deixando só o play/pause pra limpar a tela. */}
         {!isLive && (
-          <TVFocusable accessibilityLabel="Voltar 10 segundos" onPress={() => onSeekBy(-10)} style={styles.seekBtn} disabled={scrubMode}>
+          <TVFocusable accessibilityLabel="Voltar 10 segundos" onPress={() => onSeekBy(-10)} style={styles.seekBtn} borderRadius={IS_TV ? 26 : 22} disabled={scrubMode}>
             <Ionicons name="play-back" size={IS_TV ? 32 : 28} color="rgba(255,255,255,0.85)" />
           </TVFocusable>
         )}
 
-        <TVFocusable ref={playRef} accessibilityLabel={isPlaying ? 'Pausar' : 'Reproduzir'} onPress={onTogglePlay} style={styles.playBtn} hasTVPreferredFocus>
+        <TVFocusable ref={playRef} accessibilityLabel={isPlaying ? 'Pausar' : 'Reproduzir'} onPress={onTogglePlay} style={styles.playBtn} borderRadius={IS_TV ? 38 : 32} hasTVPreferredFocus>
           <Ionicons name={isPlaying ? 'pause' : 'play'} size={IS_TV ? 28 : 24} color={colors.textInverse} />
         </TVFocusable>
 
         {!isLive && (
-          <TVFocusable accessibilityLabel="Avançar 10 segundos" onPress={() => onSeekBy(10)} style={styles.seekBtn} disabled={scrubMode}>
+          <TVFocusable accessibilityLabel="Avançar 10 segundos" onPress={() => onSeekBy(10)} style={styles.seekBtn} borderRadius={IS_TV ? 26 : 22} disabled={scrubMode}>
             <Ionicons name="play-forward" size={IS_TV ? 32 : 28} color="rgba(255,255,255,0.85)" />
           </TVFocusable>
         )}
@@ -352,6 +395,9 @@ export default function PlayerOSD({
                 <Ionicons name="play-forward" size={12} color={colors.accent} />
               </View>
             )}
+            {IS_NATIVE_TV && !scrubMode && (
+              <Text style={styles.scrubHintIdle}>▼ para ajustar o tempo</Text>
+            )}
             {IS_NATIVE_TV ? (
               // TV física: barra apenas VISUAL (não-focável). O modo scrubbing é estado
               // do PlayerScreen (liga na ↓); o seek vem do D-pad pelo canal nativo.
@@ -361,6 +407,7 @@ export default function PlayerOSD({
                   style={styles.progressBg}
                   onLayout={(e) => { seekBarWidth.current = e.nativeEvent.layout.width; }}
                 >
+                  <View style={[styles.progressTrack, scrubMode && styles.progressTrackActive]} />
                   <View style={[styles.progressFill, { width: `${progressPct * 100}%` }, scrubMode && styles.progressFillActive]} />
                   <View style={[styles.progressThumb, { left: `${progressPct * 100}%` }, scrubMode && styles.progressThumbActive]} />
                 </View>
@@ -371,6 +418,7 @@ export default function PlayerOSD({
                 onLayout={(e) => { seekBarWidth.current = e.nativeEvent.layout.width; }}
                 {...panResponder.panHandlers}
               >
+                <View style={styles.progressTrack} />
                 <View style={[styles.progressFill, { width: `${progressPct * 100}%` }]} />
                 <View style={[styles.progressThumb, { left: `${progressPct * 100}%` }]} />
               </View>
@@ -386,7 +434,7 @@ export default function PlayerOSD({
             <Text style={styles.liveInfoText}>Ao vivo</Text>
             <View style={{ flex: 1 }} />
             <Text style={styles.channelCounter}>
-              CH {currentIndex + 1}/{totalChannels}
+              {currentIndex + 1}/{totalChannels}
             </Text>
           </View>
         ) : null}
@@ -394,13 +442,13 @@ export default function PlayerOSD({
         {/* Channel nav — only show for non-live with no progress */}
         {!isLive && duration === 0 && (
           <View style={styles.bottomRow}>
-            <TVFocusable accessibilityLabel="Canal anterior" onPress={onPrevChannel} style={styles.navBtn} hitSlop={4} disabled={currentIndex === 0}>
+            <TVFocusable accessibilityLabel="Canal anterior" onPress={onPrevChannel} style={styles.navBtn} borderRadius={20} hitSlop={4} disabled={currentIndex === 0}>
               <Ionicons name="play-skip-back" size={18} color={currentIndex === 0 ? 'rgba(255,255,255,0.3)' : colors.white} />
             </TVFocusable>
             <Text style={styles.channelCounter}>
-              CH {currentIndex + 1}/{totalChannels}
+              {currentIndex + 1}/{totalChannels}
             </Text>
-            <TVFocusable accessibilityLabel="Próximo canal" onPress={onNextChannel} style={styles.navBtn} hitSlop={4} disabled={currentIndex === totalChannels - 1}>
+            <TVFocusable accessibilityLabel="Próximo canal" onPress={onNextChannel} style={styles.navBtn} borderRadius={20} hitSlop={4} disabled={currentIndex === totalChannels - 1}>
               <Ionicons name="play-skip-forward" size={18} color={currentIndex === totalChannels - 1 ? 'rgba(255,255,255,0.3)' : colors.white} />
             </TVFocusable>
           </View>
@@ -415,6 +463,9 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'space-between',
   },
+
+  scrimTop:    { position: 'absolute', top: 0, left: 0, right: 0, height: 200 },
+  scrimBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 300 },
 
   // Top
   osdTop: {
@@ -531,6 +582,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
   },
+  // Trilho completo (parte não reproduzida) — antes só a bolinha aparecia
+  progressTrack: {
+    position: 'absolute', left: 0, right: 0, top: 8.5, height: 3,
+    borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.35)',
+  },
+  progressTrackActive: { height: 5, top: 7.5 },
+  scrubHintIdle: { color: 'rgba(255,255,255,0.6)', fontSize: fontSize.xs, textAlign: 'center' },
+  pillBtn: {
+    height: 38, minWidth: 38, paddingHorizontal: 11, borderRadius: radius.full,
+    backgroundColor: 'rgba(0,0,0,0.4)', flexDirection: 'row', gap: 5,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  pillText: { color: colors.white, fontSize: 12, fontWeight: '600' },
   progressFill: {
     position: 'absolute',
     left: 0,

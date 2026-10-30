@@ -24,6 +24,18 @@ type FocusFn = () => void;
 
 const listeners = new Set<(fn: FocusFn) => void>();
 
+// Fonte única de verdade do foco visual: só UM focável fica "aceso". Quando um
+// novo assume, o anterior é apagado à força (cobre blur perdido entre janelas/
+// modais ou eventos nativos fora de ordem).
+let lit: { id: object; off: () => void } | null = null;
+export function claimTVFocus(id: object, off: () => void) {
+  if (lit && lit.id !== id) lit.off();
+  lit = { id, off };
+}
+export function releaseTVFocus(id: object) {
+  if (lit?.id === id) lit = null;
+}
+
 /** Chamado pelo TVFocusable sempre que um focável ganha foco. */
 export function reportTVFocus(fn: FocusFn) {
   for (const l of listeners) l(fn);

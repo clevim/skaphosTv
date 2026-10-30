@@ -1,9 +1,8 @@
 // TVTopBar.tsx — TV horizontal top nav with proper D-pad focus
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Image } from 'expo-image';
-import TVFocusable from './TVFocusable';
+import TVFocusable, { TVFocusableHandle } from './TVFocusable';
 import { colors, spacing, radius, fontFamily } from '../utils/theme';
 import { LAUNCH_YEAR } from '../utils/channelUtils';
 import { useStore } from '../store/useStore';
@@ -34,23 +33,30 @@ function NavItem({
   item,
   active,
   onPress,
+  itemRef,
+  onBarFocus,
+  onBarBlur,
 }: {
   item: { key: string; label: string };
   active: boolean;
   onPress: () => void;
+  itemRef?: React.Ref<TVFocusableHandle>;
+  onBarFocus: (isActive: boolean) => void;
+  onBarBlur: () => void;
 }) {
   const [focused, setFocused] = useState(false);
   return (
     <TVFocusable
+      ref={itemRef}
       onPress={onPress}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
+      onFocus={() => { setFocused(true); onBarFocus(active); }}
+      onBlur={() => { setFocused(false); onBarBlur(); }}
       style={styles.navItem}
       focusStyle={styles.navItemFocused}
       focusScale={1}            // sem zoom no menu inline (evita invadir vizinhos)
       borderRadius={radius.full}
     >
-      <Text style={[
+      <Text numberOfLines={1} style={[
         styles.navLabel,
         active && styles.navLabelActive,
         focused && styles.navLabelFocused,
@@ -83,6 +89,18 @@ export default function TVTopBar({ active, onNavPress, onSettingsPress, jellyfin
     return () => clearInterval(interval);
   }, [isFocused]);
 
+  // Memória de foco da barra: ↑ vindo do conteúdo cai no item mais próximo (geralmente
+  // "Início"). Se o foco ENTRA na barra (sem blur recente de outro item da barra) e não
+  // é a aba atual, redireciona pra aba atual. Setas ←/→ dentro da barra não são afetadas.
+  const activeRef = useRef<TVFocusableHandle>(null);
+  const lastBlur = useRef(0);
+  const onBarBlur = () => { lastBlur.current = Date.now(); };
+  const onBarFocus = (isActive: boolean) => {
+    const entering = Date.now() - lastBlur.current > 200;
+    lastBlur.current = Date.now();
+    if (entering && !isActive) activeRef.current?.focus();
+  };
+
   const showClock = useStore(s => s.settings.showClock);
   const showEpg   = useStore(s => s.settings.showEpg);
   const navItems = [
@@ -97,7 +115,7 @@ export default function TVTopBar({ active, onNavPress, onSettingsPress, jellyfin
       <View style={styles.wordmark}>
         <View style={styles.logoIcon}>
           {/* Logo oficial com zoom-crop — a arte tem ~15% de margem interna */}
-          <Image source={require('../../assets/icon.png')} style={styles.logoImg} contentFit="cover" />
+          <Image source={require('../../assets/icon.png')} style={styles.logoImg} resizeMode="cover" />
         </View>
         <Text style={styles.logoText}>
           Skaphos<Text style={styles.logoDot}>·</Text>TV
@@ -111,6 +129,9 @@ export default function TVTopBar({ active, onNavPress, onSettingsPress, jellyfin
             key={item.key}
             item={item}
             active={item.key === active}
+            itemRef={item.key === active ? activeRef : undefined}
+            onBarFocus={onBarFocus}
+            onBarBlur={onBarBlur}
             onPress={() => onNavPress(item.key)}
           />
         ))}
@@ -126,6 +147,8 @@ export default function TVTopBar({ active, onNavPress, onSettingsPress, jellyfin
         )}
         <TVFocusable accessibilityLabel="Ajustes"
           onPress={onSettingsPress || (() => {})}
+          onFocus={() => { lastBlur.current = Date.now(); }}
+          onBlur={onBarBlur}
           style={styles.settingsBtn}
           borderRadius={radius.full}
         >
@@ -146,7 +169,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xxl,   // 48 → 32
     paddingVertical: 14,              // 20 → 14
     gap: 20,                          // 36 → 20
-    backgroundColor: 'rgba(10,8,16,0.85)',
+    // Scrim: mais opaco + fio inferior + sombra p/ os itens não sumirem sobre hero claro
+    backgroundColor: 'rgba(10,8,16,0.94)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+    elevation: 6,
+    shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
   },
 
   // Wordmark
@@ -186,6 +214,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 6,
     paddingHorizontal: 12,
+    flexShrink: 0,   // rótulo nunca quebra ("Favorito/s")
     borderRadius: radius.full,
   },
   navItemFocused: {
@@ -196,6 +225,7 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.medium,
     color: colors.text2,
     letterSpacing: -0.1,
+    textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 3,
   },
   navLabelActive: {
     fontFamily: fontFamily.semiBold,

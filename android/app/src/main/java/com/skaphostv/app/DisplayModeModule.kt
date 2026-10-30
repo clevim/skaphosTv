@@ -118,6 +118,9 @@ class DisplayModeModule(reactContext: ReactApplicationContext) : ReactContextBas
       try {
         val window = activity.window ?: return@runOnUiThread
         window.attributes = window.attributes.apply { preferredDisplayModeId = modeId }
+        (activity as? MainActivity)?.resetWindowLayout()
+        // o modo muda de forma assíncrona; repete após a TV terminar a troca
+        window.decorView.postDelayed({ (activity as? MainActivity)?.resetWindowLayout() }, 1500)
       } catch (_: Exception) {
       }
     }

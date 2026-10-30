@@ -36,6 +36,10 @@ const KEY = {
   MEDIA_REWIND:     89,
   MEDIA_FAST_FWD:   90,
   MENU:             82,
+  PAGE_UP:          92,
+  PAGE_DOWN:        93,
+  CHANNEL_UP:       166,
+  CHANNEL_DOWN:     167,
 };
 
 type PlayerRoute = RouteProp<RootStackParamList, 'Player'>;
@@ -83,13 +87,13 @@ export default function PlayerScreen() {
     retryCount, retryingIn,
     position, duration,
     showOSD, showSidebar,
-    isLive, hasPlaylist, currentIndex, totalSiblings,
+    isLive, hasPlaylist, currentIndex, totalSiblings, siblings,
     subtitleTracks, selectedSubtitleIndex,
     vttSubtitleIndex, switchSubtitleTrack, subtitleOffsetMs, setSubtitleOffset,
     audioTracks, currentAudioIndex, audioReady, switchAudioTrack,
     setVolume, setIsMuted, setShowSidebar,
     handleScreenTap, showOSDTemporarily, setOsdHover,
-    togglePlay, playChannel, prevChannel, nextChannel,
+    togglePlay, playChannel, prevChannel, nextChannel, recallChannel, hasRecall,
     manualRetry, seekBy, seekTo,
     onLoad, onProgress, onBuffer, onError, onEnd,
   } = player;
@@ -101,6 +105,30 @@ export default function PlayerScreen() {
   // As teclas chegam pelo canal nativo (SkaphosKeyDown), então não dependemos do foco
   // ficar na barra — o foco pode até escapar que o seek e o visual seguem este estado.
   const [scrubMode, setScrubMode] = useState(false);
+  // Proporção do vídeo (botão no OSD) e velocidade (VOD)
+  const RESIZE_MODES = [
+    { mode: ResizeMode.CONTAIN, label: 'Ajustar' },
+    { mode: ResizeMode.COVER, label: 'Preencher' },
+    { mode: ResizeMode.STRETCH, label: 'Esticar' },
+  ];
+  const [resizeIdx, setResizeIdx] = useState(0);
+  const RATES = [1, 1.25, 1.5, 2, 0.75];
+  const cycleRate = useCallback(() => {
+    setRate(RATES[(RATES.indexOf(rate) + 1) % RATES.length]);
+  }, [rate, setRate]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Toast curto (confirmação do sleep timer etc.)
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2500);
+  }, []);
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+  const handleSleepSelect = useCallback((m: number | null) => {
+    setSleepTimer(m);
+    showToast(m ? `Desliga em ${m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? String(m % 60).padStart(2, '0') : ''}` : `${m} min`}` : 'Timer desligado');
+  }, [setSleepTimer, showToast]);
   // Velocidade 2x ao segurar o canto (toque) — volta ao normal ao soltar.
   const [speedActive, setSpeedActive] = useState(false);
   const handleHoldStart = useCallback(() => {
@@ -114,6 +142,41 @@ export default function PlayerScreen() {
       return false;
     });
   }, [setRate]);
+
+  // ── Zapping CH+/CH− (↑/↓, PageUp/Down, CH+/CH− do controle) ─────────────────
+  // Só em lista de canais ao vivo. O HUD atualiza a cada tecla; a troca real é
+  // debounced (450 ms) para zapping rápido não abrir N streams. Sem OSD: assim ↑↓
+  // seguintes continuam zapeando (com OSD aberto, ↑↓ movem o foco dos botões).
+  const [zapHud, setZapHud] = useState<{ name: string; num: number; total: number } | null>(null);
+  const zapIdxRef = useRef<number | null>(null);
+  const zapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const zapHudTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const zapListRef = useRef(siblings);
+  const zapCurRef = useRef(currentIndex);
+  const playChannelRef = useRef(playChannel);
+  zapListRef.current = siblings; zapCurRef.current = currentIndex; playChannelRef.current = playChannel;
+  const canZap = isLive && !hasPlaylist && siblings.length > 1;
+  const canZapRef = useRef(canZap);
+  canZapRef.current = canZap;
+  useEffect(() => () => {
+    if (zapTimerRef.current) clearTimeout(zapTimerRef.current);
+    if (zapHudTimerRef.current) clearTimeout(zapHudTimerRef.current);
+  }, []);
+  const zap = useCallback((delta: 1 | -1) => {
+    const list = zapListRef.current;
+    if (list.length < 2) return;
+    const base = zapIdxRef.current ?? Math.max(0, zapCurRef.current);
+    const idx = (base + delta + list.length) % list.length; // dá a volta nas pontas
+    zapIdxRef.current = idx;
+    setZapHud({ name: list[idx].name, num: idx + 1, total: list.length });
+    if (zapHudTimerRef.current) clearTimeout(zapHudTimerRef.current);
+    zapHudTimerRef.current = setTimeout(() => setZapHud(null), 2500);
+    if (zapTimerRef.current) clearTimeout(zapTimerRef.current);
+    zapTimerRef.current = setTimeout(() => {
+      zapIdxRef.current = null;
+      playChannelRef.current(list[idx], true);
+    }, 450);
+  }, []);
 
   // Botão "próximo episódio" — só com playlist de série e havendo um próximo.
   const hasNextEpisode = hasPlaylist && currentIndex < totalSiblings - 1;
@@ -297,6 +360,12 @@ export default function PlayerScreen() {
     // Quando algum sheet (legenda/áudio) está aberto, ignora — o Modal cuida do foco
     if (showSheetRef.current) return;
 
+    // CH+/CH− dedicados (e PageUp/Down) zapeiam mesmo com OSD aberto
+    if (canZapRef.current && !showSidebarRef.current) {
+      if (code === KEY.CHANNEL_UP || code === KEY.PAGE_UP)     { zap(1);  return; }
+      if (code === KEY.CHANNEL_DOWN || code === KEY.PAGE_DOWN) { zap(-1); return; }
+    }
+
     const isMediaSeek = code === KEY.MEDIA_FAST_FWD || code === KEY.MEDIA_REWIND;
     const dir =
       code === KEY.DPAD_RIGHT || code === KEY.MEDIA_FAST_FWD ?  1 :
@@ -320,6 +389,8 @@ export default function PlayerScreen() {
         showOSDTemporarily();
         return;
       }
+      // OSD fechado + canal ao vivo: ↓ = CH− (zapping). Senão, volume.
+      if (!showOSDRef.current && canZapRef.current && !showSidebarRef.current) { zap(-1); return; }
       showOSDTemporarily();
       if (!showOSDRef.current) setVolume((v: number) => Math.max(0, parseFloat((v - 0.1).toFixed(1))));
       return;
@@ -328,6 +399,7 @@ export default function PlayerScreen() {
     // ── DPAD_UP: sai do modo scrubbing ──
     if (code === KEY.DPAD_UP) {
       if (scrubModeRef.current) { setScrubMode(false); showOSDTemporarily(); return; }
+      if (!showOSDRef.current && canZapRef.current && !showSidebarRef.current) { zap(1); return; }
       showOSDTemporarily();
       if (!showOSDRef.current) setVolume((v: number) => Math.min(1, parseFloat((v + 0.1).toFixed(1))));
       return;
@@ -351,7 +423,7 @@ export default function PlayerScreen() {
         else navigation.goBack();
         break;
     }
-  }, [seekBy, togglePlay, setVolume, setShowSidebar, showOSDTemporarily, navigation]);
+  }, [seekBy, togglePlay, setVolume, setShowSidebar, showOSDTemporarily, navigation, zap]);
 
   // Android (TV): a prop onKeyDown da <View> NÃO é suportada em RN puro. As teclas do
   // controle chegam via evento nativo 'SkaphosKeyDown' (MainActivity.dispatchKeyEvent →
@@ -393,6 +465,8 @@ export default function PlayerScreen() {
           ev.preventDefault(); showOSDTemporarily();
           setVolume((v: number) => Math.max(0, parseFloat((v - 0.1).toFixed(1))));
           break;
+        case 'PageUp':   if (canZapRef.current) { ev.preventDefault(); zap(1); }  break;
+        case 'PageDown': if (canZapRef.current) { ev.preventDefault(); zap(-1); } break;
         case ' ':
           if (buttonFocused()) return;
           ev.preventDefault(); togglePlay();
@@ -412,7 +486,7 @@ export default function PlayerScreen() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [seekBy, togglePlay, setVolume, setIsMuted, showOSDTemporarily, setShowSidebar,
-      showSubtitleSheet, showAudioSheet, showSleepSheet, showSidebar, navigation]);
+      showSubtitleSheet, showAudioSheet, showSleepSheet, showSidebar, navigation, zap]);
 
   // Web: mover o mouse reexibe o OSD (como nos players de navegador). Throttle leve —
   // cada chamada re-arma timer + animação, não precisa rodar a cada pixel.
@@ -444,7 +518,7 @@ export default function PlayerScreen() {
           // e a gente forçou o outro container (ver onError em usePlayer).
           source={{ uri: streamUrl, type: sourceType, headers: streamHeaders(playingChannel) }}
           style={StyleSheet.absoluteFill}
-          resizeMode={ResizeMode.CONTAIN}
+          resizeMode={RESIZE_MODES[resizeIdx].mode}
           paused={paused}
           muted={isMuted}
           volume={volume}
@@ -514,12 +588,15 @@ export default function PlayerScreen() {
         )}
 
         {isBuffering && !error && (
-          <View style={styles.bufferingOverlay}>
-            <Ionicons name="reload-circle" size={52} color={colors.accent2} />
-            <Text style={styles.bufferingText}>Carregando...</Text>
-            {retryCount > 0 && (
-              <Text style={styles.retryLabel}>Tentativa {retryCount + 1} de {MAX_RETRIES}</Text>
-            )}
+          <View style={styles.bufferingOverlay} pointerEvents="none">
+            {/* Metade de baixo: o botão play/pause fica no centro exato */}
+            <View style={styles.bufferingBox}>
+              <Ionicons name="reload-circle" size={36} color={colors.accent2} />
+              <Text style={styles.bufferingText}>Carregando...</Text>
+              {retryCount > 0 && (
+                <Text style={styles.retryLabel}>Tentativa {retryCount + 1} de {MAX_RETRIES}</Text>
+              )}
+            </View>
           </View>
         )}
 
@@ -534,6 +611,26 @@ export default function PlayerScreen() {
             onRetryNow={manualRetry}
             onNextChannel={nextChannel}
           />
+        )}
+
+        {paused && !showOSD && !inPip && !error && (
+          <View style={styles.pauseBadge} pointerEvents="none">
+            <Ionicons name="pause" size={32} color={colors.white} />
+          </View>
+        )}
+
+        {toast && (
+          <View style={styles.toast} pointerEvents="none">
+            <Text style={styles.toastText}>{toast}</Text>
+          </View>
+        )}
+
+        {zapHud && !showOSD && !inPip && (
+          <View style={styles.zapHud} pointerEvents="none">
+            <Text style={styles.zapNum}>{zapHud.num}</Text>
+            <Text style={styles.zapName} numberOfLines={1}>{zapHud.name}</Text>
+            <Text style={styles.zapTotal}>de {zapHud.total}</Text>
+          </View>
         )}
 
         {showOSD && !inPip && (
@@ -556,7 +653,8 @@ export default function PlayerScreen() {
             onToggleMute={() => setIsMuted(m => !m)}
             // Ajustar o volume desmuta — arrastar o slider mudo e não ouvir nada confunde
             onVolumeChange={(v) => { setVolume(v); setIsMuted(false); }}
-            showSidebarButton={playlist.length > 0}
+            showSidebarButton={playlist.length > 0 || canZap}
+            sidebarLabel={playlist.length > 0 ? 'Episódios' : 'Canais'}
             onToggleSidebar={() => setShowSidebar(s => !s)}
             onSeekTo={seekTo}
             onSeekBy={seekBy}
@@ -576,6 +674,12 @@ export default function PlayerScreen() {
             scrubMode={scrubMode}
             sidebarOpen={showSidebar}
             onControlsHover={IS_WEB ? setOsdHover : undefined}
+            resizeLabel={RESIZE_MODES[resizeIdx].label}
+            onCycleResize={() => setResizeIdx(i => (i + 1) % RESIZE_MODES.length)}
+            rate={rate}
+            onCycleRate={cycleRate}
+            hasRecall={isLive && hasRecall}
+            onRecall={recallChannel}
           />
         )}
 
@@ -599,7 +703,7 @@ export default function PlayerScreen() {
         <SleepTimerSheet
           visible={showSleepSheet}
           selectedMinutes={sleepTimerMinutes}
-          onSelect={setSleepTimer}
+          onSelect={handleSleepSelect}
           onClose={() => setShowSleepSheet(false)}
         />
       </TouchableOpacity>
@@ -636,6 +740,15 @@ const styles = StyleSheet.create({
     top: 0, bottom: 0, right: 0,
     width: '40%',
   },
+  zapHud: {
+    position: 'absolute', top: 40, left: 48, maxWidth: '60%',
+    flexDirection: 'row', alignItems: 'center', gap: 16,
+    paddingHorizontal: 20, paddingVertical: 12, borderRadius: 14,
+    backgroundColor: 'rgba(10,8,16,0.88)',
+  },
+  zapNum: { color: colors.accent2, fontSize: fontSize.lg, fontWeight: '800' },
+  zapName: { color: colors.text1, fontSize: fontSize.lg, fontWeight: '600', flexShrink: 1 },
+  zapTotal: { color: colors.text2, fontSize: fontSize.sm },
   speedIndicator: {
     position: 'absolute',
     top: 24,
@@ -652,8 +765,19 @@ const styles = StyleSheet.create({
   bufferingOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)', gap: 12,
+    backgroundColor: 'rgba(0,0,0,0.6)',
   },
+  bufferingBox: { position: 'absolute', top: '50%', marginTop: 56, alignItems: 'center', gap: 6 },
+  pauseBadge: {
+    position: 'absolute', alignSelf: 'center', top: '50%', marginTop: -36,
+    width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(10,8,16,0.6)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  toast: {
+    position: 'absolute', alignSelf: 'center', top: 90, paddingHorizontal: 18, paddingVertical: 9,
+    borderRadius: 999, backgroundColor: 'rgba(10,8,16,0.9)',
+  },
+  toastText: { color: colors.text1, fontSize: fontSize.sm, fontWeight: '600' },
   bufferingText: { color: colors.text2, fontSize: fontSize.md, fontWeight: '500' },
   seekHint: {
     ...StyleSheet.absoluteFillObject,

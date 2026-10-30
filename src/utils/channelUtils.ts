@@ -142,10 +142,51 @@ export function detectQuality(str: string): string {
  * string original (com o prefixo) intacta em todo o resto do app — isso é só
  * pra exibição.
  */
+// Emoji/pictogramas (BMP símbolos + pares substitutos) e seletores de variação.
+// Regex explícita (sem \p{}) pra não depender do suporte do Hermes.
+const EMOJI_RE = /[\u2190-\u21FF\u2300-\u23FF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D\u20E3]|[\uD83C-\uD83E][\uDC00-\uDFFF]/g;
+
 export function cleanGroupName(group: string): string {
-  const withoutMarker = group.replace(/[♦◆️]\s*/g, '').trim();
+  const withoutMarker = group.replace(EMOJI_RE, '').replace(/[♦◆]\s*/g, '').replace(/\s+/g, ' ').trim();
   const pipeIdx = withoutMarker.indexOf('|');
   return pipeIdx === -1 ? withoutMarker : withoutMarker.slice(pipeIdx + 1).trim();
+}
+
+const SMALL_PT = /^(De|Da|Do|Das|Dos)$/;
+const nameCache = new Map<string, string>();
+
+/**
+ * Nome de exibição de canal/título: tira emoji, tags de provedor ("[L]", sufixo
+ * HD/FHD²/UHD/4K — a qualidade já tem badge própria), normaliza "( 2021 )" e a
+ * caixa. Só EXIBIÇÃO: id, busca e agrupamento seguem usando o nome cru.
+ * ponytail: nomes TODO EM MAIÚSCULA com 3+ palavras viram Title Case (siglas de
+ * até 3 letras ficam); com 1-2 palavras ficam como estão pra não virar "Espn".
+ */
+export function cleanDisplayName(name: string): string {
+  const hit = nameCache.get(name);
+  if (hit !== undefined) return hit;
+  let n = name
+    .replace(EMOJI_RE, '')
+    .replace(/\s*\[[A-Za-z]{1,4}\]/g, '')
+    .replace(/\(\s*(\d{4})\s*\)/g, '($1)')
+    .replace(/(\s*[|\-–]?\s*\b(?:FHD|UHD|HD|SD|4K)\b[²³¹]*)+\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!n) n = name.trim();
+  const words = n.split(' ');
+  const letters = n.replace(/[^A-Za-zÀ-ÿ]/g, '');
+  if (words.length >= 3 && letters.length > 3 && letters === letters.toUpperCase()) {
+    n = words.map(w => {
+      const bare = w.replace(/[^A-Za-zÀ-ÿ]/g, '');
+      if (bare.length <= 3 && !/^(DE|DA|DO|DAS|DOS|E|EM)$/.test(bare)) return w;
+      const t = w.charAt(0) + w.slice(1).toLowerCase();
+      return /^(De|Da|Do|Das|Dos|E|Em)$/.test(t) ? t.toLowerCase() : t;
+    }).join(' ');
+  }
+  n = words.length > 1 ? n.split(' ').map((w, i) => (i > 0 && SMALL_PT.test(w) ? w.toLowerCase() : w)).join(' ') : n;
+  if (nameCache.size > 50_000) nameCache.clear();
+  nameCache.set(name, n);
+  return n;
 }
 
 // ponytail: cache nome→base. São 4 regex por chamada e o índice/dedup/ordenação/

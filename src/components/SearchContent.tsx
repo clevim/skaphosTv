@@ -10,7 +10,7 @@ import TVFocusable from './TVFocusable';
 import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
 import { getSeriesBaseName, cleanGroupName } from '../utils/channelUtils';
 import { resolveChannelType, useStore } from '../store/useStore';
-import { SearchType } from '../utils/search';
+import { SearchType, useSearchPending } from '../utils/search';
 import { IS_TV } from '../utils/tvDetect';
 
 interface Props {
@@ -53,7 +53,7 @@ function FilterChipsRow({ options, value, onChange }: {
             key={opt}
             onPress={() => onChange(active ? null : opt)}
             style={[styles.filterChip, active && styles.filterChipActive]}
-            focusStyle={active ? styles.filterChipFocused : undefined}
+            focusStyle={styles.filterChipFocused}
           >
             <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{opt}</Text>
           </TVFocusable>
@@ -202,6 +202,7 @@ export default function SearchContent({
   qualityOptions, filterQuality, onFilterQualityChange,
 }: Props) {
   const otherResults = results.slice(1);
+  const pending = useSearchPending(query);
 
   return (
     <View style={{ flex: 1 }}>
@@ -238,7 +239,7 @@ export default function SearchContent({
               key={f.key}
               onPress={() => onSearchTypeChange(f.key)}
               style={[styles.filterChip, active && styles.filterChipActive]}
-            focusStyle={active ? styles.filterChipFocused : undefined}
+            focusStyle={styles.filterChipFocused}
             >
               <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{f.label}</Text>
             </TVFocusable>
@@ -293,8 +294,9 @@ export default function SearchContent({
         )
       ) : results.length === 0 ? (
         <View style={styles.empty}>
-          <Ionicons name="alert-circle-outline" size={48} color={colors.text3} />
-          <Text style={styles.emptyTitle}>Sem resultados para "{query}"</Text>
+          <Ionicons name={pending ? 'hourglass-outline' : 'alert-circle-outline'} size={48} color={colors.text3} />
+          <Text style={styles.emptyTitle}>{pending ? 'Buscando…' : `Sem resultados para "${query.trim()}"`}</Text>
+          {!pending && <Text style={styles.emptySub}>Tente outro termo ou limpe os filtros</Text>}
         </View>
       ) : (
         <ScrollView
@@ -345,11 +347,12 @@ const styles = StyleSheet.create({
     borderRadius: 999, backgroundColor: colors.bg1,
     borderWidth: 1, borderColor: colors.border,
   },
-  filterChipActive: { backgroundColor: colors.text1, borderColor: colors.text1 },
+  filterChipActive: { backgroundColor: 'rgba(167,139,250,0.10)', borderColor: 'transparent' },
   // Foco CLAREIA o controle claro/ativo — o FOCUS_BG translúcido padrão o escurecia
-  filterChipFocused: { backgroundColor: colors.accent2, borderColor: colors.accent2 },
+  // Foco = só o fundo; o anel vem do TVFocusable (um único token de foco).
+  filterChipFocused: { backgroundColor: 'rgba(167,139,250,0.30)' },
   filterChipText: { fontSize: 12, fontWeight: '500', color: colors.text1 },
-  filterChipTextActive: { color: colors.textInverse, fontWeight: '600' },
+  filterChipTextActive: { color: colors.accent2, fontWeight: '700' },
   recentHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: IS_TV ? spacing.xxxl : 22,

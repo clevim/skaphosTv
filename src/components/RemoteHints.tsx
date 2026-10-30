@@ -1,4 +1,4 @@
-// RemoteHints.tsx — TV remote button hints (bottom-right corner)
+// RemoteHints.tsx — TV remote button hints (faixa fixa no rodapé)
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { colors } from '../utils/theme';
@@ -36,35 +36,45 @@ export default function RemoteHints({ hints = DEFAULT_HINTS }: Props) {
   );
 }
 
+export const REMOTE_HINTS_HEIGHT = 36; // reserve esta altura no rodapé do conteúdo
+
 const styles = StyleSheet.create({
+  // Faixa fixa, sólida, de borda a borda: nunca fica translúcida sobre cards/títulos.
   container: {
     position: 'absolute',
-    bottom: 18,
-    right: 48,
+    bottom: 0, left: 0, right: 0,
+    height: REMOTE_HINTS_HEIGHT,
+    zIndex: 5,
     flexDirection: 'row',
-    gap: 18,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 24,
+    paddingHorizontal: 48,
+    backgroundColor: colors.bg0,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSoft,
   },
   hint: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
   keyBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: 'rgba(20,17,28,0.5)',
+    borderColor: colors.text3,
+    backgroundColor: colors.bg1,
   },
   keyText: {
-    fontSize: 9,
-    color: colors.text2,
-    fontWeight: '500',
+    fontSize: 12,
+    color: colors.text1,
+    fontWeight: '600',
   },
   label: {
-    fontSize: 11,
-    color: colors.text3,
-    letterSpacing: 0.3,
+    fontSize: 13,
+    color: colors.text2,
+    letterSpacing: 0.2,
   },
 });

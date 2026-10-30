@@ -7,7 +7,7 @@
  */
 
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { IS_WEB } from './tvDetect';
+import { IS_WEB, IS_NATIVE_TV } from './tvDetect';
 
 /** Trava em landscape (player / TV). No-op no web. */
 export function lockLandscape(): void {
@@ -18,5 +18,8 @@ export function lockLandscape(): void {
 /** Libera a orientação (volta ao portrait/auto no smartphone). No-op no web. */
 export function unlockOrientation(): void {
   if (IS_WEB) return;
+  // TV vive travada em landscape (App.tsx). Destravar ao sair do player deixava a
+  // janela reconfigurar e sobrar uma faixa preta (~48px) até reiniciar o app.
+  if (IS_NATIVE_TV) { lockLandscape(); return; }
   ScreenOrientation.unlockAsync().catch(() => {});
 }

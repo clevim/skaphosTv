@@ -8,7 +8,7 @@ import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore, IPTVSource, resolveChannelType } from '../store/useStore';
-import ChannelCard from '../components/ChannelCard';
+import ChannelCard, { LiveChannelRow, LIVE_ROW_STRIDE } from '../components/ChannelCard';
 import HomeContent from '../components/HomeContent';
 import { afterInteractions } from '../utils/afterInteractions';
 import SearchContent from '../components/SearchContent';
@@ -51,10 +51,10 @@ const KEY_FAST_FORWARD = 90;
 // Ordenação das grades — cicla nesta ordem ao tocar o botão de ordenar.
 const SORT_CYCLE = ['default', 'az', 'rating'] as const;
 const SORT_ICON: Record<typeof SORT_CYCLE[number], string> = {
-  default: 'swap-vertical-outline', az: 'text-outline', rating: 'star-outline',
+  default: 'swap-vertical-outline', az: 'text-outline', rating: 'ribbon-outline',
 };
 const SORT_LABEL: Record<typeof SORT_CYCLE[number], string> = {
-  default: 'Padrão', az: 'A-Z', rating: 'Melhor avaliados',
+  default: 'Padrão', az: 'A-Z', rating: 'Avaliação',
 };
 
 // ── FlatItem ─────────────────────────────────────────────────────────────────
@@ -149,6 +149,8 @@ export default function HomeScreen() {
   const replaceSourceChannels = useStore(s => s.replaceSourceChannels);
 
   const [navKey, setNavKey]         = useState('home');
+  // true entre o toque na aba e o fim da montagem do novo catálogo (skeleton)
+  const [switching, setSwitching]   = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   // Query com debounce (evita re-buscar a cada tecla em listas grandes) + filtro de tipo
   const [searchDebounced, setSearchDebounced] = useState('');
@@ -571,9 +573,16 @@ export default function HomeScreen() {
         loadSomeSources(state.sources);
       }
     }
-    setNavKey(key);
-    setSelectedGroup(null);
-    setSearchQuery('');
+    // Pinta o skeleton ANTES do commit pesado do novo catálogo (que bloqueia a JS
+    // thread por segundos); sem o adiamento o skeleton nem chegava a aparecer.
+    setSwitching(true);
+    setTimeout(() => {
+      setNavKey(key);
+      setSelectedGroup(null);
+      setSearchQuery('');
+      // Timeout separado: roda só depois do commit (batch) do novo catálogo.
+      setTimeout(() => setSwitching(false), 0);
+    }, 60);
   }, [navigation]);
 
   // "Estou com sorte": abre uma mídia aleatória dentro do que está filtrado no momento
@@ -630,10 +639,16 @@ export default function HomeScreen() {
   // altura 2:3 (height = width * 1.4 → levemente maior que 2:3 puro para caber badges)
   const cardHeight = Math.round(cardWidth * 1.4);
 
+  // Ao vivo na TV: lista densa de canais (2 colunas de linhas) em vez de pôsteres 2:3.
+  const liveList = IS_TV && navKey === 'live';
+  const LIVE_COLS = 2;
+  const liveRowW = Math.floor((availableW - gridPadding * 2) / LIVE_COLS) - 8; // 8 = 2 × LIVE_ROW_MARGIN (TV)
+
   // Fixed info-section height (matches ChannelCard minHeight) → enables getItemLayout
   const INFO_H = IS_TV ? 72 : 56;
   // Full row height: poster + info + card margins (top + bottom)
-  const ROW_H = cardHeight + INFO_H + CARD_MARGIN * 2;
+  const ROW_H = liveList ? LIVE_ROW_STRIDE : cardHeight + INFO_H + CARD_MARGIN * 2;
+  const gridCols = liveList ? LIVE_COLS : numColumns;
 
   // Mobile: altura REAL do ListHeaderComponent (título + chips). Sem somá-la ao
   // offset, todos os offsets do getItemLayout ficavam ~110px errados — a
@@ -684,7 +699,7 @@ export default function HomeScreen() {
     const target = pageJumpTarget({
       dir,
       total: filteredChannels.length,
-      numColumns,
+      numColumns: gridCols,
       rowHeight: ROW_H,
       viewportHeight: mainContentH,
       scrollY: gridOffsetRef.current,
@@ -699,7 +714,7 @@ export default function HomeScreen() {
     // primeiro e o avanço empacava no lugar.
     gridOffsetRef.current = listHeaderH + gridPadding + target.row * ROW_H;
     setJumpIndex(target.cardIndex);
-  }, [filteredChannels.length, mainContentH, ROW_H, numColumns, listHeaderH, gridPadding]);
+  }, [filteredChannels.length, mainContentH, ROW_H, gridCols, listHeaderH, gridPadding]);
 
   // ⏩/⏪ saltam uma tela de conteúdo; ☰ cicla a ordenação (A-Z é o que torna um
   // catálogo de 15 mil itens navegável, e estava escondido num ícone da sidebar).
@@ -745,6 +760,20 @@ export default function HomeScreen() {
         preferredGrantedRef.current = true;
         preferredFocus = true;
       }
+      if (liveList) {
+        return (
+          <LiveChannelRow
+            key={item.id}
+            channel={item}
+            width={liveRowW}
+            isPlaying={currentChannel?.id === item.id}
+            isFavorite={favoritesSet.has(item.id)}
+            onPress={() => handleChannelPress(item)}
+            onLongPress={() => toggleFavorite(item.id)}
+            hasTVPreferredFocus={preferredFocus}
+          />
+        );
+      }
       return (
         <FlatItem
           key={item.id}
@@ -765,7 +794,7 @@ export default function HomeScreen() {
         />
       );
     },
-    [currentChannel?.id, favoritesSet, handleChannelPress, toggleFavorite, episodeCountMap, cardWidth, cardHeight, watchEntries, jumpIndex]
+    [currentChannel?.id, favoritesSet, handleChannelPress, toggleFavorite, episodeCountMap, cardWidth, cardHeight, watchEntries, jumpIndex, liveList, liveRowW]
   );
 
   const renderFlatItem = useCallback(
@@ -791,6 +820,7 @@ export default function HomeScreen() {
   const contentH = HAS_BOTTOM_NAV ? mainContentH - 60 : mainContentH;
 
   const renderContent = () => {
+    if (switching) return <CatalogSkeleton />;
     if (isLoading) {
       return (
         <View style={styles.center}>
@@ -925,7 +955,7 @@ export default function HomeScreen() {
           onReload={handleRefresh}
           onRandom={handleRandomPick}
           onSort={handleCycleSort}
-          sortLabel={sortMode !== 'default' ? SORT_LABEL[sortMode] : undefined}
+          sortLabel={SORT_LABEL[sortMode]}
           sortIcon={SORT_ICON[sortMode]}
         >
           <Animated.View style={{ flex: 1, minHeight: 0, opacity: fadeAnim }}>
@@ -934,20 +964,20 @@ export default function HomeScreen() {
               style={{ flex: 1 }}
               data={filteredChannels}
               keyExtractor={keyExtractor}
-              numColumns={numColumns}
+              numColumns={gridCols}
               // Web: remonta a lista ao trocar seção/subcategoria — trocar só o `data`
               // re-renderiza SÍNCRONO toda a janela virtualizada já montada (~200 cards
               // num desktop com windowSize 9), que era a demora sentida ao filtrar.
               // Remontar renderiza apenas o lote inicial (~4 linhas). Na TV física o
               // key fixo fica: remontar destruía o foco do D-pad.
-              key={IS_WEB ? `${numColumns}-${navKey}-${selectedGroup ?? ''}` : numColumns}
+              key={IS_WEB ? `${gridCols}-${navKey}-${selectedGroup ?? ''}` : (liveList ? 'live' : numColumns)}
               renderItem={renderFlatItem}
               contentContainerStyle={styles.grid}
               showsVerticalScrollIndicator={false}
               // Virtualização nativa da FlatList renderiza só a janela visível —
               // sem paginação manual (que causava solavanco e perda de foco).
-              initialNumToRender={numColumns * 4}
-              maxToRenderPerBatch={numColumns * 3}
+              initialNumToRender={gridCols * (liveList ? 8 : 4)}
+              maxToRenderPerBatch={gridCols * 4}
               updateCellsBatchingPeriod={50}
               // 5 viewports (~110 cards) em vez de 9 (~200): na TV cada card montado
               // é um listener de foco e entra no re-render síncrono da troca de filtro
@@ -1100,6 +1130,31 @@ export default function HomeScreen() {
   );
 }
 
+
+// Skeleton de troca de aba: o catálogo grande leva 2-5 s para montar e a tela
+// antiga ficava congelada sem feedback. Blocos pulsantes (driver nativo).
+function CatalogSkeleton() {
+  const pulse = useRef(new Animated.Value(0.45)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 0.9, duration: 700, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0.45, duration: 700, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  return (
+    <Animated.View
+      accessibilityLabel="Carregando"
+      style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 14, padding: spacing.xl, opacity: pulse, overflow: 'hidden' }}
+    >
+      {Array.from({ length: 18 }, (_, i) => (
+        <View key={i} style={{ width: 120, height: 170, borderRadius: radius.md, backgroundColor: colors.bg2 }} />
+      ))}
+    </Animated.View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: {
     flex: 1,
@@ -1193,7 +1248,10 @@ const styles = StyleSheet.create({
 
   grid: {
     padding: spacing.md,
-    paddingBottom: HAS_BOTTOM_NAV ? 80 : spacing.md,
+    // Folga extra: foco escala o card (não pode ser cortado) e a barra de dicas
+    // (RemoteHints) flutua sobre o rodapé da TV.
+    paddingTop: IS_TV ? spacing.lg : spacing.md,
+    paddingBottom: HAS_BOTTOM_NAV ? 80 : (IS_TV ? 96 : spacing.md),
   },
   skeletonRow: {
     flexDirection: 'row',

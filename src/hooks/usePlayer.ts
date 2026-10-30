@@ -264,13 +264,15 @@ export function usePlayer(
 
   // Web: mouse sobre algum controle do OSD → não esconde (hover-out re-arma o timer)
   const osdHoverRef = useRef(false);
+  // Pausado → OSD fica fixo (feedback de estado); espelha `paused` p/ o timer ler.
+  const pausedRef = useRef(false);
 
   const showOSDTemporarily = useCallback(() => {
     setShowOSD(true);
     Animated.timing(osdAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
     if (osdTimer.current) clearTimeout(osdTimer.current);
     osdTimer.current = setTimeout(() => {
-      if (osdHoverRef.current) return; // ponteiro em cima dos controles — setOsdHover(false) re-arma
+      if (osdHoverRef.current || pausedRef.current) return; // ponteiro em cima dos controles — setOsdHover(false) re-arma
       Animated.timing(osdAnim, { toValue: 0, duration: 400, useNativeDriver: true })
         .start(() => setShowOSD(false));
     }, OSD_TIMEOUT);
@@ -285,6 +287,12 @@ export function usePlayer(
       showOSDTemporarily();
     }
   }, [showOSDTemporarily]);
+
+  // Ao retomar, re-arma o timer (o anterior foi ignorado enquanto pausado).
+  useEffect(() => {
+    pausedRef.current = paused;
+    if (!paused) showOSDTemporarily();
+  }, [paused, showOSDTemporarily]);
 
   const togglePlay = useCallback(() => {
     setPaused(p => { setIsPlaying(!!p); return !p; });
@@ -341,7 +349,9 @@ export function usePlayer(
     setVideoKey(k => k + 1);
   }, []);
 
-  const playChannel = useCallback((ch: Channel) => {
+  // Canal anterior (recall): último canal diferente do atual.
+  const prevChannelRef = useRef<Channel | null>(null);
+  const playChannel = useCallback((ch: Channel, silent = false) => {
     // Salva o progresso do canal que está saindo antes de trocar
     saveLocalProgress();
     recordPlay(ch.sourceId, ch.id, ch.name);
@@ -350,6 +360,7 @@ export function usePlayer(
     liveHiccupUsedRef.current = false;
     setSourceType(undefined);
     durationRef.current = 0;
+    if (playingChannelRef.current.id !== ch.id) prevChannelRef.current = playingChannelRef.current;
     playingChannelRef.current = ch;
     setPlayingChannel(ch);
     setCurrentChannel(ch);
@@ -370,8 +381,13 @@ export function usePlayer(
     pendingSeekRef.current = null;
     isFirstLoadRef.current = true;
     setVideoKey(k => k + 1);
-    showOSDTemporarily();
+    // silent = zapping CH+/CH−: o HUD próprio mostra o canal, OSD fica fechado
+    if (!silent) showOSDTemporarily();
   }, [setCurrentChannel, showOSDTemporarily, saveLocalProgress, recordPlay]);
+
+  const recallChannel = useCallback(() => {
+    if (prevChannelRef.current) playChannel(prevChannelRef.current);
+  }, [playChannel]);
 
   const prevChannel = useCallback(() => {
     if (currentIndex > 0) playChannel(siblings[currentIndex - 1]);
@@ -778,14 +794,14 @@ export function usePlayer(
     retryCount, retryingIn,
     position, duration, seekableDuration,
     showOSD, showSidebar, seekHint,
-    isLive, hasPlaylist, currentIndex, totalSiblings: siblings.length,
+    isLive, hasPlaylist, currentIndex, totalSiblings: siblings.length, siblings,
     subtitleTracks, selectedSubtitleIndex, setSelectedSubtitleIndex,
     vttSubtitleIndex,
     audioTracks, currentAudioIndex, audioReady, switchAudioTrack,
     switchSubtitleTrack, subtitleOffsetMs, setSubtitleOffset,
     setVolume, setIsMuted, setShowOSD, setShowSidebar,
     showOSDTemporarily, setOsdHover, handleScreenTap,
-    togglePlay, playChannel, prevChannel, nextChannel,
+    togglePlay, playChannel, prevChannel, nextChannel, recallChannel, hasRecall: prevChannelRef.current !== null,
     manualRetry, seekBy, seekTo,
     onLoad, onProgress, onBuffer, onError, onEnd,
   };

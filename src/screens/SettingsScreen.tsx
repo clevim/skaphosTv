@@ -63,6 +63,12 @@ function formatCreatedAt(unixStr: string): string {
   return 'hoje';
 }
 
+/** Usuário mascarado como a senha (TV compartilhada): mantém só a 1ª letra. */
+function maskUser(u?: string): string {
+  if (!u) return '—';
+  return u[0] + '•'.repeat(Math.min(u.length - 1, 9));
+}
+
 function statusColor(status: string): string {
   switch (status?.toLowerCase()) {
     case 'active':  return colors.green;
@@ -146,7 +152,8 @@ function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle
         <Switch
           value={on}
           onValueChange={onToggle}
-          trackColor={{ true: colors.accent, false: colors.border }}
+          // off: text3 (#8a8a95) dá ≥3:1 contra o card (WCAG 1.4.11); antes ≈1,3:1
+          trackColor={{ true: colors.accent, false: colors.text3 }}
           thumbColor={colors.white}
           // RNW: sem isto o thumb ligado usa o verde default da lib no web
           {...({ activeThumbColor: colors.white } as any)}
@@ -175,7 +182,7 @@ function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle
   // dentro do próprio handler.
   if (onPress) {
     return (
-      <TVFocusable onPress={onPress} style={{ borderRadius: 0 }}>
+      <TVFocusable onPress={onPress} style={{ borderRadius: 0 }} focusScale={1}>
         {content}
       </TVFocusable>
     );
@@ -190,25 +197,60 @@ function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
   onChange: (v: string) => void;
 }) {
   const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
+  const [open, setOpen] = useState(false);
   const current = options.find(o => o.value === value) ?? options[0];
+  // ponytail: até 3 opções o ciclo é previsível; acima disso, lista modal (S2).
+  const useModal = options.length > 3;
   const cycle = () => {
     const idx = options.findIndex(o => o.value === value);
     onChange(options[(idx + 1) % options.length].value);
   };
   return (
-    <TVFocusable onPress={cycle} style={{ borderRadius: 0 }}>
-      <View style={styles.row}>
-        <Ionicons name={icon as any} size={17} color={colors.text3} style={styles.rowIcon} />
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.rowLabel, { fontSize: 14.5 * scale }]}>{label}</Text>
-          {sub && <Text style={[styles.rowSub, { fontSize: fontSize.xs * scale }]}>{sub}</Text>}
+    <>
+      <TVFocusable onPress={useModal ? () => setOpen(true) : cycle} style={{ borderRadius: 0 }} focusScale={1}>
+        <View style={styles.row}>
+          <Ionicons name={icon as any} size={17} color={colors.text3} style={styles.rowIcon} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.rowLabel, { fontSize: 14.5 * scale }]}>{label}</Text>
+            {sub && <Text style={[styles.rowSub, { fontSize: fontSize.xs * scale }]}>{sub}</Text>}
+          </View>
+          <View style={styles.rowChip}>
+            <Text numberOfLines={1} style={[styles.rowChipText, { fontSize: 12 * scale }]}>{current.label}</Text>
+            <Ionicons name={useModal ? 'chevron-forward' : 'swap-horizontal-outline'} size={11} color={colors.accent} />
+          </View>
         </View>
-        <View style={styles.rowChip}>
-          <Text numberOfLines={1} style={[styles.rowChipText, { fontSize: 12 * scale }]}>{current.label}</Text>
-          <Ionicons name="swap-horizontal-outline" size={11} color={colors.accent} />
-        </View>
-      </View>
-    </TVFocusable>
+      </TVFocusable>
+      {useModal && (
+        <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+          <View style={backupStyles.overlay}>
+            <View style={backupStyles.box}>
+              <Text style={backupStyles.title}>{label}</Text>
+              {options.map(o => {
+                const selected = o.value === current.value;
+                return (
+                  <TVFocusable
+                    key={o.value}
+                    onPress={() => { onChange(o.value); setOpen(false); }}
+                    style={backupStyles.optionRow}
+                    hasTVPreferredFocus={selected}
+                  >
+                    <Ionicons
+                      name={selected ? 'radio-button-on' : 'radio-button-off'}
+                      size={18}
+                      color={selected ? colors.accent : colors.text3}
+                    />
+                    <Text style={backupStyles.optionText}>{o.label}</Text>
+                  </TVFocusable>
+                );
+              })}
+              <TVFocusable onPress={() => setOpen(false)} style={backupStyles.btnCancel}>
+                <Text style={backupStyles.btnCancelText}>Cancelar</Text>
+              </TVFocusable>
+            </View>
+          </View>
+        </Modal>
+      )}
+    </>
   );
 }
 
@@ -707,7 +749,7 @@ function XtreamSourceCard({ source, authInfo }: {
   return (
     <SettingsGroup title={`XTREAM: ${displayName}`}>
       <SettingsRow icon="server-outline"      label="Servidor" value={source.host ?? '—'} />
-      <SettingsRow icon="person-outline"      label="Usuário"  value={source.username ?? '—'} />
+      <SettingsRow icon="person-outline"      label="Usuário"  value={maskUser(source.username)} />
       <SettingsRow icon="lock-closed-outline" label="Senha"    value={'•'.repeat(Math.min(source.password?.length ?? 0, 10))} />
       <SettingsRow icon="layers-outline"      label="Canais"   value={`${source.channelCount ?? 0} itens`} />
       <UsageRows sourceId={source.id} />
@@ -998,23 +1040,7 @@ function CategoryPanel({
           <PlaybackRows settings={settings} updateSettings={updateSettings} />
         </SettingsGroup>
         <InterfaceGroup settings={settings} updateSettings={updateSettings} />
-        <SettingsGroup title="Jellyfin · Preferências">
-          <SettingsRowSelect
-            icon="musical-note-outline"
-            label="Áudio preferido"
-            sub="Idioma pré-selecionado ao abrir conteúdo"
-            options={LANG_OPTIONS}
-            value={settings.jellyfinPreferredAudio}
-            onChange={v => updateSettings({ jellyfinPreferredAudio: v })}
-          />
-          <SettingsRowSelect
-            icon="chatbox-ellipses-outline"
-            label="Legenda preferida"
-            sub="Idioma pré-selecionado ao abrir conteúdo"
-            options={LANG_OPTIONS}
-            value={settings.jellyfinPreferredSubtitle}
-            onChange={v => updateSettings({ jellyfinPreferredSubtitle: v })}
-          />
+        <SettingsGroup title="Legenda e fonte">
           <SettingsRowSelect
             icon="text-outline"
             label="Tamanho da legenda"
@@ -1032,6 +1058,27 @@ function CategoryPanel({
             onChange={v => updateSettings({ uiFontScale: v as 'small' | 'medium' | 'large' })}
           />
         </SettingsGroup>
+        {/* Áudio/legenda preferidos só têm efeito em Jellyfin — oculto p/ Xtream/M3U */}
+        {sources.some(s => s.type === 'jellyfin') && (
+          <SettingsGroup title="Jellyfin · Preferências">
+            <SettingsRowSelect
+              icon="musical-note-outline"
+              label="Áudio preferido"
+              sub="Idioma pré-selecionado ao abrir conteúdo"
+              options={LANG_OPTIONS}
+              value={settings.jellyfinPreferredAudio}
+              onChange={v => updateSettings({ jellyfinPreferredAudio: v })}
+            />
+            <SettingsRowSelect
+              icon="chatbox-ellipses-outline"
+              label="Legenda preferida"
+              sub="Idioma pré-selecionado ao abrir conteúdo"
+              options={LANG_OPTIONS}
+              value={settings.jellyfinPreferredSubtitle}
+              onChange={v => updateSettings({ jellyfinPreferredSubtitle: v })}
+            />
+          </SettingsGroup>
+        )}
       </>
     );
   }
@@ -1219,7 +1266,7 @@ export default function SettingsScreen() {
               {CATEGORIES.find(c => c.key === activeCategory)?.sub}
             </Text>
           </View>
-          <ScrollView contentContainerStyle={tvStyles.panelContent}>
+          <ScrollView key={activeCategory} contentContainerStyle={tvStyles.panelContent}>
             <CategoryPanel
               category={activeCategory}
               settings={settings}
@@ -1275,7 +1322,7 @@ export default function SettingsScreen() {
         {CATEGORIES.find(c => c.key === activeCategory)?.sub}
       </Text>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.inner}>
+      <ScrollView key={activeCategory} style={styles.content} contentContainerStyle={styles.inner}>
         <CategoryPanel
           category={activeCategory}
           settings={settings}

@@ -1,8 +1,7 @@
 // TopHeader.tsx — Mobile top header
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Image } from 'expo-image';
 import TVFocusable from './TVFocusable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius } from '../utils/theme';
@@ -23,7 +22,7 @@ export default function TopHeader({ onSettingsPress, onAddPress }: Props) {
             zoom-crop (imagem maior que o quadro, overflow hidden) preenche o
             selo sem redesenhar o asset. */}
         <View style={styles.logoIcon}>
-          <Image source={require('../../assets/icon.png')} style={styles.logoImg} contentFit="cover" />
+          <Image source={require('../../assets/icon.png')} style={styles.logoImg} resizeMode="cover" />
         </View>
 
         <View>

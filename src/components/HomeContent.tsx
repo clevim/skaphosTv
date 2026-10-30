@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, FlatList, useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { SafeImage } from './ChannelCard';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -10,7 +11,7 @@ import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import PulsingDot from './PulsingDot';
 import { colors, spacing, fontSize, radius, fontFamily, shadow } from '../utils/theme';
-import { getSeriesBaseName, isLaunchYear, LAUNCH_YEAR, cleanGroupName } from '../utils/channelUtils';
+import { getSeriesBaseName, isLaunchYear, LAUNCH_YEAR, cleanGroupName, cleanDisplayName } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
 import { afterInteractions } from '../utils/afterInteractions';
 import { useWatchEntries, progressFractionFor, resumePositionFor, watchStatusFor, computeContinueWatching, WatchEntry } from '../store/watchProgress';
@@ -44,7 +45,8 @@ const MAX = 20;
 // tratar todas as células como novas a cada render.
 const renderSection = ({ item }: { item: { node: React.ReactNode } }) => <>{item.node}</>;
 const sectionKey = (s: { key: string }) => s.key;
-const listFooter = <View style={{ height: 60 }} />;
+// Folga final: a barra de dicas (RemoteHints) flutua sobre o rodapé da TV.
+const listFooter = <View style={{ height: IS_TV ? 110 : 60 }} />;
 
 // Larguras dos cards — fonte única: o estilo do card E o getItemLayout da fileira
 // leem daqui. Divergir os dois desalinha a virtualização do layout real.
@@ -111,13 +113,11 @@ const ContinueCard = memo(function ContinueCard({
       {/* Paisagem 16:9 — "continuar" é reconhecimento de cena, não capa; o formato
           largo diferencia a fileira do resto do catálogo (tudo era 2:3 igual). */}
       <View style={cStyles.poster}>
-        {channel.logo ? (
-          <Image source={channel.logo} style={cStyles.posterImg} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
-        ) : (
+        <SafeImage uri={channel.logo} style={cStyles.posterImg} contentFit="cover" recyclingKey={channel.id} fallback={
           <View style={cStyles.posterFallback}>
             <Text style={cStyles.posterInitials}>{channel.name.slice(0, 2).toUpperCase()}</Text>
           </View>
-        )}
+}/>
         {/* Sombra inferior: legibilidade do "Restam X min" sobre qualquer arte */}
         <LinearGradient
           colors={['transparent', 'rgba(10,8,16,0.85)']}
@@ -138,7 +138,7 @@ const ContinueCard = memo(function ContinueCard({
           </View>
         )}
       </View>
-      <Text style={cStyles.title} numberOfLines={1}>{channel.name}</Text>
+      <Text style={cStyles.title} numberOfLines={1}>{cleanDisplayName(channel.name)}</Text>
       <Text style={cStyles.sub} numberOfLines={1}>
         {channel.group ? cleanGroupName(channel.group) : ''}
       </Text>
@@ -203,13 +203,11 @@ const LiveCard = memo(function LiveCard({ channel, onPress, nowPlaying }: {
       {/* Tile paisagem com o logo CONTIDO: logos de canal são paisagem/quadrados
           e o pôster 2:3 com "cover" cortava todos — aqui o logo aparece inteiro. */}
       <View style={lStyles.poster}>
-        {channel.logo ? (
-          <Image source={channel.logo} style={lStyles.posterImg} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
-        ) : (
+        <SafeImage uri={channel.logo} style={lStyles.posterImg} contentFit="contain" recyclingKey={channel.id} fallback={
           <View style={lStyles.posterFallback}>
             <Text style={lStyles.posterInitials}>{channel.name.slice(0, 2).toUpperCase()}</Text>
           </View>
-        )}
+}/>
         {isJellyfin ? (
           <View style={[lStyles.badge, lStyles.jellyBadge]}>
             <View style={lStyles.jellyDot} />
@@ -222,7 +220,7 @@ const LiveCard = memo(function LiveCard({ channel, onPress, nowPlaying }: {
           </View>
         )}
       </View>
-      <Text style={lStyles.title} numberOfLines={1}>{channel.name}</Text>
+      <Text style={lStyles.title} numberOfLines={1}>{cleanDisplayName(channel.name)}</Text>
       <Text style={[lStyles.sub, nowPlaying != null && lStyles.subNow]} numberOfLines={1}>
         {nowPlaying ?? (channel.group ? cleanGroupName(channel.group) : '')}
       </Text>
@@ -313,7 +311,7 @@ const sStyles = StyleSheet.create({
 const ROW_GAP  = IS_TV ? 14 : 12;
 const ROW_PAD  = IS_TV ? spacing.xxxl : 22;
 // paddingVertical dá espaço pro card ampliado (zoom de foco) não ser recortado.
-const ROW_PAD_V = IS_TV ? 16 : 8;
+const ROW_PAD_V = IS_TV ? 24 : 8;
 
 /**
  * Fileira horizontal virtualizada.
@@ -371,19 +369,17 @@ const VodCard = memo(function VodCard({ channel, onPress, displayName, isNew, pr
   /** Mostra o check de "assistido" no canto oposto ao de qualidade. */
   watched?: boolean;
 }) {
-  const name = displayName ?? channel.name;
+  const name = cleanDisplayName(displayName ?? channel.name);
   const groupClean = channel.group ? cleanGroupName(channel.group) : '';
   const quality = channel.quality;
   return (
     <TVFocusable onPress={onPress} style={vStyles.card}>
       <View style={vStyles.poster}>
-        {channel.logo ? (
-          <Image source={channel.logo} style={vStyles.posterImg} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
-        ) : (
+        <SafeImage uri={channel.logo} style={vStyles.posterImg} contentFit="cover" recyclingKey={channel.id} fallback={
           <View style={vStyles.posterFallback}>
             <Text style={vStyles.posterInitials}>{name.slice(0, 3).toUpperCase()}</Text>
           </View>
-        )}
+}/>
         {/* "NOVO" badge — top left */}
         {isNew && (
           <View style={vStyles.newBadge}>
@@ -493,7 +489,9 @@ export default function HomeContent({
   // recentes antes), depois os demais recentes na ordem original. Séries usam
   // o progresso espelhado no id da série (gravado pelo player junto do episódio).
   const continueItems = useMemo(
-    () => computeContinueWatching(recentChannels, watchEntries, MAX),
+    () => computeContinueWatching(recentChannels, watchEntries, MAX)
+      // Canal ao vivo não tem o que "continuar" (e o logo ampliado vira arte quebrada).
+      .filter(it => resolveChannelType(it.channel) !== 'live'),
     [recentChannels, watchEntries],
   );
 
@@ -601,12 +599,25 @@ export default function HomeContent({
   const heroNode = useMemo(() => !heroChannel ? null : (
     <View style={IS_TV ? styles.heroWrapTV : styles.heroWrap}>
       <View style={IS_TV ? styles.heroTV : styles.hero}>
-        {heroChannel.logo ? (
+        {heroType !== 'live' && heroChannel.logo ? (
+          // Filme/série: logo é arte de verdade (pôster/backdrop) → cobre o hero.
           <Image source={heroChannel.logo} style={styles.heroImg} contentFit="cover" transition={150} cachePolicy="memory-disk" />
         ) : (
-          <View style={styles.heroFallback}>
-            <Text style={styles.heroInitials}>{heroChannel.name.slice(0, 3).toUpperCase()}</Text>
-          </View>
+          // Canal ao vivo: logo é um PNG pequeno — nunca ampliar (pixelava e
+          // mostrava o xadrez de transparência). Fundo abissal em gradiente +
+          // logo em tamanho natural, contido num tile à direita.
+          <LinearGradient
+            colors={[colors.bg2, '#1b1433', colors.bg0]}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={styles.heroFallback}
+          >
+            {heroType === 'live' && (
+              <View style={IS_TV ? styles.heroLogoTileTV : styles.heroLogoTile}>
+                <SafeImage uri={heroChannel.logo} style={styles.heroLogoImg} contentFit="contain" transition={150}
+                  fallback={<Text style={styles.heroInitials}>{cleanDisplayName(heroChannel.name).slice(0, 3).toUpperCase()}</Text>} />
+              </View>
+            )}
+          </LinearGradient>
         )}
         {/* Gradient overlays */}
         {/* Horizontal: left→right (TV: strong cover, mobile: subtle vignette) */}
@@ -638,7 +649,7 @@ export default function HomeContent({
         {/* Bottom content */}
         <View style={IS_TV ? styles.heroBottomTV : styles.heroBottom}>
           <Text style={styles.heroCategory}>EM DESTAQUE</Text>
-          <Text style={styles.heroTitle} numberOfLines={2}>{heroChannel.name}</Text>
+          <Text style={styles.heroTitle} numberOfLines={2}>{cleanDisplayName(heroChannel.name)}</Text>
           {/* Grupo aparece SÓ aqui (antes duplicava no kicker e na meta) */}
           <Text style={styles.heroMeta}>
             {[heroChannel.group ? cleanGroupName(heroChannel.group) : null, heroChannel.quality || 'HD']
@@ -982,9 +993,23 @@ const styles = StyleSheet.create({
   heroImg: { width: '100%', height: '100%' },
   heroFallback: {
     width: '100%', height: '100%',
-    alignItems: 'center', justifyContent: 'center',
+    alignItems: IS_TV ? 'flex-end' : 'center', justifyContent: 'center',
     backgroundColor: colors.bg2,
   },
+  // Tile do logo de canal: tamanho fixo (nunca esticado), à direita na TV.
+  heroLogoTileTV: {
+    width: 280, height: 160, marginRight: 120, borderRadius: 20, padding: 24,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  heroLogoTile: {
+    width: 180, height: 100, marginBottom: 120, borderRadius: 16, padding: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  heroLogoImg: { width: '100%', height: '100%' },
   heroInitials: { fontSize: 48, fontWeight: '800', color: colors.accent, letterSpacing: 4, opacity: 0.3 },
   heroGradient: {
     position: 'absolute', left: 0, right: 0, bottom: 0, height: '70%',

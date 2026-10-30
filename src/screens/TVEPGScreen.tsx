@@ -103,6 +103,93 @@ function MobileEpgRow({ ch, programs, onPress }: {
   );
 }
 
+type FocusedProgram = { channel: string; program: EpgProgram };
+
+/** Rodapé com o programa focado. O estado vive AQUI: focar uma célula re-renderiza
+ *  só este componente, nunca a tela nem as duas listas (era a cascata do D-pad). */
+const DetailBar = React.memo(function DetailBar({ setterRef }: {
+  setterRef: React.MutableRefObject<(f: FocusedProgram) => void>;
+}) {
+  const [focused, setFocused] = useState<FocusedProgram | null>(null);
+  setterRef.current = setFocused;
+  return (
+    <View style={styles.detailBar}>
+      {focused && (
+        <>
+          <Text style={styles.detailTitle} numberOfLines={1}>
+            {focused.program.title}
+            <Text style={styles.detailMeta}>
+              {'   '}{focused.channel} · {fmtTime(focused.program.start)}–{fmtTime(focused.program.end)}
+            </Text>
+          </Text>
+          {!!focused.program.desc && (
+            <Text style={styles.detailDesc} numberOfLines={2}>{focused.program.desc}</Text>
+          )}
+        </>
+      )}
+    </View>
+  );
+});
+
+const ChannelCell = React.memo(function ChannelCell({ ch, scale, preferred, onPlay }: {
+  ch: Channel; scale: number; preferred: boolean; onPlay: (ch: Channel) => void;
+}) {
+  return (
+    <TVFocusable onPress={() => onPlay(ch)} style={styles.channelCell} hasTVPreferredFocus={preferred}>
+      {ch.logo ? (
+        <Image source={ch.logo} style={styles.channelLogo} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={ch.id} />
+      ) : (
+        <View style={styles.channelLogoPlaceholder}>
+          <Text style={styles.channelLogoText}>{ch.name.slice(0, 2).toUpperCase()}</Text>
+        </View>
+      )}
+      <Text style={[styles.channelName, { fontSize: 11 * scale }]} numberOfLines={2}>{ch.name}</Text>
+    </TVFocusable>
+  );
+});
+
+const ProgramRow = React.memo(function ProgramRow({ ch, programs, winStart, winEnd, gridNow, scale, onPlay, onFocusProgram }: {
+  ch: Channel; programs?: EpgProgram[]; winStart: number; winEnd: number; gridNow: number; scale: number;
+  onPlay: (ch: Channel) => void; onFocusProgram: (f: FocusedProgram) => void;
+}) {
+  const blocks = useMemo(() => buildRowBlocks(programs, winStart, winEnd), [programs, winStart, winEnd]);
+  return (
+    <View style={styles.programsLine}>
+      {blocks.map(block => {
+        if (!block.program) {
+          return (
+            <View key={block.key} style={[styles.programBlock, styles.programBlockEmpty, { width: block.width - 2 }]}>
+              {block.width > 90 && (
+                <Text style={styles.programEmptyText} numberOfLines={1}>Sem informação</Text>
+              )}
+            </View>
+          );
+        }
+        const p = block.program;
+        const isNow = p.start <= gridNow && gridNow < p.end;
+        return (
+          <TVFocusable
+            key={block.key}
+            onPress={() => onPlay(ch)}
+            onFocus={() => onFocusProgram({ channel: ch.name, program: p })}
+            style={[styles.programBlock, { width: block.width - 2 }, isNow && styles.programBlockNow]}
+          >
+            <Text style={[styles.programTitle, { fontSize: 12 * scale }, isNow && styles.programTitleNow]} numberOfLines={1}>
+              {p.title}
+            </Text>
+            {/* Bloco estreito: só o título — o horário espremido virava ruído */}
+            {block.width > 76 && (
+              <Text style={[styles.programTime, { fontSize: 10 * scale }]} numberOfLines={1}>
+                {fmtTime(p.start)} — {fmtTime(p.end)}
+              </Text>
+            )}
+          </TVFocusable>
+        );
+      })}
+    </View>
+  );
+});
+
 export default function TVEPGScreen() {
   // Devolve o foco do D-pad pro item de onde o usuário saiu ao voltar pra cá
   useTVFocusMemory();
@@ -117,7 +204,8 @@ export default function TVEPGScreen() {
   const loadEpg      = useEpgStore(s => s.load);
 
   // Programa focado no D-pad — sinopse no rodapé
-  const [focused, setFocused] = useState<{ channel: string; program: EpgProgram } | null>(null);
+  const detailSetRef = useRef<(f: FocusedProgram) => void>(() => {});
+  const onFocusProgram = useCallback((f: FocusedProgram) => detailSetRef.current(f), []);
 
   // Busca por nome de programa — varre TODOS os canais ao vivo com guia (não só
   // os 60 exibidos na grade), tolerante a acento. Um resultado por canal.
@@ -187,65 +275,18 @@ export default function TVEPGScreen() {
       epgFocusGrantedRef.current = true;
       preferred = true;
     }
-    return (
-    <TVFocusable onPress={() => handlePlay(ch)} style={styles.channelCell} hasTVPreferredFocus={preferred}>
-      {ch.logo ? (
-        <Image source={ch.logo} style={styles.channelLogo} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={ch.id} />
-      ) : (
-        <View style={styles.channelLogoPlaceholder}>
-          <Text style={styles.channelLogoText}>{ch.name.slice(0, 2).toUpperCase()}</Text>
-        </View>
-      )}
-      <Text style={[styles.channelName, { fontSize: 11 * scale }]} numberOfLines={2}>{ch.name}</Text>
-    </TVFocusable>
-    );
+    return <ChannelCell ch={ch} scale={scale} preferred={preferred} onPlay={handlePlay} />;
   }, [scale, handlePlay]);
 
-  // Uma leitura do relógio para a grade toda — antes eram duas por bloco. Como
-  // agora as linhas nascem aos poucos, o valor vem de um memo com as mesmas
-  // dependências de antes (mesma frescura, sem Date.now() por linha).
+  // Uma leitura do relógio para a grade toda (mesma frescura de antes).
   const gridNow = useMemo(() => Date.now(), [liveChannels, epgByChannel, winStart, winEnd]);
 
   const renderProgramRow = useCallback(({ item: ch }: { item: Channel }) => (
-      <View style={styles.programsLine}>
-        {buildRowBlocks(epgByChannel[ch.id], winStart, winEnd).map(block => {
-          if (!block.program) {
-            return (
-              <View key={block.key} style={[styles.programBlock, styles.programBlockEmpty, { width: block.width - 2 }]}>
-                {block.width > 90 && (
-                  <Text style={styles.programEmptyText} numberOfLines={1}>Sem informação</Text>
-                )}
-              </View>
-            );
-          }
-          const p = block.program;
-          const isNow = p.start <= gridNow && gridNow < p.end;
-          return (
-            <TVFocusable
-              key={block.key}
-              onPress={() => handlePlay(ch)}
-              onFocus={() => setFocused({ channel: ch.name, program: p })}
-              style={[
-                styles.programBlock,
-                { width: block.width - 2 },
-                isNow && styles.programBlockNow,
-              ]}
-            >
-              <Text style={[styles.programTitle, { fontSize: 12 * scale }, isNow && styles.programTitleNow]} numberOfLines={1}>
-                {p.title}
-              </Text>
-              {/* Bloco estreito (programa curto/beira da janela): só o
-                  título — o horário espremido virava ruído ilegível */}
-              {block.width > 76 && (
-                <Text style={[styles.programTime, { fontSize: 10 * scale }]} numberOfLines={1}>
-                  {fmtTime(p.start)} — {fmtTime(p.end)}
-                </Text>
-              )}
-            </TVFocusable>
-          );
-        })}
-      </View>
-  ), [gridNow, epgByChannel, winStart, winEnd, scale, handlePlay]);
+    <ProgramRow
+      ch={ch} programs={epgByChannel[ch.id]} winStart={winStart} winEnd={winEnd}
+      gridNow={gridNow} scale={scale} onPlay={handlePlay} onFocusProgram={onFocusProgram}
+    />
+  ), [gridNow, epgByChannel, winStart, winEnd, scale, handlePlay, onFocusProgram]);
 
   const epgKeyExtractor = useCallback((ch: Channel) => ch.id, []);
   // Altura fixa por linha → a lista sabe posicionar sem medir, o que mantém a
@@ -264,9 +305,26 @@ export default function TVEPGScreen() {
   // Roda do mouse: vertical rola os canais (webWheel global deixa o navegador
   // agir); Shift+roda/trackpad horizontal move o TEMPO — sempre em bloco,
   // porque a timeline inteira vive num único ScrollView horizontal.
-  const syncY = (target: React.RefObject<FlatList<Channel>>) => (e: any) => {
-    target.current?.scrollToOffset({ offset: e.nativeEvent.contentOffset.y, animated: false });
-  };
+  //
+  // Anti-loop: as duas listas se seguem via scrollToOffset, e cada scroll
+  // programático volta como onScroll na outra. Com arredondamento dp/px o offset
+  // oscila ±1 e o ping-pong nunca para (CPU 100% + GC contínuo = o hang do Guia).
+  // Guardamos o offset conhecido de cada lista e só repassamos se divergir.
+  const offs = useRef({ left: 0, rows: 0 }).current;
+  const onLeftScroll = useCallback((e: any) => {
+    const y = e.nativeEvent.contentOffset.y;
+    offs.left = y;
+    if (Math.abs(offs.rows - y) <= 1.5) return;
+    offs.rows = y;
+    rowsRef.current?.scrollToOffset({ offset: y, animated: false });
+  }, [offs]);
+  const onRowsScroll = useCallback((e: any) => {
+    const y = e.nativeEvent.contentOffset.y;
+    offs.rows = y;
+    if (Math.abs(offs.left - y) <= 1.5) return;
+    offs.left = y;
+    leftColRef.current?.scrollToOffset({ offset: y, animated: false });
+  }, [offs]);
 
   // ── Celular: lista vertical (agora/a seguir) — a grade de timeline não cabe
   // numa tela estreita e, sem virtualização, travava. FlatList resolve os dois.
@@ -429,13 +487,13 @@ export default function TVEPGScreen() {
                 ref={leftColRef}
                 // Altura limitada: sem isso a lista mede a si mesma pelo CONTEÚDO e
                 // virtualização nenhuma acontece (e no web o painel estica).
-                style={{ flex: 1, minHeight: 0 }}
+                style={styles.vList}
                 data={liveChannels}
                 keyExtractor={epgKeyExtractor}
                 renderItem={renderChannelCell}
                 getItemLayout={epgItemLayout}
                 showsVerticalScrollIndicator={false}
-                onScroll={syncY(rowsRef)}
+                onScroll={onLeftScroll}
                 scrollEventThrottle={16}
                 removeClippedSubviews={false}
                 initialNumToRender={14}
@@ -470,13 +528,13 @@ export default function TVEPGScreen() {
                     ref={rowsRef}
                     // Altura limitada: sem isso a lista mede a si mesma pelo CONTEÚDO e
                     // virtualização nenhuma acontece (e no web o painel estica).
-                    style={{ flex: 1, minHeight: 0 }}
+                    style={styles.vList}
                     data={liveChannels}
                     keyExtractor={epgKeyExtractor}
                     renderItem={renderProgramRow}
                     getItemLayout={epgItemLayout}
                     showsVerticalScrollIndicator={false}
-                    onScroll={syncY(leftColRef)}
+                    onScroll={onRowsScroll}
                     scrollEventThrottle={16}
                     removeClippedSubviews={false}
                     initialNumToRender={14}
@@ -490,19 +548,7 @@ export default function TVEPGScreen() {
           </View>
 
           {/* Rodapé: detalhes do programa focado no D-pad */}
-          {focused && (
-            <View style={styles.detailBar}>
-              <Text style={styles.detailTitle} numberOfLines={1}>
-                {focused.program.title}
-                <Text style={styles.detailMeta}>
-                  {'   '}{focused.channel} · {fmtTime(focused.program.start)}–{fmtTime(focused.program.end)}
-                </Text>
-              </Text>
-              {!!focused.program.desc && (
-                <Text style={styles.detailDesc} numberOfLines={2}>{focused.program.desc}</Text>
-              )}
-            </View>
-          )}
+          <DetailBar setterRef={detailSetRef} />
         </View>
       )}
     </View>
@@ -685,6 +731,7 @@ const styles = StyleSheet.create({
   // (min-height:auto por padrão), então a grade cresce e empurra a página em vez
   // de rolar internamente. O Yoga (nativo) não tem essa regra — por isso a TV/
   // Android sempre rolou normal e só o web ficava travado.
+  vList: { flex: 1, minHeight: 0 },
   grid: {
     flex: 1,
     flexDirection: 'column',

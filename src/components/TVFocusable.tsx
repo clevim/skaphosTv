@@ -8,6 +8,7 @@
 
 import React, { useRef, useEffect, useState, useImperativeHandle } from 'react';
 import {
+  View,
   Pressable,
   Animated,
   ViewStyle,
@@ -15,9 +16,9 @@ import {
   findNodeHandle,
 } from 'react-native';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
-import { shadow } from '../utils/theme';
+import { shadow, colors } from '../utils/theme';
 import { useReducedMotion } from '../utils/reducedMotion';
-import { reportTVFocus } from '../utils/tvFocusMemory';
+import { reportTVFocus, claimTVFocus, releaseTVFocus } from '../utils/tvFocusMemory';
 import { addFocusListener, watchView } from '../../modules/tv-focus';
 
 const FOCUS_SCALE = IS_TV ? 1.05 : 1;
@@ -124,6 +125,13 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
   // Identidade estável: é ela que a memória de foco da tela guarda para
   // devolver o D-pad aqui quando o usuário voltar (ver tvFocusMemory).
   const focusSelf = useRef(() => { (pressableRef.current as any)?.focus?.(); }).current;
+  const idRef = useRef({}).current;
+  // Único ponto que acende/apaga: acender reivindica o foco global (apaga o anterior).
+  const light = useRef((on: boolean) => {
+    setIsFocused(on);
+    if (on) claimTVFocus(idRef, () => setIsFocused(false));
+    else releaseTVFocus(idRef);
+  }).current;
 
   useImperativeHandle(ref, () => ({
     focus:  focusSelf,
@@ -146,7 +154,7 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
     if (myTag == null) return;
     ensureFocusSub();
     focusHandlers.set(myTag, (focused) => {
-      setIsFocused(focused);
+      light(focused);
       if (focused) reportTVFocus(focusSelf);
       (focused ? onFocusPropRef : onBlurPropRef).current?.();
     });
@@ -155,6 +163,7 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
     watchView(myTag);
     return () => {
       focusHandlers.delete(myTag);
+      releaseTVFocus(idRef);
       setIsFocused(false);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -176,8 +185,8 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
       // Mecanismo 2: Pressable.onFocus/onBlur — redundância para mecanismo 1.
       // Captura o foco inicial do hasTVPreferredFocus antes do listener ser subscrito,
       // e garante highlighting em casos que o ViewTreeObserver não alcança.
-      onFocus={IS_TV ? () => { setIsFocused(true);  reportTVFocus(focusSelf); onFocusPropRef.current?.(); } : undefined}
-      onBlur ={IS_TV ? () => { setIsFocused(false); onBlurPropRef.current?.();  } : undefined}
+      onFocus={IS_TV ? () => { light(true);  reportTVFocus(focusSelf); onFocusPropRef.current?.(); } : undefined}
+      onBlur ={IS_TV ? () => { light(false); onBlurPropRef.current?.();  } : undefined}
       style={[
         { borderRadius },
         style,
@@ -202,6 +211,17 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
       } as any)}
     >
       {children}
+      {/* Ring próprio do design (substitui o highlight laranja do Android):
+          sempre visível, 3px, violeta claro com contraste a 3m. */}
+      {IS_TV && isFocused && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            borderRadius, borderWidth: 3, borderColor: colors.accent2,
+          }}
+        />
+      )}
     </AnimatedPressable>
   );
 });

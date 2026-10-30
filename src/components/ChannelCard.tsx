@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -7,7 +7,42 @@ import { colors, radius, fontSize } from '../utils/theme';
 import { useThemeStore } from '../store/useThemeStore';
 import { Channel } from '../types';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
-import { cleanGroupName } from '../utils/channelUtils';
+import { cleanGroupName, cleanDisplayName } from '../utils/channelUtils';
+import { useStore } from '../store/useStore';
+import { useNowNext } from '../store/epgStore';
+
+/**
+ * Image com recuperação: expo-image descarrega bitmaps sob pressão de memória (player) e
+ * às vezes não recarrega — vira quadrado vazio. Aqui: onError => remonta (key) com backoff
+ * até 3x; esgotado, mostra `fallback` (iniciais/ícone) em vez do vazio. Também remonta
+ * quando o app volta a "active". `fallback` deve preencher o pai.
+ */
+export function SafeImage({ uri, style, contentFit = 'cover', fallback, recyclingKey, transition = 0 }: {
+  uri?: string; style: any; contentFit?: 'cover' | 'contain'; fallback: React.ReactNode;
+  recyclingKey?: string; transition?: number;
+}) {
+  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => { setAttempt(0); setFailed(false); }, [uri]);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  if (!uri || failed) return <>{fallback}</>;
+  return (
+    <Image
+      key={attempt}
+      source={uri}
+      style={style}
+      contentFit={contentFit}
+      transition={transition}
+      cachePolicy="memory-disk"
+      recyclingKey={recyclingKey}
+      onError={() => {
+        if (attempt >= 3) { setFailed(true); return; }
+        timer.current = setTimeout(() => setAttempt(a => a + 1), 600 * (attempt + 1));
+      }}
+    />
+  );
+}
 
 interface ChannelCardProps {
   channel: Channel;
@@ -52,7 +87,7 @@ function ChannelCard({
   // Seletor pontual: sem ele, TODO card montado re-renderizava em qualquer
   // mudança da theme store (destructure assina a store inteira).
   const preset = useThemeStore(s => s.preset);
-  const name = displayName ?? channel.name;
+  const name = cleanDisplayName(displayName ?? channel.name);
   const type = TYPE_CONFIG[contentType] ?? TYPE_CONFIG.live;
   const qColor = QUALITY_COLORS[channel.quality || 'HD'] ?? QUALITY_COLORS.HD;
   const quality = channel.quality || 'HD';
@@ -77,23 +112,20 @@ function ChannelCard({
     >
       {/* Poster */}
       <View style={[styles.poster, { height: H }, contentType === 'live' && styles.posterLive]}>
-        {channel.logo ? (
-          <Image
-            source={channel.logo}
-            style={styles.posterImg}
-            // Live = logo largo/transparente → "contain" (não corta); VOD/série = pôster "cover"
-            contentFit={contentType === 'live' ? 'contain' : 'cover'}
-            transition={0}
-            cachePolicy="memory-disk"
-            recyclingKey={channel.id}
-          />
-        ) : (
-          <View style={[styles.posterFallback, { backgroundColor: preset.primary + '18' }]}>
-            <Text style={[styles.posterInitials, { color: preset.accent }]}>
-              {name.slice(0, 2).toUpperCase()}
-            </Text>
-          </View>
-        )}
+        <SafeImage
+          uri={channel.logo}
+          style={styles.posterImg}
+          // Live = logo largo/transparente → "contain" (não corta); VOD/série = pôster "cover"
+          contentFit={contentType === 'live' ? 'contain' : 'cover'}
+          recyclingKey={channel.id}
+          fallback={
+            <View style={[styles.posterFallback, { backgroundColor: preset.primary + '18' }]}>
+              <Text style={[styles.posterInitials, { color: preset.accent }]}>
+                {name.slice(0, 2).toUpperCase()}
+              </Text>
+            </View>
+          }
+        />
 
         {/* Gradiente inferior */}
         <View style={styles.posterGradient} />
@@ -176,6 +208,100 @@ function ChannelCard({
 }
 
 export default memo(ChannelCard);
+
+// ── Linha densa de canal (Ao vivo) ──────────────────────────────────────────
+// Lista tipo guia: logo pequeno + nome + "Agora: programa" + barra de progresso.
+// Substitui o card-pôster 2:3 (≈8 canais/tela) por ~14 linhas × 2 colunas.
+export const LIVE_ROW_H = IS_TV ? 64 : 56;
+const LIVE_ROW_MARGIN = IS_TV ? 4 : 3;
+/** Altura total de uma linha (para getItemLayout). */
+export const LIVE_ROW_STRIDE = LIVE_ROW_H + LIVE_ROW_MARGIN * 2;
+
+interface LiveChannelRowProps {
+  channel: Channel;
+  width: number;
+  isPlaying?: boolean;
+  isFavorite?: boolean;
+  onPress: () => void;
+  onLongPress?: () => void;
+  hasTVPreferredFocus?: boolean;
+}
+
+function LiveChannelRowBase({
+  channel, width, isPlaying, isFavorite, onPress, onLongPress, hasTVPreferredFocus,
+}: LiveChannelRowProps) {
+  const preset = useThemeStore(s => s.preset);
+  const showEpg = useStore(s => s.settings.showEpg);
+  const { now } = useNowNext(showEpg && !channel.id.startsWith('jf-') ? channel.id : undefined);
+  const pct = now && now.end > now.start
+    ? Math.max(0, Math.min(1, (Date.now() - now.start) / (now.end - now.start)))
+    : 0;
+  const group = channel.group ? cleanGroupName(channel.group) : '';
+  return (
+    <TVFocusable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      hasTVPreferredFocus={hasTVPreferredFocus}
+      accessibilityLabel={channel.name}
+      style={[
+        rStyles.row, { width, height: LIVE_ROW_H },
+        isPlaying && { borderColor: preset.primary, borderWidth: 2 },
+      ]}
+    >
+      <View style={rStyles.logoBox}>
+        <SafeImage
+          uri={channel.logo}
+          style={rStyles.logo}
+          contentFit="contain"
+          recyclingKey={channel.id}
+          fallback={
+            <Text style={[rStyles.initials, { color: preset.accent }]}>
+              {cleanDisplayName(channel.name).slice(0, 2).toUpperCase()}
+            </Text>
+          }
+        />
+      </View>
+      <View style={rStyles.text}>
+        <Text style={rStyles.name} numberOfLines={1}>{cleanDisplayName(channel.name)}</Text>
+        <Text style={[rStyles.sub, now && { color: preset.accent }]} numberOfLines={1}>
+          {now ? `Agora: ${now.title}` : group}
+        </Text>
+        {pct > 0 && (
+          <View style={rStyles.track}>
+            <View style={[rStyles.fill, { width: `${Math.round(pct * 100)}%`, backgroundColor: preset.accent }]} />
+          </View>
+        )}
+      </View>
+      {isFavorite && <Ionicons name="heart" size={12} color={colors.favorite} />}
+      {channel.quality ? <Text style={rStyles.quality}>{channel.quality}</Text> : null}
+    </TVFocusable>
+  );
+}
+export const LiveChannelRow = memo(LiveChannelRowBase, (a, b) =>
+  a.channel === b.channel && a.width === b.width && a.isPlaying === b.isPlaying &&
+  a.isFavorite === b.isFavorite && a.hasTVPreferredFocus === b.hasTVPreferredFocus);
+
+const rStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    margin: LIVE_ROW_MARGIN, paddingHorizontal: 10,
+    backgroundColor: colors.bg1, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.border, overflow: 'hidden',
+  },
+  logoBox: {
+    width: IS_TV ? 76 : 64, height: IS_TV ? 44 : 38, borderRadius: 6,
+    backgroundColor: colors.bg2, padding: 4,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  logo: { width: '100%', height: '100%' },
+  initials: { fontSize: 14, fontWeight: '800', letterSpacing: 1 },
+  text: { flex: 1, gap: 2 },
+  name: { color: colors.text1, fontSize: IS_TV ? fontSize.sm : 12, fontWeight: '600' },
+  sub: { color: colors.text3, fontSize: IS_TV ? 11 : 10 },
+  track: { height: 2, borderRadius: 1, backgroundColor: 'rgba(255,255,255,0.15)', marginTop: 2 },
+  fill: { height: '100%', borderRadius: 1 },
+  quality: { color: colors.text3, fontSize: 9, fontWeight: '700' },
+});
 
 const styles = StyleSheet.create({
   card: {

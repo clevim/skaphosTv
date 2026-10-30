@@ -63,6 +63,34 @@ class MainActivity : ReactActivity() {
   private var lastRepeatEmitMs = 0L
   private val REPEAT_THROTTLE_MS = 130L
 
+  /**
+   * Re-afirma a janela em tela cheia e força novo ciclo de insets/layout. Depois do
+   * player (troca/restauração de display mode via window.attributes + orientação) a
+   * janela podia ficar presa ~48px menor (faixa preta) até outro relayout (Ajustes).
+   */
+  fun resetWindowLayout() {
+    runOnUiThread {
+      try {
+        window.setLayout(
+          android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+          android.view.ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        window.decorView.requestLayout()
+        window.decorView.requestApplyInsets()
+      } catch (_: Exception) {}
+    }
+  }
+
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+    super.onWindowFocusChanged(hasFocus)
+    if (hasFocus) resetWindowLayout()
+  }
+
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    resetWindowLayout()
+  }
+
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
     if (event.action == KeyEvent.ACTION_DOWN) {
       when (event.keyCode) {

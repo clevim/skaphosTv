@@ -8,6 +8,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { SafeImage } from '../components/ChannelCard';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -18,7 +19,7 @@ import TVFocusable from '../components/TVFocusable';
 import GlassButton from '../components/GlassButton';
 import { colors, radius, fontFamily } from '../utils/theme';
 import { Channel, RootStackParamList } from '../types';
-import { getSeriesBaseName, cleanGroupName } from '../utils/channelUtils';
+import { getSeriesBaseName, cleanGroupName, cleanDisplayName } from '../utils/channelUtils';
 import { fetchSeriesInfo, parseSeriesCredentials, XtreamSeriesInfo } from '../utils/xtreamApi';
 import { parseJellyfinSeriesUrl, fetchJellyfinEpisodes, parseJellyfinVideoUrl } from '../utils/jellyfinLoader';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
@@ -243,11 +244,14 @@ const EpisodeRailCard = React.memo(function EpisodeRailCard({
           {epName}
         </Text>
       </View>
-      {focused ? (
-        <Text style={[tvStyles.epSynopsis, { fontSize: fSyn, maxWidth: cardW }]} numberOfLines={2}>
-          {item.plot || fallbackSynopsis}
-        </Text>
-      ) : null}
+      {/* Sempre montada (opacity 0 sem foco): reserva a altura da sinopse, senão a
+          fileira crescia ao focar e o rodapé do card era cortado/empurrado. */}
+      <Text
+        style={[tvStyles.epSynopsis, { fontSize: fSyn, maxWidth: cardW, opacity: focused ? 1 : 0 }]}
+        numberOfLines={2}
+      >
+        {item.plot || fallbackSynopsis || ' '}
+      </Text>
       <Text style={[tvStyles.epDur, { fontSize: fDur }]}>
         {item.quality ? `${item.quality} · ` : ''}{epDurationLabel(item)}
       </Text>
@@ -781,16 +785,22 @@ export default function SeriesScreen() {
       <View style={tvStyles.root}>
         <StatusBar hidden />
         {trackSheet}
-        {backdropUri ? (
-          <Image
-            source={backdropUri}
-            style={tvStyles.backdrop}
-            contentFit={backdropIsLogo ? 'contain' : 'cover'}
-            contentPosition="center"
-            cachePolicy="memory-disk"
-          />
+        {seriesBackdrop ? (
+          <Image source={seriesBackdrop} style={tvStyles.backdrop} contentFit="cover" contentPosition="center" cachePolicy="memory-disk" />
         ) : (
-          <View style={[tvStyles.backdrop, { backgroundColor: colors.bg2 }]} />
+          // Sem backdrop real: nunca ampliar o pôster (pixelava). Gradiente + pôster contido num tile.
+          <LinearGradient
+            colors={[colors.bg2, '#1b1433', colors.bg0]}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={[tvStyles.backdrop, { alignItems: 'flex-end', justifyContent: 'center', paddingRight: Math.round(sw * 0.08) }]}
+          >
+            {backdropUri ? (
+              <View style={{ width: Math.round(sw * 0.15), aspectRatio: 2 / 3, borderRadius: 14, overflow: 'hidden', backgroundColor: colors.bg3 }}>
+                <SafeImage uri={backdropUri} style={{ width: '100%', height: '100%' }} contentFit="cover"
+                  fallback={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text style={styles.heroInitials}>{baseName.slice(0, 3).toUpperCase()}</Text></View>} />
+              </View>
+            ) : null}
+          </LinearGradient>
         )}
         <LinearGradient
           colors={['rgba(10,8,16,0.55)', 'rgba(10,8,16,0.4)', colors.bg0]}
@@ -823,7 +833,7 @@ export default function SeriesScreen() {
               style={[tvStyles.title, { fontSize: fTitle, lineHeight: fTitleLh }]}
               numberOfLines={2}
             >
-              {baseName}
+              {cleanDisplayName(baseName)}
             </Text>
             <View style={tvStyles.metaRow}>
               <Text style={[tvStyles.metaAcc, { fontSize: fMeta }]}>
@@ -967,18 +977,19 @@ export default function SeriesScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
 
         <View style={[styles.hero, { height: heroH }]}>
-          {backdropUri ? (
-            <Image
-              source={backdropUri}
-              style={styles.heroImg}
-              contentFit={backdropIsLogo ? 'contain' : 'cover'}
-              contentPosition="center"
-              cachePolicy="memory-disk"
-            />
+          {seriesBackdrop ? (
+            <Image source={seriesBackdrop} style={styles.heroImg} contentFit="cover" contentPosition="center" cachePolicy="memory-disk" />
           ) : (
-            <View style={[styles.heroImg, styles.heroFallback]}>
-              <Text style={styles.heroInitials}>{baseName.slice(0, 3).toUpperCase()}</Text>
-            </View>
+            <LinearGradient
+              colors={[colors.bg2, '#1b1433', colors.bg0]}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+              style={[styles.heroImg, { alignItems: 'center', paddingTop: 56 }]}
+            >
+              <View style={{ height: Math.round(heroH * 0.62), aspectRatio: 2 / 3, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.bg3 }}>
+                <SafeImage uri={backdropUri} style={{ width: '100%', height: '100%' }} contentFit="cover"
+                  fallback={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text style={styles.heroInitials}>{baseName.slice(0, 3).toUpperCase()}</Text></View>} />
+              </View>
+            </LinearGradient>
           )}
           <LinearGradient
             colors={['transparent', 'rgba(10,8,16,0.95)', colors.bg0]}
@@ -999,7 +1010,7 @@ export default function SeriesScreen() {
             <View style={styles.origBadge}>
               <Text style={styles.origBadgeText}>SÉRIE</Text>
             </View>
-            <Text style={[styles.heroTitle, { fontSize: fHeroTitle, lineHeight: Math.round(fHeroTitle * 1.12) }]} numberOfLines={2}>{baseName}</Text>
+            <Text style={[styles.heroTitle, { fontSize: fHeroTitle, lineHeight: Math.round(fHeroTitle * 1.12) }]} numberOfLines={2}>{cleanDisplayName(baseName)}</Text>
             <View style={styles.heroMeta}>
               <Text style={styles.metaAcc}>{allEpisodes.length} ep</Text>
               <Text style={styles.metaDim}>·</Text>
@@ -1214,7 +1225,8 @@ const tvStyles = StyleSheet.create({
     paddingTop: 80,
   },
   bottom: {
-    paddingBottom: 40,
+    // Acima da barra de dicas (RemoteHints), que flutua sobre o rodapé da TV.
+    paddingBottom: 88,
   },
   gradV: {
     position: 'absolute',
@@ -1354,7 +1366,10 @@ const tvStyles = StyleSheet.create({
     flexShrink: 0,
   },
   railContent: {
-    // paddingHorizontal e gap vêm do JSX
+    // paddingHorizontal e gap vêm do JSX. Folga vertical: o card focado sobe 6px
+    // (translateY) e a FlatList horizontal clipa o que passa da sua altura.
+    paddingTop: 14,
+    paddingBottom: 16,
   },
   epCard: {
     // width vem do JSX
@@ -1413,7 +1428,7 @@ const tvStyles = StyleSheet.create({
   epSynopsis: {
     // fontSize e maxWidth vêm do JSX
     color: colors.text3,
-    lineHeight: 17, marginTop: 6,
+    lineHeight: 17, marginTop: 6, minHeight: 34,
   },
   epDur: {
     // fontSize vem do JSX

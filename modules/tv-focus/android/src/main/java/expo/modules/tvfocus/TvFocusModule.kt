@@ -360,6 +360,21 @@ class TvFocusModule : Module() {
     attach(view.rootView ?: return)
   }
 
+  private fun killNativeHighlight(v: View?) {
+    if (v == null || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
+    try {
+      if (v.defaultFocusHighlightEnabled) {
+        v.defaultFocusHighlightEnabled = false
+        v.invalidate()
+      }
+    } catch (_: Exception) {}
+  }
+
+  private fun killHighlightTree(v: View) {
+    if (v.isFocusable) killNativeHighlight(v)
+    if (v is ViewGroup) for (i in 0 until v.childCount) killHighlightTree(v.getChildAt(i))
+  }
+
   private fun attach(root: View) {
     if (watched.containsKey(root)) return
 
@@ -368,6 +383,12 @@ class TvFocusModule : Module() {
     // (nativo ia a 1.08, o spring do JS a 1.05) — trabalho dobrado e visual
     // inconsistente.
     val listener = ViewTreeObserver.OnGlobalFocusChangeListener { oldFocus, newFocus ->
+      // Mata o highlight de foco NATIVO do Android (o anel laranja que vazava por
+      // cima do ring violeta do TVFocusable). O destaque é todo desenhado no JS.
+      // newFocus E oldFocus: o resíduo laranja ficava no item que PERDEU o foco
+      // (view reaproveitada/restaurada ao voltar do player sem invalidate).
+      killNativeHighlight(newFocus)
+      killNativeHighlight(oldFocus)
       try {
         sendEvent("onTvFocusChanged", mapOf(
           "oldViewTag" to (if (oldFocus != null && oldFocus.id > 0) oldFocus.id else -1),
@@ -379,6 +400,9 @@ class TvFocusModule : Module() {
     }
     root.viewTreeObserver.addOnGlobalFocusChangeListener(listener)
     watched[root] = listener
+    // Varre a árvore já montada: views que nunca receberão newFocus pelo listener
+    // (ex.: restauradas pelo sistema) também ficam sem o anel nativo.
+    killHighlightTree(root)
 
     // Modal fechado → decorView sai da janela → remove o observer sozinho
     root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {

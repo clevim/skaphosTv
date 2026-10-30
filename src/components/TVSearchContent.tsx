@@ -8,9 +8,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
 import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
-import { getSeriesBaseName, cleanGroupName } from '../utils/channelUtils';
+import { getSeriesBaseName, cleanGroupName, LAUNCH_YEAR } from '../utils/channelUtils';
 import { resolveChannelType, useStore } from '../store/useStore';
-import { SearchType } from '../utils/search';
+import { SearchType, useSearchPending } from '../utils/search';
 
 interface Props {
   query: string;
@@ -48,7 +48,7 @@ function FilterChipsRow({ options, value, onChange }: {
             key={opt}
             onPress={() => onChange(active ? null : opt)}
             style={[styles.filterChip, active && styles.filterChipActive]}
-            focusStyle={active ? styles.filterChipFocused : undefined}
+            focusStyle={styles.filterChipFocused}
             focusScale={1}
           >
             <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{opt}</Text>
@@ -70,7 +70,7 @@ const TYPE_FILTERS: { key: SearchType; label: string }[] = [
   { key: 'live',   label: 'Ao Vivo' },
 ];
 
-const SUGGESTIONS = ['Ao Vivo', 'Filmes', 'Séries', 'Lançamentos 2026'];
+const SUGGESTIONS = ['Ao Vivo', 'Filmes', 'Séries', `Lançamentos ${LAUNCH_YEAR}`];
 
 function ResultItem({ channel, onPress, preferred }: {
   channel: Channel; onPress: () => void; preferred?: boolean;
@@ -111,6 +111,7 @@ export default function TVSearchContent({
   const inputRef = useRef<TextInput>(null);
   const hasResults = results.length > 0;
   const isEmpty = query.trim() === '';
+  const pending = useSearchPending(query);
 
   // Escolher uma sugestão/busca recente DESMONTA a lista de sugestões (o painel
   // troca para os resultados) — o Android então joga o foco no primeiro focável
@@ -163,7 +164,7 @@ export default function TVSearchContent({
                 key={f.key}
                 onPress={() => onSearchTypeChange(f.key)}
                 style={[styles.filterChip, active && styles.filterChipActive]}
-            focusStyle={active ? styles.filterChipFocused : undefined}
+            focusStyle={styles.filterChipFocused}
                 focusScale={1}
               >
                 <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{f.label}</Text>
@@ -185,19 +186,24 @@ export default function TVSearchContent({
           {isEmpty ? (
             <>
               <Ionicons name="search" size={44} color={colors.text3} style={{ opacity: 0.4 }} />
-              <Text style={styles.stateTitle}>Busque por canais</Text>
-              <Text style={styles.stateSub}>Digite o nome ou categoria</Text>
+              <Text style={styles.stateTitle}>Busque canais, filmes e séries</Text>
+              <Text style={styles.stateSub}>Digite o nome, categoria ou gênero</Text>
             </>
           ) : hasResults ? (
             <>
               <Text style={styles.statsCount}>{results.length}</Text>
               <Text style={styles.statsLabel}>resultado{results.length !== 1 ? 's' : ''} encontrado{results.length !== 1 ? 's' : ''}</Text>
             </>
+          ) : pending ? (
+            <>
+              <Ionicons name="hourglass-outline" size={44} color={colors.text3} style={{ opacity: 0.4 }} />
+              <Text style={styles.stateTitle}>Buscando…</Text>
+            </>
           ) : (
             <>
               <Ionicons name="alert-circle-outline" size={44} color={colors.text3} style={{ opacity: 0.4 }} />
-              <Text style={styles.stateTitle}>Sem resultados</Text>
-              <Text style={styles.stateSub}>Tente outro termo de busca</Text>
+              <Text style={styles.stateTitle}>Sem resultados para "{query.trim()}"</Text>
+              <Text style={styles.stateSub}>Tente outro termo ou limpe os filtros</Text>
             </>
           )}
         </View>
@@ -266,13 +272,28 @@ export default function TVSearchContent({
               removeClippedSubviews={false}
             />
           </>
-        ) : null}
+        ) : (
+          // Antes era null: o painel ficava em branco quando a busca não achava nada.
+          <View style={styles.rightEmpty}>
+            <Ionicons
+              name={pending ? 'hourglass-outline' : 'alert-circle-outline'}
+              size={56} color={colors.text3} style={{ opacity: 0.5 }}
+            />
+            <Text style={styles.rightEmptyTitle}>
+              {pending ? 'Buscando…' : `Sem resultados para "${query.trim()}"`}
+            </Text>
+            {!pending && <Text style={styles.rightEmptySub}>Tente outro termo ou limpe os filtros</Text>}
+          </View>
+        )}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  rightEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
+  rightEmptyTitle: { fontSize: fontSize.lg, fontWeight: '600', color: colors.text2, textAlign: 'center' },
+  rightEmptySub: { fontSize: fontSize.sm, color: colors.text3, textAlign: 'center' },
   root: {
     flex: 1,
     flexDirection: 'row',
@@ -320,11 +341,12 @@ const styles = StyleSheet.create({
     borderRadius: 999, backgroundColor: colors.bg1,
     borderWidth: 1, borderColor: colors.border,
   },
-  filterChipActive: { backgroundColor: colors.text1, borderColor: colors.text1 },
-  // Foco CLAREIA o controle claro/ativo — o FOCUS_BG translúcido padrão o escurecia
-  filterChipFocused: { backgroundColor: colors.accent2, borderColor: colors.accent2 },
+  // Selecionado = violeta sólido discreto; FOCADO = anel violeta grosso + fundo claro (mais forte)
+  filterChipActive: { backgroundColor: 'rgba(167,139,250,0.10)', borderColor: 'transparent' },
+  // Foco = só o fundo; o anel vem do TVFocusable (um único token de foco).
+  filterChipFocused: { backgroundColor: 'rgba(167,139,250,0.30)' },
   filterChipText: { fontSize: fontSize.sm, fontWeight: '500', color: colors.text1 },
-  filterChipTextActive: { color: colors.textInverse, fontWeight: '600' },
+  filterChipTextActive: { color: colors.accent2, fontWeight: '700' },
   recentHeaderRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },

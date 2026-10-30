@@ -1,5 +1,5 @@
 // TVCatalogLayout.tsx — Two-panel TV browse layout: left sidebar + right grid
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
@@ -18,7 +18,7 @@ interface Props {
   /** Cicla o modo de ordenação (Padrão → A-Z → Mais assistido). */
   onSort?: () => void;
   sortIcon?: string;
-  /** Some quando a ordenação é a padrão — só aparece quando A-Z/Mais assistido está ativo. */
+  /** Rótulo do critério atual, sempre visível no botão de ordenar. */
   sortLabel?: string;
   children: React.ReactNode;
 }
@@ -26,21 +26,29 @@ interface Props {
 export default function TVCatalogLayout({
   title, count, groups, selectedGroup, onGroupSelect, onReload, onRandom, onSort, sortIcon, sortLabel, children,
 }: Props) {
+  // Trocar de aba (title muda) deixava a lista de subcategorias rolada no meio.
+  const listRef = useRef<FlatList<string>>(null);
+  useEffect(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [title]);
   return (
     <View style={styles.root}>
       {/* Left sidebar */}
       <View style={styles.sidebar}>
         <View style={styles.sidebarHeader}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.sidebarTitle}>{title}</Text>
-            <Text style={styles.sidebarCount}>
-              {count} itens{sortLabel ? ` · ${sortLabel}` : ''}
-            </Text>
-          </View>
+          <Text style={styles.sidebarTitle} numberOfLines={1} adjustsFontSizeToFit>{title}</Text>
+          <Text style={styles.sidebarCount} numberOfLines={1}>{count} itens</Text>
           <View style={styles.headerActions}>
             {onSort && (
-              <TVFocusable accessibilityLabel="Ordenar" onPress={onSort} style={styles.reloadBtn} borderRadius={8}>
-                <Ionicons name={(sortIcon ?? 'swap-vertical-outline') as any} size={16} color={colors.accent} />
+              // Rótulo visível: o ícone sozinho (antes uma estrela) parecia "favoritar".
+              <TVFocusable
+                accessibilityLabel={`Ordenar: ${sortLabel ?? 'Padrão'}`}
+                onPress={onSort}
+                style={styles.sortBtn}
+                borderRadius={8}
+              >
+                <Ionicons name={(sortIcon ?? 'swap-vertical-outline') as any} size={14} color={colors.accent} />
+                <Text style={styles.sortText} numberOfLines={1}>{sortLabel ?? 'Ordenar'}</Text>
               </TVFocusable>
             )}
             {onRandom && (
@@ -68,6 +76,7 @@ export default function TVCatalogLayout({
           * decisão da lista de seções da Home).
           */}
         <FlatList
+          ref={listRef}
           data={groups}
           keyExtractor={g => g}
           showsVerticalScrollIndicator={false}
@@ -145,22 +154,25 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   sidebarHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xl,
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSoft,
   },
-  headerActions: { flexDirection: 'row', gap: 8 },
+  headerActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  sortBtn: {
+    flex: 1, height: 32, borderRadius: 8, paddingHorizontal: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
+  },
+  sortText: { flex: 1, fontSize: 11, fontWeight: '600', color: colors.text2 },
   reloadBtn: {
     width: 32, height: 32,
     borderRadius: 8,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: colors.bg2,
     borderWidth: 1, borderColor: colors.border,
-    marginTop: 2,
   },
   sidebarTitle: {
     fontSize: 22,
@@ -176,7 +188,9 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   sidebarList: {
-    paddingVertical: spacing.sm,
+    paddingTop: spacing.sm,
+    // Folga inferior: a barra de dicas flutua sobre o rodapé e cortava o último item.
+    paddingBottom: 96,
     paddingHorizontal: spacing.md,
     gap: 2,
   },

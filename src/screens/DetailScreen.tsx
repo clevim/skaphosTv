@@ -20,7 +20,7 @@ import JellyfinTrackSheet from '../components/JellyfinTrackSheet';
 import ExpandableText from '../components/ExpandableText';
 import { colors, fontSize, radius, fontFamily } from '../utils/theme';
 import { RootStackParamList } from '../types';
-import { getSeriesBaseName, cleanGroupName } from '../utils/channelUtils';
+import { getSeriesBaseName, cleanGroupName, cleanDisplayName } from '../utils/channelUtils';
 import { IS_TV } from '../utils/tvDetect';
 import { fetchVodInfo, parseMovieCredentials, XtreamVodDetails } from '../utils/xtreamApi';
 import { parseJellyfinVideoUrl } from '../utils/jellyfinLoader';
@@ -47,7 +47,7 @@ export default function DetailScreen() {
   const [trackSheetUrl, setTrackSheetUrl] = useState<string | null>(null);
 
   const type = resolveChannelType(channel);
-  const displayName = type === 'series' ? getSeriesBaseName(channel.name) : channel.name;
+  const displayName = cleanDisplayName(type === 'series' ? getSeriesBaseName(channel.name) : channel.name);
   const groupClean = (channel.group ? cleanGroupName(channel.group) : '') || '';
   const isFav = favorites.includes(channel.id);
   const typeLabel = type === 'movies' ? 'Filme' : type === 'series' ? 'Série' : 'Canal';
@@ -96,6 +96,30 @@ export default function DetailScreen() {
   const remainMin = watchEntry && resumeFrac > 0
     ? Math.max(1, Math.round((watchEntry.durationSec - watchEntry.positionSec) / 60)) : 0;
   const playLabel = resumeFrac > 0 ? 'Retomar' : 'Assistir agora';
+
+  // Duração: painel (get_vod_info "HH:MM:SS"/minutos) → canal → o que o player já mediu.
+  const durSecs = (() => {
+    if (channel.durationSecs) return channel.durationSecs;
+    const raw = vod?.duration;
+    if (raw) {
+      const p = String(raw).split(':').map(Number);
+      if (p.every(n => !isNaN(n))) {
+        const v = p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p.length === 2 ? p[0] * 60 + p[1] : p[0] * 60;
+        if (v > 0) return v;
+      }
+    }
+    return watchEntry?.durationSec || 0;
+  })();
+  const durMin = Math.round(durSecs / 60);
+  const displayDuration = type === 'live' || durMin <= 0 ? null
+    : durMin >= 60 ? `${Math.floor(durMin / 60)}h ${String(durMin % 60).padStart(2, '0')}min` : `${durMin}min`;
+  const castShort = displayCast ? displayCast.split(',').slice(0, 4).map((x: string) => x.trim()).filter(Boolean).join(', ') : '';
+
+  // "Começar do início": zera o progresso salvo (a retomada lê dele) e toca.
+  const handleStartOver = () => {
+    useWatchProgress.getState().clear(channel.id);
+    handlePlay();
+  };
 
   const handlePlay = () => {
     if (isJellyfin) {
@@ -308,8 +332,10 @@ export default function DetailScreen() {
             )}
             {displayRating && <Text style={tvStyles.metaText}>{displayRating}</Text>}
             {displayYear && <Text style={tvStyles.metaText}>{displayYear}</Text>}
+            {displayDuration && <Text style={tvStyles.metaText}>{displayDuration}</Text>}
             <Text style={tvStyles.metaText}>{displayGenre || typeLabel}</Text>
           </View>
+          {castShort ? <Text style={tvStyles.metaText} numberOfLines={2}>Elenco: {castShort}</Text> : null}
 
           {/* Play button */}
           <TVFocusable onPress={handlePlay} style={tvStyles.playBtn} focusStyle={tvStyles.playBtnFocused} hasTVPreferredFocus>
@@ -327,6 +353,9 @@ export default function DetailScreen() {
 
           {/* Secondary actions */}
           <View style={tvStyles.secondaryRow}>
+            {resumeFrac > 0 && (
+              <GlassButton icon="refresh" label="Começar do início" onPress={handleStartOver} />
+            )}
             <GlassButton
               icon={isFav ? 'heart' : 'heart-outline'}
               label="Minha lista"
@@ -407,8 +436,10 @@ export default function DetailScreen() {
               )}
               {displayRating && <Text style={styles.metaText}>{displayRating}</Text>}
               {displayYear && <Text style={styles.metaText}>{displayYear}</Text>}
+              {displayDuration && <Text style={styles.metaText}>{displayDuration}</Text>}
               <Text style={styles.metaText}>{displayGenre || typeLabel}</Text>
             </View>
+            {castShort ? <Text style={styles.metaText} numberOfLines={2}>Elenco: {castShort}</Text> : null}
           </View>
         </View>
 
@@ -427,6 +458,9 @@ export default function DetailScreen() {
             </View>
           )}
           <View style={styles.secondaryActions}>
+            {resumeFrac > 0 && (
+              <GlassButton icon="refresh" label="Começar do início" onPress={handleStartOver} />
+            )}
             <GlassButton
               icon={isFav ? 'heart' : 'heart-outline'}
               label="Minha lista"
@@ -552,6 +586,7 @@ const tvStyles = StyleSheet.create({
   },
   rightContent: {
     padding: 40,
+    paddingBottom: 100, // acima da barra de dicas
     paddingTop: 56,
     gap: 16,
   },
