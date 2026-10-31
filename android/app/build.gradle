@@ -114,8 +114,8 @@ android {
         applicationId 'com.skaphostv.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 11000
-        versionName "1.10.0"
+        versionCode 11001
+        versionName "1.10.1"
 
         // Só ARM no APK. `reactNativeArchitectures` (gradle.properties) limita
         // apenas o que o React Native COMPILA — os AARs de terceiros já vêm com

@@ -182,6 +182,8 @@ export const LIVE_ROW_STRIDE = LIVE_ROW_H + LIVE_ROW_MARGIN * 2;
 interface LiveChannelRowProps {
   channel: Channel;
   width: number;
+  /** Posição na lista (1-based) — o "número do canal" que o usuário memoriza. */
+  number?: number;
   isPlaying?: boolean;
   isFavorite?: boolean;
   onPress: () => void;
@@ -189,28 +191,33 @@ interface LiveChannelRowProps {
   hasTVPreferredFocus?: boolean;
 }
 
+const fmtHM = (ms: number) => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+// Linha de guia: nº · logo · nome | agora (título + horário + progresso) | a seguir.
+// Sem caixa por linha nem grupo repetido: a categoria já está na sidebar.
 function LiveChannelRowBase({
-  channel, width, isPlaying, isFavorite, onPress, onLongPress, hasTVPreferredFocus,
+  channel, width, number, isPlaying, isFavorite, onPress, onLongPress, hasTVPreferredFocus,
 }: LiveChannelRowProps) {
   const { accent, accent2 } = useAccentColors();
   const showEpg = useStore(s => s.settings.showEpg);
-  const { now } = useNowNext(showEpg && !channel.id.startsWith('jf-') ? channel.id : undefined);
+  const { now, next } = useNowNext(showEpg && !channel.id.startsWith('jf-') ? channel.id : undefined);
   const pct = now && now.end > now.start
     ? Math.max(0, Math.min(1, (Date.now() - now.start) / (now.end - now.start)))
     : 0;
-  const group = channel.group ? cleanGroupName(channel.group) : '';
+  // dp, não px: a TV 1080p tem ~960dp de largura; a lista ocupa ~690.
+  const wide = width >= 560;
   return (
     <TVFocusable
       onPress={onPress}
       onLongPress={onLongPress}
       hasTVPreferredFocus={hasTVPreferredFocus}
       accessibilityLabel={channel.name}
-      style={[
-        rStyles.row, { width, height: LIVE_ROW_H },
-        isPlaying && { borderColor: accent, borderWidth: 2 },
-      ]}
+      // Sem zoom: linha de largura cheia ampliada invadia a sidebar e as vizinhas.
+      focusScale={1}
+      style={[rStyles.row, { width, height: LIVE_ROW_H }]}
     >
-      <View style={rStyles.logoBox}>
+      {number != null && <Text style={rStyles.num}>{number}</Text>}
+      <View style={[rStyles.logoBox, isPlaying && { borderColor: accent, borderWidth: 2 }]}>
         <SafeImage
           uri={channel.logo}
           style={rStyles.logo}
@@ -223,46 +230,64 @@ function LiveChannelRowBase({
           }
         />
       </View>
-      <View style={rStyles.text}>
+      <View style={[rStyles.nameCol, !wide && { flex: 1 }]}>
         <Text style={rStyles.name} numberOfLines={1}>{cleanDisplayName(channel.name)}</Text>
-        <Text style={rStyles.sub} numberOfLines={1}>
-          {now ? `Agora: ${now.title}` : group}
-        </Text>
-        {pct > 0 && (
-          <View style={rStyles.track}>
-            <View style={[rStyles.fill, { width: `${Math.round(pct * 100)}%`, backgroundColor: accent }]} />
-          </View>
-        )}
+        {!wide && now && <Text style={rStyles.sub} numberOfLines={1}>{now.title}</Text>}
+        {isFavorite && <Ionicons name="heart" size={11} color={colors.text3} style={{ marginTop: 3 }} />}
       </View>
-      {isFavorite && <Ionicons name="heart" size={12} color={colors.favorite} />}
-      {channel.quality && channel.quality !== 'HD' ? <Text style={rStyles.quality}>{channel.quality}</Text> : null}
+      {wide && (
+        <View style={rStyles.nowCol}>
+          {now ? (
+            <>
+              <Text style={rStyles.nowTitle} numberOfLines={1}>
+                {now.title}<Text style={rStyles.time}>{`   ${fmtHM(now.start)}–${fmtHM(now.end)}`}</Text>
+              </Text>
+              <View style={rStyles.nowFoot}>
+                <View style={rStyles.track}>
+                  <View style={[rStyles.fill, { width: `${Math.round(pct * 100)}%`, backgroundColor: accent }]} />
+                </View>
+                {next && <Text style={rStyles.next} numberOfLines={1}>{`A seguir  ${fmtHM(next.start)}  ${next.title}`}</Text>}
+              </View>
+            </>
+          ) : null /* sem EPG: vazio (um "Sem programação" em cada linha só fazia ruído) */}
+        </View>
+      )}
     </TVFocusable>
   );
 }
 export const LiveChannelRow = memo(LiveChannelRowBase, (a, b) =>
-  a.channel === b.channel && a.width === b.width && a.isPlaying === b.isPlaying &&
+  a.channel === b.channel && a.width === b.width && a.number === b.number && a.isPlaying === b.isPlaying &&
   a.isFavorite === b.isFavorite && a.hasTVPreferredFocus === b.hasTVPreferredFocus);
 
 const rStyles = StyleSheet.create({
   row: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 14,
     margin: LIVE_ROW_MARGIN, paddingHorizontal: 10,
-    // Sem borda e SEM overflow:'hidden' (cortaria o anel de foco, que fica fora).
-    backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: radius.md,
+    // Sem fundo/borda por linha e SEM overflow:'hidden' (cortaria o anel de foco).
+    borderRadius: radius.md,
+  },
+  num: {
+    width: 32, textAlign: 'right',
+    fontFamily: fontFamily.medium, fontSize: IS_TV ? 15 : 12, color: colors.text3,
+    fontVariant: ['tabular-nums'],
   },
   logoBox: {
-    width: IS_TV ? 76 : 64, height: IS_TV ? 44 : 38, borderRadius: 6,
-    backgroundColor: colors.bg2, padding: 4,
+    width: IS_TV ? 80 : 64, height: IS_TV ? 46 : 38, borderRadius: 8,
+    backgroundColor: colors.bg2, padding: 5,
     alignItems: 'center', justifyContent: 'center',
   },
   logo: { width: '100%', height: '100%' },
-  initials: { fontSize: 14, fontWeight: '800', letterSpacing: 1 },
-  text: { flex: 1, gap: 2 },
-  name: { color: colors.text1, fontSize: IS_TV ? fontSize.sm : 12, fontWeight: '600' },
-  sub: { color: colors.text2, fontSize: IS_TV ? 12 : 10 },
-  track: { height: 2, borderRadius: 1, backgroundColor: 'rgba(255,255,255,0.15)', marginTop: 2 },
-  fill: { height: '100%', borderRadius: 1 },
-  quality: { color: colors.text2, fontSize: IS_TV ? 11 : 9, fontWeight: '700' },
+  initials: { fontSize: 14, fontFamily: fontFamily.bold, letterSpacing: 1 },
+  nameCol: { width: 210, justifyContent: 'center' },
+  name: { color: colors.text1, fontSize: IS_TV ? 16 : 13, fontFamily: fontFamily.semiBold },
+  sub: { color: colors.text2, fontSize: IS_TV ? 13 : 11, fontFamily: fontFamily.regular, marginTop: 2 },
+  nowCol: { flex: 1, justifyContent: 'center', gap: 8 },
+  nowFoot: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  nowTitle: { color: colors.text1, fontSize: IS_TV ? 15 : 13, fontFamily: fontFamily.medium },
+  time: { color: colors.text3, fontFamily: fontFamily.regular, fontVariant: ['tabular-nums'] },
+  track: { width: 96, height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.12)', overflow: 'hidden' },
+  fill: { height: '100%' },
+  next: { flex: 1, color: colors.text3, fontSize: IS_TV ? 13 : 11, fontFamily: fontFamily.regular },
 });
 
 const styles = StyleSheet.create({

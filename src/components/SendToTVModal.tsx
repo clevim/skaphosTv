@@ -16,7 +16,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import axios from 'axios';
 import { colors, fontSize, radius, spacing, shadow, fontFamily } from '../utils/theme';
 import { useAccentColors } from '../hooks/useAccentColors';
-import { SkSectionHeader } from './sk';
 import { useStore, IPTVSource } from '../store/useStore';
 import { useWatchProgress } from '../store/watchProgress';
 import type { PairingPayload, PairingExtras } from '../utils/pairingServer';
@@ -153,11 +152,7 @@ export default function SendToTVModal({ visible, onClose }: { visible: boolean; 
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={st.overlay}>
         <View style={st.box}>
-          <SkSectionHeader title="enviar" />
           <View style={st.header}>
-            <View style={[st.headerIcon, { backgroundColor: ac.accentSoft }]}>
-              <Ionicons name="scan-outline" size={18} color={ac.accent} />
-            </View>
             <Text style={st.title}>Enviar para uma TV</Text>
           </View>
 

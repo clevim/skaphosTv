@@ -1,9 +1,9 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Pressable, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Pressable } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable, { TVFocusableHandle } from './TVFocusable';
-import { colors, radius, fontFamily, shadow } from '../utils/theme';
-import { SkSectionHeader } from './sk';
+import { colors, fontFamily } from '../utils/theme';
+import { sheet } from './playerSheetStyles';
 import { useAccentColors } from '../hooks/useAccentColors';
 import { JellyfinSubtitleTrack } from '../utils/jellyfinLoader';
 import { IS_TV } from '../utils/tvDetect';
@@ -30,10 +30,6 @@ export default function SubtitleSheet({
   visible, tracks, selectedIndex, onSelect, onClose, offsetMs = 0, onOffsetChange,
 }: Props) {
   const ac = useAccentColors();
-  const { width, height } = useWindowDimensions();
-  const sheetWidth  = Math.min(420, width  - 40);
-  const sheetHeight = Math.min(480, height - 80);
-  const listHeight  = sheetHeight - 140;
 
   const closeRef = useRef<TVFocusableHandle | null>(null);
   const firstRef = useRef<TVFocusableHandle | null>(null);
@@ -56,21 +52,24 @@ export default function SubtitleSheet({
     ...tracks,
   ];
 
+  const anyActive = selectedIndex === null || tracks.some(t => t.index === selectedIndex);
+
   return (
-    <View style={styles.root} pointerEvents="box-none">
+    <View style={sheet.root} pointerEvents="box-none">
       <Pressable
         style={StyleSheet.absoluteFillObject}
         onPress={onClose}
         {...({ focusable: false } as any)}
       />
 
-      <View style={[styles.sheet, { width: sheetWidth, maxHeight: sheetHeight }]}>
-        <View style={styles.header}><SkSectionHeader title="legendas" /></View>
+      <View style={sheet.panel}>
+        <Text style={sheet.title}>Legendas</Text>
 
         <FlatList
           data={data}
           keyExtractor={t => String(t.index)}
-          style={{ maxHeight: listHeight }}
+          style={sheet.list}
+          contentContainerStyle={sheet.listInner}
           renderItem={({ item, index: listIndex }) => {
             const isOff  = item.index === -1;
             const active = isOff ? selectedIndex === null : item.index === selectedIndex;
@@ -80,26 +79,20 @@ export default function SubtitleSheet({
               <TVFocusable
                 ref={isFirst ? firstRef : undefined}
                 onPress={() => { onSelect(isOff ? null : item.index); onClose(); }}
-                style={styles.row /* ativo = só o rádio no acento; sem faixa lateral nem fundo tingido */}
+                style={sheet.row}
                 focusScale={1}
-                borderRadius={6}
-                hasTVPreferredFocus={isFirst}
+                // Abre no item ATIVO (era sempre o 1º, "Desativado").
+                hasTVPreferredFocus={active || (isFirst && !anyActive)}
                 nextFocusUp={isFirst && closeTag ? closeTag : undefined}
                 nextFocusDown={isLast && closeTag ? closeTag : undefined}
                 nextFocusLeft={closeTag ?? undefined}
                 nextFocusRight={closeTag ?? undefined}
               >
-                <View style={[styles.radio, active && { borderColor: ac.accent }]}>
-                  {active && <View style={[styles.radioDot, { backgroundColor: ac.accent }]} />}
+                <View style={sheet.rowText}>
+                  <Text style={[sheet.rowTitle, active && sheet.rowTitleOn]}>{item.displayTitle}</Text>
+                  {!isOff && item.isExternal && <Text style={sheet.rowSub}>Externa</Text>}
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.trackTitle, active && styles.trackTitleActive]}>
-                    {item.displayTitle}
-                  </Text>
-                  {!isOff && item.isExternal && (
-                    <Text style={styles.sub}>Externo</Text>
-                  )}
-                </View>
+                {active && <Ionicons name="checkmark" size={20} color={ac.accent} />}
               </TVFocusable>
             );
           }}
@@ -107,41 +100,44 @@ export default function SubtitleSheet({
 
         {/* Sincronia — só faz sentido com uma legenda ativa */}
         {selectedIndex !== null && onOffsetChange && (
-          <View style={styles.syncRow}>
-            <Text style={styles.syncLabel}>sincronia</Text>
+          <>
+            <Text style={sheet.section}>Sincronia</Text>
             <View style={styles.syncControls}>
               <TVFocusable accessibilityLabel="Atrasar legenda"
                 onPress={() => onOffsetChange(offsetMs - OFFSET_STEP_MS)}
                 style={styles.syncBtn}
-                borderRadius={20}
+                borderRadius={22}
+                focusScale={1}
               >
-                <Ionicons name="remove" size={20} color={colors.white} />
+                <Ionicons name="remove" size={20} color={colors.text1} />
               </TVFocusable>
               <Text style={styles.syncValue}>{formatOffset(offsetMs)}</Text>
               <TVFocusable accessibilityLabel="Adiantar legenda"
                 onPress={() => onOffsetChange(offsetMs + OFFSET_STEP_MS)}
                 style={styles.syncBtn}
-                borderRadius={20}
+                borderRadius={22}
+                focusScale={1}
               >
-                <Ionicons name="add" size={20} color={colors.white} />
+                <Ionicons name="add" size={20} color={colors.text1} />
               </TVFocusable>
               {offsetMs !== 0 && (
-                <TVFocusable onPress={() => onOffsetChange(0)} style={styles.syncReset} borderRadius={6}>
+                <TVFocusable onPress={() => onOffsetChange(0)} style={styles.syncReset} focusScale={1}>
                   <Text style={styles.syncResetText}>Zerar</Text>
                 </TVFocusable>
               )}
             </View>
-          </View>
+          </>
         )}
 
-        <View style={styles.actions}>
+        <View style={sheet.footer}>
           <TVFocusable
             ref={closeRef}
             onPress={onClose}
-            style={styles.closeBtn}
+            style={sheet.close}
+            focusScale={1}
             nextFocusDown={firstTag ?? undefined}
           >
-            <Text style={styles.closeText}>Fechar</Text>
+            <Text style={sheet.closeText}>Fechar</Text>
           </TVFocusable>
         </View>
       </View>
@@ -150,74 +146,13 @@ export default function SubtitleSheet({
 }
 
 const styles = StyleSheet.create({
-  root: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 1000,
-    elevation: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.7)',
-  },
-  sheet: {
-    ...shadow.floating,
-    backgroundColor: colors.bg1,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSoft,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSoft,
-  },
-  rowActive: { backgroundColor: colors.accentSoft },
-  radio: {
-    width: 22, height: 22, borderRadius: 11,
-    borderWidth: 2, borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  radioActive: { borderColor: colors.accent },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent },
-  trackTitle: { fontSize: 16, fontFamily: fontFamily.medium, color: colors.text2 },
-  trackTitleActive: { color: colors.text1, fontFamily: fontFamily.semiBold },
-  sub: { fontSize: 12, color: colors.text3, marginTop: 2 },
-  syncRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 14,
-    borderTopWidth: 1, borderTopColor: colors.borderSoft,
-  },
-  syncLabel: { fontSize: 14, fontFamily: fontFamily.medium, fontVariant: ['tabular-nums'], color: colors.text3, letterSpacing: 0.3 },
-  syncControls: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  syncControls: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 26, paddingVertical: 6 },
   syncBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center', justifyContent: 'center',
   },
-  syncValue: { fontSize: 16, fontFamily: fontFamily.semiBold, color: colors.text1, minWidth: 64, textAlign: 'center' },
-  syncReset: {
-    paddingHorizontal: 12, paddingVertical: 9,
-    backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
-  },
-  syncResetText: { fontSize: 13, fontFamily: fontFamily.medium, color: colors.text2 },
-  actions: { padding: 14, borderTopWidth: 1, borderTopColor: colors.borderSoft },
-  closeBtn: {
-    height: 48, borderRadius: radius.md,
-    backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  closeText: { fontSize: 15, fontFamily: fontFamily.medium, color: colors.text1 },
+  syncValue: { fontSize: 17, fontFamily: fontFamily.semiBold, fontVariant: ['tabular-nums'], color: colors.text1, minWidth: 70, textAlign: 'center' },
+  syncReset: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10 },
+  syncResetText: { fontSize: 14, fontFamily: fontFamily.medium, color: colors.text2 },
 });

@@ -19,7 +19,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
 import { colors, fontSize, radius, spacing, fontFamily, shadow } from '../utils/theme';
 import { useAccentColors } from '../hooks/useAccentColors';
-import { SkSectionHeader } from './sk';
 import { IS_WEB } from '../utils/tvDetect';
 import { startPairingServer, PairingPayload, PairingServer } from '../utils/pairingServer';
 
@@ -96,10 +95,7 @@ export default function PairingSetupModal({ visible, onClose, onSource }: Props)
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.box}>
-          <View style={styles.head}><SkSectionHeader title="sincronizar" /></View>
-          <View style={[styles.iconWrap, { backgroundColor: ac.accentSoft }]}>
-            <Ionicons name="qr-code-outline" size={22} color={ac.accent} />
-          </View>
+          {/* Um título só (antes: rótulo de seção + ícone em bolha + título repetiam a mesma coisa). */}
           <Text style={styles.title}>Sincronizar dispositivos</Text>
 
           {(
@@ -115,10 +111,9 @@ export default function PairingSetupModal({ visible, onClose, onSource }: Props)
                         style={styles.scopeRow}
                         hasTVPreferredFocus={i === 0}
                         borderRadius={radius.md}
+                        focusScale={1}
                       >
-                        <View style={[styles.scopeIcon, { backgroundColor: ac.accentSoft }]}>
-                          <Ionicons name={opt.icon as any} size={17} color={ac.accent} />
-                        </View>
+                        <Ionicons name={opt.icon as any} size={20} color={colors.text3} />
                         <View style={{ flex: 1 }}>
                           <Text style={styles.scopeLabel}>{opt.label}</Text>
                           <Text style={styles.scopeDesc}>{opt.desc}</Text>
@@ -156,7 +151,7 @@ export default function PairingSetupModal({ visible, onClose, onSource }: Props)
                   )}
                   <View style={styles.waitRow}>
                     <ActivityIndicator size="small" color={ac.accent} />
-                    <Text style={[styles.waitText, { color: ac.accent }]}>Aguardando o celular…</Text>
+                    <Text style={styles.waitText}>Aguardando o celular…</Text>
                   </View>
                 </>
               )}
@@ -247,7 +242,7 @@ const styles = StyleSheet.create({
   },
   url: {
     fontSize: fontSize.sm,
-    fontFamily: 'monospace',
+    fontFamily: fontFamily.regular,
     color: colors.text2,
     marginBottom: spacing.md,
   },
@@ -257,7 +252,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: spacing.sm,
   },
-  waitText: { fontSize: fontSize.sm, fontFamily: fontFamily.regular },
+  waitText: { fontSize: fontSize.sm, fontFamily: fontFamily.regular, color: colors.text2 },
   cancelBtn: {
     marginTop: spacing.sm,
     paddingHorizontal: 32,

@@ -105,6 +105,11 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
   const [isFocused, setIsFocused] = useState(IS_TV && hasTVPreferredFocus);
   const isFocusedInit = useRef(IS_TV && hasTVPreferredFocus);
 
+  // Web: hover (mouse) tem estado próprio, mais fraco que o foco. Mobile: toque
+  // ganha feedback de pressionado. Nenhum dos dois existe na TV física.
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
   const targetScale = focusScale ?? FOCUS_SCALE;
   const zooming     = targetScale > 1;
 
@@ -216,15 +221,24 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
       // e garante highlighting em casos que o ViewTreeObserver não alcança.
       onFocus={IS_TV ? () => { light(true);  reportTVFocus(focusSelf, routeKeyRef.current); onFocusPropRef.current?.(); } : undefined}
       onBlur ={IS_TV ? () => { light(false); onBlurPropRef.current?.();  } : undefined}
+      {...(IS_WEB && !disabled ? { onHoverIn: () => setHovered(true), onHoverOut: () => setHovered(false) } : null)}
+      {...(!IS_TV && !disabled ? { onPressIn: () => setPressed(true), onPressOut: () => setPressed(false) } : null)}
       style={[
         { borderRadius },
         style,
         // Card com zoom já se destaca pela escala+sombra: fundo tingido só sujava o pôster.
         isFocused && !zooming && { backgroundColor: FOCUS_LIFT },
         isFocused && focusStyle,
+        // Sem `elevation` no Android: num card sem fundo próprio (pôster + legenda) a
+        // sombra nativa é desenhada pelo contorno da caixa inteira e virava uma placa
+        // cinza sob a legenda. Zoom + anel já marcam o foco; a sombra fica pro web.
         isFocused && (zooming
-          ? { zIndex: 20, ...shadow.focus }
+          ? { zIndex: 20, ...(IS_WEB ? shadow.focus : null) }
           : { zIndex: 20 }),
+        hovered && !isFocused && !zooming && { backgroundColor: FOCUS_LIFT },
+        pressed && { opacity: 0.6 },
+        // Web: o anel desenhado acima substitui o outline do navegador (eram dois anéis).
+        IS_WEB && ({ outlineStyle: 'none' } as any),
         { transform: [{ scale: scaleAnim }] },
       ]}
       accessible={accessible}
@@ -242,12 +256,14 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
     >
       {children}
       {/* Anel com respiro: fora do elemento (RING_GAP de folga), acompanha o raio. */}
-      {IS_TV && isFocused && (
+      {IS_TV && (isFocused || hovered) && (
         <View
           pointerEvents="none"
           style={{
             position: 'absolute', top: -RING_OUT, left: -RING_OUT, right: -RING_OUT, bottom: -RING_OUT,
-            borderRadius: borderRadius + RING_OUT, borderWidth: RING_W, borderColor: colors.text1,
+            borderRadius: borderRadius + RING_OUT, borderWidth: RING_W,
+            // Hover (web) = anel a meia força; foco = anel cheio.
+            borderColor: isFocused ? colors.text1 : 'rgba(255,255,255,0.45)',
           }}
         />
       )}

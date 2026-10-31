@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import axios from 'axios';
 import { useStore, IPTVSource } from '../store/useStore';
@@ -13,9 +14,8 @@ import { useWatchProgress } from '../store/watchProgress';
 import type { ChannelIndex } from '../store/channelIndex';
 import { cleanGroupName } from '../utils/channelUtils';
 import TVFocusable, { TVFocusableHandle } from '../components/TVFocusable';
-import { SkSectionHeader, SkChip } from '../components/sk';
+import { SkSectionHeader } from '../components/sk';
 import { useAccentColors, withAlpha } from '../hooks/useAccentColors';
-import RemoteHints from '../components/RemoteHints';
 import { parseM3U } from '../utils/m3uParser';
 import { loadXtreamPhased, XtreamPhase } from '../utils/xtreamPhasedLoader';
 import { enrichM3UChannels } from '../utils/xtreamEnricher';
@@ -23,7 +23,7 @@ import { normalizeHost as normalizeHostUtil } from '../utils/xtreamApi';
 import { loadJellyfinContent } from '../utils/jellyfinLoader';
 import { loadSourceChannels } from '../utils/sourceLoader';
 import { APP_VERSION } from '../utils/version';
-import { colors, spacing, fontSize, radius } from '../utils/theme';
+import { colors, spacing, fontSize, radius, fontFamily } from '../utils/theme';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import PairingSetupModal from '../components/PairingSetupModal';
 import SendToTVModal from '../components/SendToTVModal';
@@ -45,8 +45,6 @@ const SOURCE_TYPES: { key: TabType; icon: string; tint: string; tintSoft: string
     hint: 'Seu servidor de mídia pessoal — você aprova o acesso por um código' },
 ];
 
-const typeTint     = (t: string) => SOURCE_TYPES.find(s => s.key === t)?.tint ?? colors.accent;
-const typeTintSoft = (t: string) => SOURCE_TYPES.find(s => s.key === t)?.tintSoft ?? colors.accentSoft;
 
 interface ConnectionResult {
   success: boolean;
@@ -121,6 +119,7 @@ const PHASE_ICONS: Record<XtreamPhase, string> = {
 };
 
 export default function SetupScreen() {
+  const insets = useSafeAreaInsets();
   // Devolve o foco do D-pad pro item de onde o usuário saiu ao voltar pra cá
   useTVFocusMemory();
 
@@ -584,7 +583,7 @@ export default function SetupScreen() {
   const xtreamForm = (
     <View style={IS_TV ? tvStyles.formGroup : styles.form}>
       <FormField
-        label="ENDEREÇO DO SERVIDOR"
+        label="Endereço do servidor"
         value={xHost}
         onChangeText={setXHost}
         placeholder="http://iptv.skaphos.tv:8080"
@@ -596,10 +595,10 @@ export default function SetupScreen() {
       {IS_TV ? (
         // TV: stack fields vertically with more space
         <>
-          <FormField label="USUÁRIO" value={xUser} onChangeText={setXUser} placeholder="seu_usuario" returnKeyType="next"
+          <FormField label="Usuário" value={xUser} onChangeText={setXUser} placeholder="seu_usuario" returnKeyType="next"
             inputRef={xUserRef} onSubmitEditing={() => xPassRef.current?.focus()} />
           <FormField
-            label="SENHA"
+            label="Senha"
             value={xPass}
             onChangeText={setXPass}
             placeholder="sua_senha"
@@ -613,7 +612,7 @@ export default function SetupScreen() {
               </Pressable>
             }
           />
-          <FormField label="APELIDO (OPCIONAL)" value={xName} onChangeText={setXName} placeholder="Minha TV" returnKeyType="done"
+          <FormField label="Apelido (opcional)" value={xName} onChangeText={setXName} placeholder="Minha TV" returnKeyType="done"
             inputRef={xNameRef} onSubmitEditing={() => xSubmitRef.current?.focus()} />
         </>
       ) : (
@@ -621,7 +620,7 @@ export default function SetupScreen() {
           <View style={styles.formRow}>
             <View style={{ flex: 1 }}>
               <FormField
-                label="USUÁRIO"
+                label="Usuário"
                 value={xUser}
                 onChangeText={setXUser}
                 placeholder="seu_usuario"
@@ -632,7 +631,7 @@ export default function SetupScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <FormField
-                label="SENHA"
+                label="Senha"
                 value={xPass}
                 onChangeText={setXPass}
                 placeholder="sua_senha"
@@ -649,7 +648,7 @@ export default function SetupScreen() {
             </View>
           </View>
           <FormField
-            label="APELIDO (OPCIONAL)"
+            label="Apelido (opcional)"
             value={xName}
             onChangeText={setXName}
             placeholder="Ex: Minha TV, Casa..."
@@ -706,7 +705,7 @@ export default function SetupScreen() {
   const jellyfinForm = (
     <View style={IS_TV ? tvStyles.formGroup : styles.form}>
       <FormField
-        label="ENDEREÇO DO SERVIDOR"
+        label="Endereço do servidor"
         value={jHost}
         onChangeText={setJHost}
         placeholder="http://192.168.1.100:8096"
@@ -716,7 +715,7 @@ export default function SetupScreen() {
         onSubmitEditing={() => jNameRef.current?.focus()}
       />
       <FormField
-        label="APELIDO (OPCIONAL)"
+        label="Apelido (opcional)"
         value={jName}
         onChangeText={setJName}
         placeholder="Ex: Casa, Servidor Pessoal..."
@@ -769,7 +768,7 @@ export default function SetupScreen() {
   const m3uForm = (
     <View style={IS_TV ? tvStyles.formGroup : styles.form}>
       <FormField
-        label="URL DA LISTA M3U"
+        label="URL da lista M3U"
         value={m3uUrl}
         onChangeText={setM3uUrl}
         placeholder="http://servidor.com/lista.m3u"
@@ -779,7 +778,7 @@ export default function SetupScreen() {
         onSubmitEditing={() => m3uNameRef.current?.focus()}
       />
       <FormField
-        label="NOME (OPCIONAL)"
+        label="Nome (opcional)"
         value={m3uName}
         onChangeText={setM3uName}
         placeholder="Minha Lista"
@@ -837,13 +836,16 @@ export default function SetupScreen() {
           {/* Trilho esquerdo — conectores (mesma anatomia da sidebar dos Ajustes) */}
           <View style={tvStyles.rail}>
             <View style={tvStyles.railHeader}>
-              <TVFocusable accessibilityLabel="Voltar"
-                onPress={() => navigation.goBack()}
-                style={tvStyles.backBtn}
-                borderRadius={999}
-              >
-                <Ionicons name="chevron-back" size={20} color={colors.text2} />
-              </TVFocusable>
+              {/* Voltar visível só no web; na TV física é a tecla do controle. */}
+              {IS_WEB && (
+                <TVFocusable accessibilityLabel="Voltar"
+                  onPress={() => navigation.goBack()}
+                  style={tvStyles.backBtn}
+                  borderRadius={999}
+                >
+                  <Ionicons name="chevron-back" size={20} color={colors.text2} />
+                </TVFocusable>
+              )}
               <Text style={tvStyles.railTitle}>Adicionar fonte</Text>
             </View>
 
@@ -854,13 +856,16 @@ export default function SetupScreen() {
                   <TVFocusable
                     key={t.key}
                     onPress={() => setActiveTab(t.key)}
-                    style={[tvStyles.railItem, active && [tvStyles.railItemActive, { backgroundColor: ac.accentSoft }]]}
+                    // Focar já troca o formulário (como nos Ajustes): → entra direto no campo.
+                    onFocus={() => setActiveTab(t.key)}
+                    style={tvStyles.railItem}
                     hasTVPreferredFocus={i === 0}
-                    borderRadius={radius.lg}
+                    focusScale={1}
+                    borderRadius={radius.md}
                   >
-                    <View style={[tvStyles.railIcon, { backgroundColor: t.tintSoft }]}>
-                      <Ionicons name={t.icon as any} size={18} color={t.tint} />
-                    </View>
+                    {/* Um hue só: o ícone do ativo leva o acento; os outros ficam neutros
+                        (antes cada conector tinha sua cor — verde/violeta/azul). */}
+                    <Ionicons name={t.icon as any} size={20} color={active ? ac.accent : colors.text3} />
                     <View style={{ flex: 1 }}>
                       <Text style={[tvStyles.railLabel, active && tvStyles.railLabelActive]}>{t.label}</Text>
                       <Text style={tvStyles.railDesc} numberOfLines={1}>{t.desc}</Text>
@@ -871,14 +876,14 @@ export default function SetupScreen() {
 
               {/* Sincronizar dispositivos — QR pro celular enviar fonte (+ favoritos
                   e assistidos, conforme o escopo). No web o modal explica a limitação. */}
+              <Text style={tvStyles.railSection}>Ou</Text>
               <TVFocusable
                 onPress={() => setShowPairing(true)}
-                style={[tvStyles.pairCard, { borderColor: withAlpha(ac.accent, 0.45) }]}
-                borderRadius={radius.lg}
+                style={tvStyles.railItem}
+                focusScale={1}
+                borderRadius={radius.md}
               >
-                <View style={[tvStyles.railIcon, { backgroundColor: ac.accentSoft }]}>
-                  <Ionicons name="qr-code-outline" size={18} color={ac.accent} />
-                </View>
+                <Ionicons name="qr-code-outline" size={20} color={colors.text3} />
                 <View style={{ flex: 1 }}>
                   <Text style={tvStyles.railLabel}>Enviar do celular</Text>
                   <Text style={tvStyles.railDesc} numberOfLines={1}>Leia um QR code, sem digitar</Text>
@@ -894,13 +899,7 @@ export default function SetupScreen() {
 
           {/* Painel central — formulário do conector ativo */}
           <View style={tvStyles.panel}>
-            <LinearGradient
-              colors={[withAlpha(ac.accent3, 0.12), 'rgba(10,8,16,0)']}
-              style={tvStyles.panelGlow}
-              pointerEvents="none"
-            />
             <View style={[tvStyles.panelHeader, { paddingHorizontal: padH }]}>
-              {isFirstRun && !editingSourceId && <SkChip label="primeiro passo" variant="accent" style={{ alignSelf: 'flex-start', marginBottom: 10 }} />}
               <Text style={tvStyles.panelTitle}>{editingSourceId ? `Editar ${activeMeta.label}` : `Conectar ${activeMeta.label}`}</Text>
               <Text style={tvStyles.panelSub}>{activeMeta.hint}</Text>
             </View>
@@ -923,16 +922,12 @@ export default function SetupScreen() {
                 contentContainerStyle={[tvStyles.sourcesPanelInner, { paddingHorizontal: padH }]}
                 showsVerticalScrollIndicator={false}
               >
-                <View style={tvStyles.sectionHeader}>
-                  <SkSectionHeader title="Fontes ativas" />
-                </View>
+                <Text style={tvStyles.sourcesTitle}>Fontes ativas</Text>
                 <View style={tvStyles.sourcesGroup}>
                   {sources.map(source => (
                     <View key={source.id} style={tvStyles.sourceCard}>
                       <View style={tvStyles.sourceCardTop}>
-                        <View style={[tvStyles.sourceIcon, { backgroundColor: typeTintSoft(source.type) }]}>
-                          <Ionicons name={source.type === 'xtream' ? 'server' : source.type === 'jellyfin' ? 'play-circle' : 'document-text'} size={20} color={typeTint(source.type)} />
-                        </View>
+                        <Ionicons name={source.type === 'xtream' ? 'server-outline' : source.type === 'jellyfin' ? 'play-circle-outline' : 'document-text-outline'} size={20} color={colors.text3} />
                         <View style={{ flex: 1 }}>
                           <Text style={tvStyles.sourceName} numberOfLines={1}>{source.name}</Text>
                           <Text style={tvStyles.sourceType} numberOfLines={1}>
@@ -966,7 +961,7 @@ export default function SetupScreen() {
                           style={tvStyles.actionBtn}
                           borderRadius={10}
                         >
-                          <Ionicons name="pencil-outline" size={18} color={ac.accent} />
+                          <Ionicons name="pencil-outline" size={18} color={colors.text2} />
                         </TVFocusable>
                         <TVFocusable
                           accessibilityLabel="Excluir fonte"
@@ -985,13 +980,6 @@ export default function SetupScreen() {
           )}
         </View>
 
-        <RemoteHints
-          hints={[
-            { key: 'OK', label: 'Selecionar / Digitar' },
-            { key: '↑↓←→', label: 'Navegar' },
-            { key: '←', label: 'Voltar' },
-          ]}
-        />
 
         <QuickConnectModal
           visible={showQC}
@@ -1060,7 +1048,8 @@ export default function SetupScreen() {
         style={styles.headerGlow}
         pointerEvents="none"
       />
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentInner}>
+      {/* paddingTop = status bar: o Voltar ficava por baixo dela no celular. */}
+      <ScrollView style={styles.content} contentContainerStyle={[styles.contentInner, { paddingTop: spacing.xl + insets.top }]}>
 
         {/* Header — no passo do formulário, o voltar retorna à escolha */}
         <View style={styles.headerRow}>
@@ -1069,6 +1058,7 @@ export default function SetupScreen() {
             onPress={mobileStep === 'form' ? backFromForm : () => navigation.goBack()}
             style={styles.backBtn}
             borderRadius={999}
+            hitSlop={6}
           >
             <Ionicons name="chevron-back" size={20} color={colors.text2} />
           </TVFocusable>
@@ -1091,8 +1081,9 @@ export default function SetupScreen() {
                   style={styles.pickCard}
                   borderRadius={16}
                 >
-                  <View style={[styles.typeIcon, { backgroundColor: t.tintSoft }]}>
-                    <Ionicons name={t.icon as any} size={20} color={t.tint} />
+                  {/* Um hue só (como na TV): ícone neutro em vez de verde/violeta/azul por conector. */}
+                  <View style={[styles.typeIcon, { backgroundColor: colors.bg2 }]}>
+                    <Ionicons name={t.icon as any} size={20} color={colors.text2} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.pickLabel}>{t.label}</Text>
@@ -1106,11 +1097,11 @@ export default function SetupScreen() {
                   este layout é exclusivo do mobile nativo (web e TV usam o de TV). */}
               <TVFocusable
                 onPress={() => setShowScanner(true)}
-                style={[styles.sendTvCard, { borderColor: withAlpha(ac.accent, 0.45) }]}
+                style={styles.sendTvCard}
                 borderRadius={16}
               >
-                <View style={[styles.typeIcon, { backgroundColor: ac.accentSoft }]}>
-                  <Ionicons name="scan-outline" size={20} color={ac.accent} />
+                <View style={[styles.typeIcon, { backgroundColor: colors.bg2 }]}>
+                  <Ionicons name="scan-outline" size={20} color={colors.text2} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.pickLabel}>Enviar para a TV</Text>
@@ -1145,8 +1136,8 @@ export default function SetupScreen() {
             <SkSectionHeader title="Fontes ativas" />
             {sources.map(source => (
               <View key={source.id} style={styles.sourceCard}>
-                <View style={[styles.sourceIcon, { backgroundColor: typeTintSoft(source.type) }]}>
-                  <Ionicons name={source.type === 'xtream' ? 'server' : source.type === 'jellyfin' ? 'play-circle' : 'document-text'} size={18} color={typeTint(source.type)} />
+                <View style={[styles.sourceIcon, { backgroundColor: colors.bg2 }]}>
+                  <Ionicons name={source.type === 'xtream' ? 'server-outline' : source.type === 'jellyfin' ? 'play-circle-outline' : 'document-text-outline'} size={18} color={colors.text2} />
                 </View>
                 <View style={styles.sourceMeta}>
                   <Text style={styles.sourceName}>{source.name}</Text>
@@ -1181,7 +1172,7 @@ export default function SetupScreen() {
                   onPress={() => startEdit(source)}
                   style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.6 }]}
                 >
-                  <Ionicons name="pencil-outline" size={18} color={ac.accent} />
+                  <Ionicons name="pencil-outline" size={18} color={colors.text2} />
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
@@ -1521,8 +1512,10 @@ function FormField({ label, value, onChangeText, placeholder, secureTextEntry, k
       <TVFocusable
         ref={containerRef}
         onPress={handleTVPress}
-        style={[tvStyles.fieldWrap, isFocused && [tvStyles.fieldWrapFocused, { borderColor: ac.accent, shadowColor: ac.accent, backgroundColor: withAlpha(ac.accent, 0.08) }]]}
-        borderRadius={12}
+        // Digitando = borda no acento (estado real); sem halo colorido. Sem zoom: campo largo invadia o vizinho.
+        style={[tvStyles.fieldWrap, isFocused && [tvStyles.fieldWrapFocused, { borderColor: ac.accent }]]}
+        borderRadius={14}
+        focusScale={1}
       >
         <Text style={tvStyles.fieldLabel}>{label}</Text>
         <View style={tvStyles.fieldRow}>
@@ -1547,8 +1540,7 @@ function FormField({ label, value, onChangeText, placeholder, secureTextEntry, k
         </View>
         {isFocused && (
           <View style={tvStyles.cursorHint}>
-            <Ionicons name="pencil" size={13} color={ac.accent} />
-            <Text style={[tvStyles.cursorHintText, { color: ac.accent }]}>digitando · OK confirma</Text>
+            <Text style={tvStyles.cursorHintText}>Digitando. OK confirma, Voltar fecha o teclado.</Text>
           </View>
         )}
       </TVFocusable>
@@ -1615,7 +1607,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 14,
     paddingVertical: 14, paddingHorizontal: 14,
     borderRadius: 16,
-    borderWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(167,139,250,0.4)',
+    backgroundColor: colors.bg1,
   },
 
   optionsBox: { backgroundColor: colors.bg1, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
@@ -1704,12 +1696,13 @@ const tvStyles = StyleSheet.create({
   rail: {
     width: 264,
     borderRightWidth: 1, borderRightColor: colors.borderSoft,
-    paddingTop: 28,
+    paddingTop: 40,
     gap: spacing.xl,
   },
+  // Web: Voltar fica ACIMA do título (lado a lado o título quebrava em 2 linhas).
   railHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingHorizontal: spacing.lg,
+    flexDirection: IS_WEB ? 'column' : 'row', alignItems: IS_WEB ? 'flex-start' : 'center', gap: 12,
+    paddingHorizontal: spacing.xl,
   },
   backBtn: {
     width: 36, height: 36, borderRadius: 999,
@@ -1717,20 +1710,22 @@ const tvStyles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     flexShrink: 0,
   },
-  railTitle: { fontSize: 19, fontWeight: '700', color: colors.text1, letterSpacing: -0.4 },
-  railList: { flex: 1, paddingHorizontal: spacing.sm, gap: 4 },
+  railTitle: { fontSize: 26, fontFamily: fontFamily.bold, color: colors.text1, letterSpacing: -0.6 },
+  // Folga lateral ≥ anel de foco (5px fora do item).
+  railList: { flex: 1, paddingHorizontal: spacing.lg, gap: 4 },
   railItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 14,
     paddingVertical: 12, paddingHorizontal: 12,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
   },
+  railSection: { marginTop: spacing.lg, marginBottom: 2, paddingHorizontal: 12, fontSize: 13, fontFamily: fontFamily.medium, color: colors.text3 },
   railItemActive: { backgroundColor: colors.accentSoft },
   railIcon: {
     width: 38, height: 38, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center',
   },
-  railLabel: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text2 },
-  railLabelActive: { color: colors.text1 },
+  railLabel: { fontSize: 16, fontFamily: fontFamily.medium, color: colors.text2 },
+  railLabelActive: { color: colors.text1, fontFamily: fontFamily.semiBold },
   railDesc: { fontSize: 12, color: colors.text3, marginTop: 2 },
   // "Pelo celular" — caminho alternativo: borda tracejada, não card de tipo
   pairCard: {
@@ -1742,22 +1737,22 @@ const tvStyles = StyleSheet.create({
   },
   railFooter: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    padding: spacing.lg,
-    borderTopWidth: 1, borderTopColor: colors.borderSoft,
+    padding: spacing.xl,
   },
 
   // Painel central — formulário
   panel: { flex: 3 },
-  panelGlow: { position: 'absolute', top: 0, left: 0, right: 0, height: 160 },
-  panelHeader: { paddingTop: 28, paddingBottom: spacing.lg },
-  panelTitle: { fontSize: 24, fontWeight: '700', color: colors.text1, letterSpacing: -0.5 },
+  panelHeader: { paddingTop: 40, paddingBottom: spacing.lg },
+  panelTitle: { fontSize: 24, fontFamily: fontFamily.bold, color: colors.text1, letterSpacing: -0.5 },
   panelSub: { fontSize: fontSize.sm, color: colors.text2, marginTop: 4, lineHeight: 19 },
   panelContent: { paddingBottom: 24 },
 
   // Coluna direita — fontes ativas
   divider: { width: 1, backgroundColor: colors.borderSoft },
-  sourcesPanel: { flex: 2 },
-  sourcesPanelInner: { paddingVertical: 28 },
+  // Largura fixa: em flex 2 a coluna espremia o nome ("Xtream A…") e os 4 botões.
+  sourcesPanel: { width: 320, flexGrow: 0 },
+  sourcesPanelInner: { paddingVertical: 40 },
+  sourcesTitle: { fontSize: 19, fontFamily: fontFamily.semiBold, color: colors.text1, letterSpacing: -0.3, marginBottom: 14 },
 
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -1775,15 +1770,10 @@ const tvStyles = StyleSheet.create({
   },
   fieldWrapFocused: {
     borderColor: colors.accent,
-    backgroundColor: 'rgba(167,139,250,0.06)',
-    shadowColor: colors.accent,
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 10,
   },
+  // Sentence case, sem tracking: rótulo em CAIXA ALTA espaçada gritava em todo campo.
   fieldLabel: {
-    fontSize: 12, color: colors.text2, letterSpacing: 0.8, fontWeight: '600', marginBottom: 6,
+    fontSize: 13, color: colors.text2, fontFamily: fontFamily.medium, marginBottom: 6,
   },
   fieldRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   fieldInput: {
@@ -1795,7 +1785,7 @@ const tvStyles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 4,
     marginTop: 6,
   },
-  cursorHintText: { fontSize: 12, color: colors.accent, letterSpacing: 0.3 },
+  cursorHintText: { fontSize: 12, fontFamily: fontFamily.regular, color: colors.text3 },
 
   // Submit — TV
   submitBtn: {
@@ -1939,7 +1929,7 @@ const qcStyles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text1,
     letterSpacing: IS_TV ? 14 : 10,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: fontFamily.bold, fontVariant: ['tabular-nums'],
   },
   desc: {
     fontSize: IS_TV ? 15 : 13, color: colors.text2,

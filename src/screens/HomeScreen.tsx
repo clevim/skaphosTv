@@ -9,7 +9,6 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore, IPTVSource, resolveChannelType } from '../store/useStore';
 import ChannelCard, { LiveChannelRow, LIVE_ROW_STRIDE } from '../components/ChannelCard';
-import { SkDecodeText } from '../components/sk';
 import HomeContent from '../components/HomeContent';
 import { afterInteractions } from '../utils/afterInteractions';
 import SearchContent from '../components/SearchContent';
@@ -643,7 +642,9 @@ export default function HomeScreen() {
 
   // Ao vivo na TV: lista densa de canais (2 colunas de linhas) em vez de pôsteres 2:3.
   const liveList = IS_TV && navKey === 'live';
-  const LIVE_COLS = 2;
+  // Uma coluna larga (estilo guia): sobra espaço pro que importa no ao vivo —
+  // o que está passando agora e o que vem a seguir. Em 2 colunas só cabia o nome.
+  const LIVE_COLS = 1;
   const liveRowW = Math.floor((availableW - gridPadding * 2) / LIVE_COLS) - 8; // 8 = 2 × LIVE_ROW_MARGIN (TV)
 
   // Fixed info-section height (matches ChannelCard minHeight) → enables getItemLayout
@@ -768,6 +769,7 @@ export default function HomeScreen() {
             key={item.id}
             channel={item}
             width={liveRowW}
+            number={index + 1}
             isPlaying={currentChannel?.id === item.id}
             isFavorite={favoritesSet.has(item.id)}
             onPress={() => handleChannelPress(item)}
@@ -1000,9 +1002,9 @@ export default function HomeScreen() {
         {/* Section header */}
         <View style={styles.sectionHeader}>
           <View style={{ flex: 1 }}>
-            <SkDecodeText text={sectionTitle} style={styles.sectionTitle} numberOfLines={1} />
+            <Text style={styles.sectionTitle} numberOfLines={1}>{sectionTitle}</Text>
             <Text style={styles.sectionCount}>
-              {filteredChannels.length} item{filteredChannels.length !== 1 ? 's' : ''}
+              {`${filteredChannels.length.toLocaleString('pt-BR')} ${filteredChannels.length === 1 ? 'título' : 'títulos'}`}
               {sortMode !== 'default' ? ` · ${SORT_LABEL[sortMode]}` : ''}
             </Text>
           </View>
@@ -1187,11 +1189,9 @@ const styles = StyleSheet.create({
   },
   sectionCount: {
     fontFamily: fontFamily.medium, fontVariant: ['tabular-nums'],
-    fontSize: 11,
+    fontSize: 13,
     color: colors.text3,
-    marginTop: 4,
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
+    marginTop: 2,
   },
 
   // Category chips

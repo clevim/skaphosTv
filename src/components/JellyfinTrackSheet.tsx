@@ -5,7 +5,6 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable, { TVFocusableHandle } from './TVFocusable';
 import { colors, radius, fontFamily, shadow } from '../utils/theme';
-import { SkSectionHeader } from './sk';
 import { useAccentColors } from '../hooks/useAccentColors';
 import {
   getJellyfinAudioTracks, JellyfinAudioTrack,
@@ -149,7 +148,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
       />
 
       <View style={styles.sheet}>
-        <View style={styles.header}><SkSectionHeader title="faixas" /></View>
+        <View style={styles.header}><Text style={styles.headerTitle}>Áudio e legendas</Text></View>
 
         {hasSubtitles && !loading && (
           <View style={styles.tabBar}>
@@ -193,7 +192,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
               <Text style={[styles.tabText, activeTab === 'subtitle' && styles.tabTextActive]}>
                 Legendas
                 {selectedSubtitle !== null && (
-                  <Text style={[styles.tabBadge, { color: ac.accent }]}> ●</Text>
+                  <Text style={styles.tabBadge}>{'  ativa'}</Text>
                 )}
               </Text>
             </TVFocusable>
@@ -202,13 +201,14 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
 
         {loading ? (
           <View style={styles.center}>
-            <Text style={[styles.loadingText, { color: ac.accent }]}>{'Carregando faixas…'}</Text>
+            <Text style={styles.loadingText}>{'Carregando faixas…'}</Text>
           </View>
         ) : activeTab === 'audio' ? (
           <FlatList
             data={audioTracks}
             keyExtractor={t => String(t.index)}
             style={styles.list}
+            contentContainerStyle={styles.listInner}
             renderItem={({ item, index: listIndex }) => {
               const active  = item.index === selectedAudio;
               const isFirst = listIndex === 0;
@@ -217,9 +217,9 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
                 <TVFocusable
                   ref={isFirst ? firstItemRef : undefined}
                   onPress={() => setSelectedAudio(item.index)}
-                  style={[styles.trackRow, active && { backgroundColor: ac.accentSoft, borderLeftColor: ac.accent }]}
+                  style={styles.trackRow}
                   focusScale={1}
-                  borderRadius={6}
+                  borderRadius={10}
                   hasTVPreferredFocus={selectedAudio !== null ? item.index === selectedAudio : isFirst}
                   // UP do 1º item (sem abas) → Cancel; DOWN do último → Play (fecha o ciclo); L/R → Cancel e Play
                   nextFocusUp={isFirst && !hasSubtitles && cancelTag ? cancelTag : undefined}
@@ -227,9 +227,6 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
                   nextFocusLeft={cancelTag ?? undefined}
                   nextFocusRight={playTag ?? undefined}
                 >
-                  <View style={[styles.radio, active && { borderColor: ac.accent }]}>
-                    {active && <View style={[styles.radioDot, { backgroundColor: ac.accent }]} />}
-                  </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.trackTitle, active && styles.trackTitleActive]}>
                       {item.displayTitle}
@@ -238,6 +235,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
                       <Text style={styles.trackSub}>Padrão</Text>
                     )}
                   </View>
+                  {active && <Ionicons name="checkmark" size={20} color={ac.accent} />}
                 </TVFocusable>
               );
             }}
@@ -250,6 +248,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
             ]}
             keyExtractor={t => String(t.index)}
             style={styles.list}
+            contentContainerStyle={styles.listInner}
             renderItem={({ item, index: listIndex }) => {
               const isOff   = item.index === -1;
               const active  = isOff ? selectedSubtitle === null : item.index === selectedSubtitle;
@@ -259,25 +258,23 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
                 <TVFocusable
                   ref={isFirst ? firstItemRef : undefined}
                   onPress={() => setSelectedSubtitle(isOff ? null : item.index)}
-                  style={[styles.trackRow, active && { backgroundColor: ac.accentSoft, borderLeftColor: ac.accent }]}
+                  style={styles.trackRow}
                   focusScale={1}
-                  borderRadius={6}
+                  borderRadius={10}
                   hasTVPreferredFocus={isFirst}
                   nextFocusDown={isLast && playTag ? playTag : undefined}
                   nextFocusLeft={cancelTag ?? undefined}
                   nextFocusRight={playTag ?? undefined}
                 >
-                  <View style={[styles.radio, active && { borderColor: ac.accent }]}>
-                    {active && <View style={[styles.radioDot, { backgroundColor: ac.accent }]} />}
-                  </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.trackTitle, active && styles.trackTitleActive]}>
                       {item.displayTitle}
                     </Text>
                     {!isOff && item.isExternal && (
-                      <Text style={styles.trackSub}>Externo</Text>
+                      <Text style={styles.trackSub}>Externa</Text>
                     )}
                   </View>
+                  {active && <Ionicons name="checkmark" size={20} color={ac.accent} />}
                 </TVFocusable>
               );
             }}
@@ -359,20 +356,21 @@ const styles = StyleSheet.create({
   },
   tabText: { fontSize: 15, fontFamily: fontFamily.medium, color: colors.text3 },
   tabTextActive: { color: colors.text1, fontFamily: fontFamily.semiBold },
-  tabBadge: { fontSize: 11 },
+  tabBadge: { fontSize: 12, fontFamily: fontFamily.regular, color: colors.text3 },
   center: { alignItems: 'center', padding: 32 },
-  loadingText: { fontSize: 15, fontFamily: fontFamily.regular },
+  loadingText: { fontSize: 15, fontFamily: fontFamily.regular, color: colors.text2 },
+  headerTitle: { fontSize: 20, fontFamily: fontFamily.bold, color: colors.text1, letterSpacing: -0.4 },
+  // Folga vertical: o anel de foco da 1ª/última linha ficava cortado pela lista.
   list: { maxHeight: 320 },
+  listInner: { paddingVertical: 8 },
   trackRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderLeftWidth: 4,
-    borderLeftColor: 'transparent',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSoft,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginHorizontal: 8,
+    borderRadius: 10,
   },
   trackRowActive: { backgroundColor: colors.accentSoft },
   radio: {

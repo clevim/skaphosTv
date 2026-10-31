@@ -24,7 +24,7 @@ import { Channel, RootStackParamList } from '../types';
 import { getSeriesBaseName, cleanGroupName, cleanDisplayName } from '../utils/channelUtils';
 import { fetchSeriesInfo, parseSeriesCredentials, XtreamSeriesInfo } from '../utils/xtreamApi';
 import { parseJellyfinSeriesUrl, fetchJellyfinEpisodes, parseJellyfinVideoUrl } from '../utils/jellyfinLoader';
-import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import { IS_TV, IS_WEB, IS_NATIVE_TV } from '../utils/tvDetect';
 import { showAlert, AlertButton } from '../components/AppAlert';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import JellyfinTrackSheet from '../components/JellyfinTrackSheet';
@@ -925,7 +925,8 @@ export default function SeriesScreen() {
                       key={s}
                       label={seasonLabel(s)}
                       active={s === selectedSeason}
-                      dormant={!seasonZone && s !== selectedSeason}
+                      // Só na TV física: no web a pill dormente (disabled) não aceitaria clique.
+                      dormant={IS_NATIVE_TV && !seasonZone && s !== selectedSeason}
                       onZoneFocus={enterSeasons}
                       fontSize={fPill}
                       onPress={() => {
@@ -1234,7 +1235,7 @@ const tvStyles = StyleSheet.create({
   },
   bottom: {
     // Sem faixa de dicas nesta tela: a folga antiga (88) só cortava o rail.
-    paddingBottom: 12,
+    paddingBottom: 44, // respiro: a linha "HD · 44min" encostava no rodapé da tela
   },
   gradV: {
     position: 'absolute',

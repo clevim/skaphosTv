@@ -7,6 +7,7 @@ import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useStore } from '../store/useStore';
 import TVFocusable from '../components/TVFocusable';
@@ -24,7 +25,7 @@ import { IS_DEV_BUILD, dlog } from '../utils/debugLog';
 import { shareBackup, downloadBackupWeb, copyBackupToClipboard, pasteFromClipboard, pickBackupFileWeb, importBackup } from '../utils/backup';
 import { useThemeStore, THEME_PRESETS } from '../store/useThemeStore';
 import { useAccentColors, withAlpha } from '../hooks/useAccentColors';
-import { SkSectionHeader, SkDecodeText } from '../components/sk';
+import { SkSectionHeader } from '../components/sk';
 import { useUsageStats, topChannelFor, formatWatchTime, computeWrapped, WrappedSummary } from '../store/usageStats';
 import WrappedModal from '../components/WrappedModal';
 import { getAchievements, Achievement } from '../utils/achievements';
@@ -205,7 +206,7 @@ function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
   onChange: (v: string) => void;
 }) {
   const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
-  const { accent, accentSoft } = useAccentColors();
+  const { accent } = useAccentColors();
   const [open, setOpen] = useState(false);
   const current = options.find(o => o.value === value) ?? options[0];
   // ponytail: até 3 opções o ciclo é previsível; acima disso, lista modal (S2).
@@ -216,7 +217,7 @@ function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
   };
   return (
     <>
-      <TVFocusable onPress={useModal ? () => setOpen(true) : cycle} style={{ borderRadius: 0 }} focusScale={1}>
+      <TVFocusable onPress={useModal ? () => setOpen(true) : cycle} borderRadius={10} focusScale={1}>
         <View style={styles.row}>
           <Ionicons name={icon as any} size={17} color={colors.text3} style={styles.rowIcon} />
           <View style={{ flex: 1 }}>
@@ -243,8 +244,9 @@ function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
                   <TVFocusable
                     key={o.value}
                     onPress={() => { onChange(o.value); setOpen(false); }}
-                    style={[backupStyles.optionRow, selected && { borderColor: accent, backgroundColor: accentSoft }]}
+                    style={backupStyles.optionRow}
                     hasTVPreferredFocus={selected}
+                    focusScale={1}
                   >
                     <Ionicons
                       name={selected ? 'radio-button-on' : 'radio-button-off'}
@@ -252,12 +254,14 @@ function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
                       color={selected ? accent : colors.text3}
                     />
                     {o.color && <View style={[backupStyles.swatch, { backgroundColor: o.color }]} />}
-                    <Text style={backupStyles.optionText}>{o.label}</Text>
+                    <Text style={[backupStyles.optionText, selected && backupStyles.optionTextOn]}>{o.label}</Text>
                   </TVFocusable>
                 );
               })}
               </ScrollView>
-              <TVFocusable onPress={() => setOpen(false)} style={backupStyles.btnCancel}>
+              {/* flex: undefined — o btnCancel é de linha (flex:1); numa coluna sem altura
+                  ele colapsava pra 0 e o Cancelar sumia do modal de tema. */}
+              <TVFocusable onPress={() => setOpen(false)} style={[backupStyles.btnCancel, { flex: undefined, marginTop: spacing.sm }]} focusScale={1}>
                 <Text style={backupStyles.btnCancelText}>Cancelar</Text>
               </TVFocusable>
             </View>
@@ -720,17 +724,18 @@ const backupStyles = StyleSheet.create({
   },
   title: { fontSize: fontSize.lg, fontWeight: '600', color: colors.text1 },
   desc: { fontSize: 12.5, color: colors.text2 },
-  optionScroll: { maxHeight: 300, flexGrow: 0 },
-  optionScrollInner: { gap: spacing.sm },
+  // Folga ≥ anel (5px fora + zoom): a ScrollView cortava o anel da 1ª/última linha.
+  optionScroll: { maxHeight: 340, flexGrow: 0, marginHorizontal: -10 },
+  optionScrollInner: { gap: 6, paddingVertical: 10, paddingHorizontal: 10 },
   swatch: { width: 14, height: 14, borderRadius: 7, borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)' },
   swatchSm: { width: 8, height: 8, borderRadius: 4, marginRight: 2 },
   optionRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingVertical: 13, paddingHorizontal: 14,
-    backgroundColor: colors.bg2, borderRadius: radius.md,
-    borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.md,
   },
-  optionText: { fontSize: fontSize.sm, fontWeight: '500', color: colors.text1 },
+  optionText: { fontSize: fontSize.sm, fontFamily: fontFamily.medium, color: colors.text2 },
+  optionTextOn: { fontFamily: fontFamily.semiBold, color: colors.text1 },
   pasteBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     alignSelf: 'flex-start',
@@ -1226,6 +1231,7 @@ export default function SettingsScreen() {
   // Devolve o foco do D-pad pro item de onde o usuário saiu ao voltar pra cá
   useTVFocusMemory();
   const { accent, accent3, accentSoft } = useAccentColors();
+  const insets = useSafeAreaInsets();
 
   const navigation = useNavigation();
   const settings       = useStore(s => s.settings);
@@ -1332,11 +1338,12 @@ export default function SettingsScreen() {
         style={styles.headerGlow}
         pointerEvents="none"
       />
-      <View style={styles.header}>
-        <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.back}>
+      {/* paddingTop = status bar: título e Voltar ficavam por baixo dela no celular. */}
+      <View style={[styles.header, { paddingTop: spacing.lg + insets.top }]}>
+        <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.back} hitSlop={6}>
           <Ionicons name="chevron-back" size={20} color={colors.text2} />
         </TVFocusable>
-        <SkDecodeText text="Ajustes" style={styles.title} />
+        <Text style={styles.title}>Ajustes</Text>
       </View>
 
       {/* Controle segmentado (ícone sobre rótulo) — as 3 categorias sempre

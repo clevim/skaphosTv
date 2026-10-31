@@ -240,12 +240,21 @@ const lStyles = StyleSheet.create({
 });
 
 // ── Section header ────────────────────────────────────────────
-// Só o título. "Ver tudo" saiu: era uma parada de foco extra, fora do caminho
-// natural do D-pad, e a barra do topo já leva a Filmes/Séries/Favoritos.
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+// TV/web: só o título — "Ver tudo" era uma parada de foco extra fora do caminho
+// do D-pad, e a barra do topo já leva a Filmes/Séries/Favoritos.
+// Smartphone: "Ver tudo" fica (atalho de toque padrão, alvo de 44dp).
+function Section({ title, onSeeAll, children }: { title: string; onSeeAll?: () => void; children: React.ReactNode }) {
   return (
     <View style={sStyles.section}>
-      <Text style={sStyles.title} numberOfLines={1}>{title}</Text>
+      <View style={sStyles.header}>
+        <Text style={sStyles.title} numberOfLines={1}>{title}</Text>
+        {!IS_TV && onSeeAll && (
+          <TVFocusable onPress={onSeeAll} style={sStyles.seeAll} hitSlop={8} accessibilityLabel={`Ver tudo: ${title}`}>
+            <Text style={sStyles.seeAllText}>Ver tudo</Text>
+            <Ionicons name="chevron-forward" size={13} color={colors.text2} />
+          </TVFocusable>
+        )}
+      </View>
       {children}
     </View>
   );
@@ -254,12 +263,18 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 const sStyles = StyleSheet.create({
   // Título colado na própria fileira; o respiro grande fica ENTRE fileiras.
   section: { marginTop: IS_TV ? 18 : 24 },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: IS_TV ? spacing.xxxl : 22,
+  },
   title: {
+    flexShrink: 1,
     fontFamily: fontFamily.semiBold,
     fontSize: IS_TV ? 19 : 16,
     color: colors.text1, letterSpacing: -0.3,
-    paddingHorizontal: IS_TV ? spacing.xxxl : 22,
   },
+  seeAll: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 44, paddingLeft: 12 },
+  seeAllText: { fontFamily: fontFamily.medium, fontSize: 13, color: colors.text2 },
 });
 
 // ── Horizontal Row ────────────────────────────────────────────
@@ -412,7 +427,7 @@ const HeroNow = memo(function HeroNow({ channelId }: { channelId: string }) {
 // ── Main HomeContent ──────────────────────────────────────────
 export default function HomeContent({
   recentChannels, favoriteChannels, sourcesEmpty, contentH,
-  channels = [], topGenres = [], recentlyAdded = [], onChannelPress, onWatch, onDetails,
+  channels = [], topGenres = [], recentlyAdded = [], onChannelPress, onWatch, onDetails, onNavPress,
 }: Props) {
   const { height: winH } = useWindowDimensions();
   const navigation = useNavigation();
@@ -685,7 +700,7 @@ export default function HomeContent({
   const pushSection = (key: string, node: React.ReactNode) => sections.push({ key, node });
 
   if (ready && continueItems.length > 0) pushSection('continue', (
-    <Section title="Continue assistindo">
+    <Section title="Continue assistindo" onSeeAll={() => onNavPress?.('favorites')}>
       <Row
         sectionIndex={sections.length}
         onSectionFocus={focusSection}
@@ -709,7 +724,7 @@ export default function HomeContent({
 
   // Favoritos — logo após o início (Continue assistindo), não no fim da página
   if (ready && favoriteChannels.length > 0) pushSection('favorites', (
-    <Section title="Minha lista">
+    <Section title="Minha lista" onSeeAll={() => onNavPress?.('favorites')}>
       <Row
         sectionIndex={sections.length}
         onSectionFocus={focusSection}
@@ -735,7 +750,7 @@ export default function HomeContent({
   ));
 
   if (ready && displayLive.length > 0) pushSection('live', (
-    <Section title="Ao vivo agora">
+    <Section title="Ao vivo agora" onSeeAll={() => onNavPress?.('live')}>
       <Row
         sectionIndex={sections.length}
         onSectionFocus={focusSection}
@@ -748,7 +763,7 @@ export default function HomeContent({
   ));
 
   if (ready && movieChannels.length > 0) pushSection('movies', (
-    <Section title="Filmes para você">
+    <Section title="Filmes para você" onSeeAll={() => onNavPress?.('movies')}>
       <Row
         sectionIndex={sections.length}
         onSectionFocus={focusSection}
@@ -775,7 +790,7 @@ export default function HomeContent({
   // Séries — pick já trocado (swapWatchedSeriesPick) por um episódio em curso
   // quando o representante original estava 100% assistido.
   if (ready && seriesChannelsDisplay.length > 0) pushSection('series', (
-    <Section title="Séries">
+    <Section title="Séries" onSeeAll={() => onNavPress?.('series')}>
       <Row
         sectionIndex={sections.length}
         onSectionFocus={focusSection}
@@ -831,7 +846,7 @@ export default function HomeContent({
 
   // Lançamentos — filmes e séries do ano corrente
   if (ready && yearChannels.length > 0) pushSection('year', (
-    <Section title={`Lançamentos ${LAUNCH_YEAR}`}>
+    <Section title={`Lançamentos ${LAUNCH_YEAR}`} onSeeAll={() => onNavPress?.('year')}>
       <Row
         sectionIndex={sections.length}
         onSectionFocus={focusSection}
@@ -914,7 +929,7 @@ export default function HomeContent({
   }, [
     ready, continueItems, favoriteChannels, displayLive, movieChannels,
     seriesChannelsDisplay, yearChannels, recentlyAdded, seed, becauseYouWatchedDisplay, topGenres,
-    watchEntries, handlePress, onWatch, focusSection,
+    watchEntries, handlePress, onWatch, focusSection, onNavPress,
   ]);
 
   // Estado vazio DEPOIS de todos os hooks: um return antecipado acima deles
