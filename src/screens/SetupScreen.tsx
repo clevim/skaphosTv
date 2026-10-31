@@ -13,7 +13,8 @@ import { useWatchProgress } from '../store/watchProgress';
 import type { ChannelIndex } from '../store/channelIndex';
 import { cleanGroupName } from '../utils/channelUtils';
 import TVFocusable, { TVFocusableHandle } from '../components/TVFocusable';
-import SonarLine from '../components/SonarLine';
+import { SkSectionHeader, SkChip } from '../components/sk';
+import { useAccentColors, withAlpha } from '../hooks/useAccentColors';
 import RemoteHints from '../components/RemoteHints';
 import { parseM3U } from '../utils/m3uParser';
 import { loadXtreamPhased, XtreamPhase } from '../utils/xtreamPhasedLoader';
@@ -36,12 +37,12 @@ type TabType = 'm3u' | 'xtream' | 'jellyfin';
 // Conectores — cada tipo de fonte tem cor de identidade própria (soft, nunca
 // bloco chapado berrante) usada no seletor e nos cards de fontes ativas.
 const SOURCE_TYPES: { key: TabType; icon: string; tint: string; tintSoft: string; label: string; desc: string; hint: string }[] = [
-  { key: 'xtream',   icon: 'server-outline',        tint: '#34d399',     tintSoft: 'rgba(52,211,153,0.14)', label: 'Xtream',   desc: 'Usuário e senha',
-    hint: 'Servidor, usuário e senha da sua conta Xtream Codes API' },
+  { key: 'xtream',   icon: 'server-outline',        tint: '#34d399',     tintSoft: 'rgba(52,211,153,0.14)', label: 'Xtream',   desc: 'Endereço, usuário e senha',
+    hint: 'Use o endereço, usuário e senha que seu provedor IPTV enviou' },
   { key: 'm3u',      icon: 'document-text-outline', tint: colors.accent, tintSoft: colors.accentSoft,       label: 'M3U',      desc: 'URL da lista',
-    hint: 'Aponte para uma lista M3U/M3U8 por URL' },
+    hint: 'Cole o link da lista (.m3u ou .m3u8) que seu provedor enviou' },
   { key: 'jellyfin', icon: 'play-circle-outline',   tint: '#38bdf8',     tintSoft: 'rgba(56,189,248,0.14)', label: 'Jellyfin', desc: 'Servidor de mídia',
-    hint: 'Seu servidor de mídia pessoal, autenticado por Quick Connect' },
+    hint: 'Seu servidor de mídia pessoal — você aprova o acesso por um código' },
 ];
 
 const typeTint     = (t: string) => SOURCE_TYPES.find(s => s.key === t)?.tint ?? colors.accent;
@@ -124,6 +125,7 @@ export default function SetupScreen() {
   useTVFocusMemory();
 
   const navigation = useNavigation();
+  const ac = useAccentColors();
   const addSource             = useStore(s => s.addSource);
   const updateSource          = useStore(s => s.updateSource);
   const sources               = useStore(s => s.sources);
@@ -139,6 +141,7 @@ export default function SetupScreen() {
   const padH = Math.round(Math.min(48, Math.max(20, sw * 0.028)));
   const formMaxW = Math.round(Math.min(640, Math.max(420, sw * 0.46)));
 
+  const isFirstRun = sources.length === 0;
   const [activeTab, setActiveTab] = useState<TabType>('xtream');
   const [isLoading, setIsLoadingLocal] = useState(false);
   const [connectionResult, setConnectionResult] = useState<ConnectionResult | null>(null);
@@ -261,14 +264,14 @@ export default function SetupScreen() {
     const url = (override?.url ?? m3uUrl).trim();
     const name = (override?.name ?? m3uName).trim();
     const editingId = override ? null : editingSourceId;
-    if (!url) { showAlert('Erro', 'Digite a URL da lista M3U'); return; }
+    if (!url) { showAlert('Falta o endereço', 'Cole o link da sua lista M3U (termina em .m3u ou .m3u8) e tente de novo.'); return; }
     setIsLoadingLocal(true);
     setConnectionResult(null);
     const start = Date.now();
     try {
       const response = await fetchWithRedirect(url, 30000, () => {});
       const result = await parseM3U(response.data);
-      if (result.channels.length === 0) throw new Error('Nenhum canal encontrado na lista');
+      if (result.channels.length === 0) throw new Error('A lista abriu, mas não tem nenhum canal dentro. Confira com seu provedor se o link está completo.');
       const latency = Date.now() - start;
       setConnectionResult({ success: true, channels: result.channels.length, vod: 0, latency });
       const sourceId = editingId ?? Date.now().toString();
@@ -294,15 +297,15 @@ export default function SetupScreen() {
         },
       });
       showAlert(
-        isFirstSource ? 'Tudo pronto!' : 'Sucesso!',
+        isFirstSource ? 'Tudo pronto!' : 'Lista adicionada!',
         isFirstSource
           ? `${result.channels.length} canais te esperando. Bom mergulho.`
-          : `${result.channels.length} canais carregados`,
+          : `${result.channels.length} canais carregados.`,
         [{ text: 'OK', onPress: () => navigation.goBack() }],
       );
     } catch (e: any) {
       setConnectionResult(null);
-      showAlert('Erro ao carregar lista', e.message || 'Verifique a URL e tente novamente');
+      showAlert('Não consegui abrir a lista', e.message || 'Confira o link e a sua conexão com a internet, depois tente novamente.');
     } finally {
       setIsLoadingLocal(false);
     }
@@ -315,7 +318,7 @@ export default function SetupScreen() {
     const editingId = override ? null : editingSourceId;
     const isFirstSource = !editingId && useStore.getState().sources.length === 0;
     if (!rawHost.trim() || !rawUser.trim() || !rawPass.trim()) {
-      showAlert('Erro', 'Preencha todos os campos');
+      showAlert('Faltam dados', 'Preencha servidor, usuário e senha — seu provedor envia esses três itens.');
       return;
     }
 
@@ -342,17 +345,17 @@ export default function SetupScreen() {
       });
       if (testRes.status === 401 || testRes.data === false) {
         setIsLoadingLocal(false);
-        showAlert('Credenciais inválidas', `O servidor respondeu mas rejeitou o login.\n\nURL testada:\n${testUrl}`);
+        showAlert('Usuário ou senha não aceitos', `O servidor ${host} respondeu, mas recusou o login. Confira usuário e senha com seu provedor.`);
         return;
       }
     } catch (e: any) {
       setIsLoadingLocal(false);
       const reason = e?.code === 'ECONNABORTED'
-        ? 'Timeout — servidor demorou mais de 15s para responder'
+        ? 'O servidor demorou mais de 15s para responder.'
         : e?.code
-        ? `Erro de rede: ${e.code}`
-        : e?.message ?? 'Sem resposta do servidor';
-      showAlert('Servidor inacessível', `${reason}\n\nURL tentada:\n${testUrl}`);
+        ? `Falha de rede (${e.code}).`
+        : e?.message ?? 'Sem resposta do servidor.';
+      showAlert('Servidor não respondeu', `${reason}\n\nConfira o endereço (${host}) e se a TV está online.`);
       return;
     }
 
@@ -413,8 +416,8 @@ export default function SetupScreen() {
     if (totalLoaded === 0) {
       const detail = phaseErrors.length > 0
         ? phaseErrors.join('\n')
-        : 'Servidor não retornou canais. Verifique host, usuário e senha.';
-      showAlert('Falha na importação', detail);
+        : 'O servidor não enviou conteúdo. Confira endereço, usuário e senha.';
+      showAlert('Nada foi carregado', detail);
       setShowPhases(false);
     } else {
       // Atualiza o channelCount da fonte com o total real carregado
@@ -432,7 +435,7 @@ export default function SetupScreen() {
         isFirstSource ? 'Tudo pronto!' : 'Pronto!',
         isFirstSource
           ? `${totalLoaded} itens te esperando. Bom mergulho.`
-          : `${totalLoaded} itens carregados em 3 fases.`,
+          : `${totalLoaded} itens carregados.`,
         [{ text: 'OK', onPress: () => navigation.goBack() }],
       );
     }
@@ -450,7 +453,7 @@ export default function SetupScreen() {
   const startQuickConnect = async () => {
     const host = jHost.trim().replace(/\/$/, '');
     if (!host || host === 'http://' || host === 'https://') {
-      showAlert('Erro', 'Preencha o endereço do servidor antes de usar o Quick Connect');
+      showAlert('Falta o endereço', 'Informe o endereço do servidor Jellyfin antes de gerar o código.');
       return;
     }
     setShowQC(true);
@@ -581,7 +584,7 @@ export default function SetupScreen() {
   const xtreamForm = (
     <View style={IS_TV ? tvStyles.formGroup : styles.form}>
       <FormField
-        label="SERVIDOR (HOST)"
+        label="ENDEREÇO DO SERVIDOR"
         value={xHost}
         onChangeText={setXHost}
         placeholder="http://iptv.skaphos.tv:8080"
@@ -674,13 +677,16 @@ export default function SetupScreen() {
       <TVFocusable
         ref={xSubmitRef}
         onPress={isLoading ? undefined : loadXtream}
-        style={[IS_TV ? tvStyles.submitBtn : styles.submitBtn, isLoading && styles.submitBtnDisabled]}
-        focusStyle={styles.submitBtnFocused}
+        style={[IS_TV ? tvStyles.submitBtn : styles.submitBtn, { backgroundColor: ac.accent }, isLoading && styles.submitBtnDisabled]}
+        focusStyle={{ backgroundColor: ac.accent2 }}
         hasTVPreferredFocus={false}
         borderRadius={IS_TV ? 12 : 14}
       >
         {isLoading ? (
-          <ActivityIndicator color={colors.textInverse} />
+          <>
+            <ActivityIndicator color={colors.textInverse} />
+            <Text style={[styles.submitText, IS_TV && tvStyles.submitText]}>Conectando…</Text>
+          </>
         ) : (
           <>
             <Text style={[styles.submitText, IS_TV && tvStyles.submitText]}>
@@ -734,13 +740,16 @@ export default function SetupScreen() {
       <TVFocusable
         ref={jSubmitRef}
         onPress={isLoading ? undefined : startQuickConnect}
-        style={[IS_TV ? tvStyles.submitBtn : styles.submitBtn, isLoading && styles.submitBtnDisabled]}
-        focusStyle={styles.submitBtnFocused}
+        style={[IS_TV ? tvStyles.submitBtn : styles.submitBtn, { backgroundColor: ac.accent }, isLoading && styles.submitBtnDisabled]}
+        focusStyle={{ backgroundColor: ac.accent2 }}
         hasTVPreferredFocus={false}
         borderRadius={IS_TV ? 12 : 14}
       >
         {isLoading ? (
-          <ActivityIndicator color={colors.textInverse} />
+          <>
+            <ActivityIndicator color={colors.textInverse} />
+            <Text style={[styles.submitText, IS_TV && tvStyles.submitText]}>Conectando…</Text>
+          </>
         ) : (
           <>
             <Ionicons name="phone-portrait-outline" size={IS_TV ? 20 : 16} color={colors.textInverse} />
@@ -752,7 +761,7 @@ export default function SetupScreen() {
       </TVFocusable>
 
       <Text style={styles.qcFormHint}>
-        Você verá um código para inserir no Jellyfin (Painel → Quick Connect, ou no app oficial).
+        Vamos mostrar um código. Digite-o no Jellyfin (Painel → Quick Connect) para liberar o acesso, sem senha aqui.
       </Text>
     </View>
   );
@@ -796,13 +805,16 @@ export default function SetupScreen() {
       <TVFocusable
         ref={m3uSubmitRef}
         onPress={isLoading ? undefined : loadAndSaveM3U}
-        style={[IS_TV ? tvStyles.submitBtn : styles.submitBtn, isLoading && styles.submitBtnDisabled]}
-        focusStyle={styles.submitBtnFocused}
+        style={[IS_TV ? tvStyles.submitBtn : styles.submitBtn, { backgroundColor: ac.accent }, isLoading && styles.submitBtnDisabled]}
+        focusStyle={{ backgroundColor: ac.accent2 }}
         hasTVPreferredFocus={false}
         borderRadius={IS_TV ? 12 : 14}
       >
         {isLoading ? (
-          <ActivityIndicator color={colors.textInverse} />
+          <>
+            <ActivityIndicator color={colors.textInverse} />
+            <Text style={[styles.submitText, IS_TV && tvStyles.submitText]}>Conectando…</Text>
+          </>
         ) : (
           <>
             <Text style={[styles.submitText, IS_TV && tvStyles.submitText]}>
@@ -842,7 +854,7 @@ export default function SetupScreen() {
                   <TVFocusable
                     key={t.key}
                     onPress={() => setActiveTab(t.key)}
-                    style={[tvStyles.railItem, active && tvStyles.railItemActive]}
+                    style={[tvStyles.railItem, active && [tvStyles.railItemActive, { backgroundColor: ac.accentSoft }]]}
                     hasTVPreferredFocus={i === 0}
                     borderRadius={radius.lg}
                   >
@@ -861,15 +873,15 @@ export default function SetupScreen() {
                   e assistidos, conforme o escopo). No web o modal explica a limitação. */}
               <TVFocusable
                 onPress={() => setShowPairing(true)}
-                style={tvStyles.pairCard}
+                style={[tvStyles.pairCard, { borderColor: withAlpha(ac.accent, 0.45) }]}
                 borderRadius={radius.lg}
               >
-                <View style={[tvStyles.railIcon, { backgroundColor: colors.accentSoft }]}>
-                  <Ionicons name="qr-code-outline" size={18} color={colors.accent} />
+                <View style={[tvStyles.railIcon, { backgroundColor: ac.accentSoft }]}>
+                  <Ionicons name="qr-code-outline" size={18} color={ac.accent} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={tvStyles.railLabel}>Sincronizar dispositivos</Text>
-                  <Text style={tvStyles.railDesc} numberOfLines={1}>Receber do celular via QR code</Text>
+                  <Text style={tvStyles.railLabel}>Enviar do celular</Text>
+                  <Text style={tvStyles.railDesc} numberOfLines={1}>Leia um QR code, sem digitar</Text>
                 </View>
               </TVFocusable>
             </View>
@@ -883,12 +895,13 @@ export default function SetupScreen() {
           {/* Painel central — formulário do conector ativo */}
           <View style={tvStyles.panel}>
             <LinearGradient
-              colors={['rgba(124,58,237,0.10)', 'rgba(10,8,16,0)']}
+              colors={[withAlpha(ac.accent3, 0.12), 'rgba(10,8,16,0)']}
               style={tvStyles.panelGlow}
               pointerEvents="none"
             />
             <View style={[tvStyles.panelHeader, { paddingHorizontal: padH }]}>
-              <Text style={tvStyles.panelTitle}>Conectar {activeMeta.label}</Text>
+              {isFirstRun && !editingSourceId && <SkChip label="primeiro passo" variant="accent" style={{ alignSelf: 'flex-start', marginBottom: 10 }} />}
+              <Text style={tvStyles.panelTitle}>{editingSourceId ? `Editar ${activeMeta.label}` : `Conectar ${activeMeta.label}`}</Text>
               <Text style={tvStyles.panelSub}>{activeMeta.hint}</Text>
             </View>
             <ScrollView
@@ -911,8 +924,7 @@ export default function SetupScreen() {
                 showsVerticalScrollIndicator={false}
               >
                 <View style={tvStyles.sectionHeader}>
-                  <Text style={tvStyles.sectionTitle}>Fontes ativas</Text>
-                  <SonarLine />
+                  <SkSectionHeader title="Fontes ativas" />
                 </View>
                 <View style={tvStyles.sourcesGroup}>
                   {sources.map(source => (
@@ -937,7 +949,7 @@ export default function SetupScreen() {
                           borderRadius={10}
                         >
                           {reloadingIds.includes(source.id)
-                            ? <ActivityIndicator size="small" color={colors.accent} />
+                            ? <ActivityIndicator size="small" color={ac.accent} />
                             : <Ionicons name="refresh-outline" size={18} color={colors.text2} />}
                         </TVFocusable>
                         <TVFocusable
@@ -954,7 +966,7 @@ export default function SetupScreen() {
                           style={tvStyles.actionBtn}
                           borderRadius={10}
                         >
-                          <Ionicons name="pencil-outline" size={18} color={colors.accent} />
+                          <Ionicons name="pencil-outline" size={18} color={ac.accent} />
                         </TVFocusable>
                         <TVFocusable
                           accessibilityLabel="Excluir fonte"
@@ -977,7 +989,7 @@ export default function SetupScreen() {
           hints={[
             { key: 'OK', label: 'Selecionar / Digitar' },
             { key: '↑↓←→', label: 'Navegar' },
-            { key: '⬅', label: 'Voltar' },
+            { key: '←', label: 'Voltar' },
           ]}
         />
 
@@ -1044,7 +1056,7 @@ export default function SetupScreen() {
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       {/* Névoa violeta descendo do topo — mesma linguagem dos Ajustes */}
       <LinearGradient
-        colors={['rgba(124,58,237,0.14)', 'rgba(10,8,16,0)']}
+        colors={[withAlpha(ac.accent3, 0.16), 'rgba(10,8,16,0)']}
         style={styles.headerGlow}
         pointerEvents="none"
       />
@@ -1067,7 +1079,9 @@ export default function SetupScreen() {
           <>
             {/* Passo 1 — escolher o conector */}
             <Text style={styles.mainTitle}>Adicionar fonte</Text>
-            <Text style={styles.mainDesc}>De onde vem o seu conteúdo?</Text>
+            <Text style={styles.mainDesc}>
+              {isFirstRun ? 'Conecte sua lista IPTV para começar. Escolha como seu provedor entregou o acesso.' : 'De onde vem o seu conteúdo?'}
+            </Text>
 
             <View style={styles.pickList}>
               {SOURCE_TYPES.map(t => (
@@ -1092,16 +1106,16 @@ export default function SetupScreen() {
                   este layout é exclusivo do mobile nativo (web e TV usam o de TV). */}
               <TVFocusable
                 onPress={() => setShowScanner(true)}
-                style={styles.sendTvCard}
+                style={[styles.sendTvCard, { borderColor: withAlpha(ac.accent, 0.45) }]}
                 borderRadius={16}
               >
-                <View style={[styles.typeIcon, { backgroundColor: colors.accentSoft }]}>
-                  <Ionicons name="scan-outline" size={20} color={colors.accent} />
+                <View style={[styles.typeIcon, { backgroundColor: ac.accentSoft }]}>
+                  <Ionicons name="scan-outline" size={20} color={ac.accent} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.pickLabel}>Sincronizar dispositivos</Text>
+                  <Text style={styles.pickLabel}>Enviar para a TV</Text>
                   <Text style={styles.pickDesc} numberOfLines={2}>
-                    Leia o QR code da TV e envie uma fonte daqui
+                    Leia o QR code da TV e mande sua lista daqui
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={colors.text3} />
@@ -1128,10 +1142,7 @@ export default function SetupScreen() {
         {/* Active sources — só no passo de escolha */}
         {mobileStep === 'pick' && sources.length > 0 && (
           <View style={styles.sourcesSection}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Fontes ativas</Text>
-              <SonarLine />
-            </View>
+            <SkSectionHeader title="Fontes ativas" />
             {sources.map(source => (
               <View key={source.id} style={styles.sourceCard}>
                 <View style={[styles.sourceIcon, { backgroundColor: typeTintSoft(source.type) }]}>
@@ -1151,7 +1162,7 @@ export default function SetupScreen() {
                   style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.6 }]}
                 >
                   {reloadingIds.includes(source.id)
-                    ? <ActivityIndicator size="small" color={colors.accent} />
+                    ? <ActivityIndicator size="small" color={ac.accent} />
                     : <Ionicons name="refresh-outline" size={18} color={colors.text2} />}
                 </Pressable>
                 <Pressable
@@ -1170,7 +1181,7 @@ export default function SetupScreen() {
                   onPress={() => startEdit(source)}
                   style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.6 }]}
                 >
-                  <Ionicons name="pencil-outline" size={18} color={colors.accent} />
+                  <Ionicons name="pencil-outline" size={18} color={ac.accent} />
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
@@ -1240,10 +1251,11 @@ export default function SetupScreen() {
 // ─── PhasesPanel ─────────────────────────────────────────────────
 
 function PhasesPanel({ phases }: { phases: Record<XtreamPhase, PhaseStatus> }) {
+  const ac = useAccentColors();
   const order: XtreamPhase[] = ['live', 'vod', 'series'];
   return (
     <View style={ppStyles.container}>
-      <Text style={ppStyles.title}>Importando em fases</Text>
+      <Text style={ppStyles.title}>CARREGANDO SEU CONTEÚDO</Text>
       {order.map(phase => {
         const p = phases[phase];
         const icon = PHASE_ICONS[phase] as any;
@@ -1254,11 +1266,11 @@ function PhasesPanel({ phases }: { phases: Record<XtreamPhase, PhaseStatus> }) {
           <View key={phase} style={ppStyles.row}>
             <View style={[ppStyles.iconWrap,
               isDone    && ppStyles.iconDone,
-              isLoading && ppStyles.iconLoading,
+              isLoading && { borderColor: ac.accent, backgroundColor: withAlpha(ac.accent, 0.12) },
               isError   && ppStyles.iconError,
             ]}>
               {isLoading ? (
-                <ActivityIndicator size="small" color={colors.accent} />
+                <ActivityIndicator size="small" color={ac.accent} />
               ) : (
                 <Ionicons
                   name={isDone ? 'checkmark' : isError ? 'close' : icon}
@@ -1273,10 +1285,10 @@ function PhasesPanel({ phases }: { phases: Record<XtreamPhase, PhaseStatus> }) {
               </Text>
               {(isLoading || isDone) && (
                 <Text style={ppStyles.count}>
-                  {isDone ? `${p.count.toLocaleString()} itens` : `${p.count.toLocaleString()} carregando…`}
+                  {isDone ? `${p.count.toLocaleString()} itens` : `${p.count.toLocaleString()} até agora…`}
                 </Text>
               )}
-              {isError && <Text style={ppStyles.error}>Falhou — continuando…</Text>}
+              {isError && <Text style={ppStyles.error}>Não carregou — seguindo para o próximo</Text>}
             </View>
             {isDone && (
               <View style={ppStyles.badge}>
@@ -1354,6 +1366,7 @@ function CategoryOverrideModal({ source, channelIndex, onClose, onChange }: {
   onClose: () => void;
   onChange: (source: IPTVSource, group: string, type: 'live' | 'movies' | 'series' | null) => void;
 }) {
+  const ac = useAccentColors();
   if (!source || !channelIndex) return null;
 
   // Grupos desta fonte + o tipo já resolvido (auto ou override) de cada um —
@@ -1391,8 +1404,8 @@ function CategoryOverrideModal({ source, channelIndex, onClose, onChange }: {
                     <TVFocusable
                       key={opt.key}
                       onPress={() => onChange(source, group, opt.key === type && overridden ? null : opt.key)}
-                      style={[coStyles.optionBtn, type === opt.key && coStyles.optionBtnActive]}
-                      focusStyle={type === opt.key ? coStyles.optionBtnActiveFocused : undefined}
+                      style={[coStyles.optionBtn, type === opt.key && [coStyles.optionBtnActive, { backgroundColor: ac.accent, borderColor: ac.accent }]]}
+                      focusStyle={type === opt.key ? { backgroundColor: ac.accent2, borderColor: ac.accent2 } : undefined}
                       borderRadius={6}
                     >
                       <Text style={[coStyles.optionText, type === opt.key && coStyles.optionTextActive]}>
@@ -1461,6 +1474,7 @@ function FormField({ label, value, onChangeText, placeholder, secureTextEntry, k
   inputRef?: React.RefObject<TextInput>;
   onSubmitEditing?: () => void;
 }) {
+  const ac = useAccentColors();
   const [isFocused, setIsFocused] = useState(false);
   const internalRef = useRef<TextInput>(null);
   const inputRef = externalInputRef ?? internalRef;
@@ -1507,7 +1521,7 @@ function FormField({ label, value, onChangeText, placeholder, secureTextEntry, k
       <TVFocusable
         ref={containerRef}
         onPress={handleTVPress}
-        style={[tvStyles.fieldWrap, isFocused && tvStyles.fieldWrapFocused]}
+        style={[tvStyles.fieldWrap, isFocused && [tvStyles.fieldWrapFocused, { borderColor: ac.accent, shadowColor: ac.accent, backgroundColor: withAlpha(ac.accent, 0.08) }]]}
         borderRadius={12}
       >
         <Text style={tvStyles.fieldLabel}>{label}</Text>
@@ -1533,8 +1547,8 @@ function FormField({ label, value, onChangeText, placeholder, secureTextEntry, k
         </View>
         {isFocused && (
           <View style={tvStyles.cursorHint}>
-            <Ionicons name="pencil" size={12} color={colors.accent} />
-            <Text style={tvStyles.cursorHintText}>digitando</Text>
+            <Ionicons name="pencil" size={13} color={ac.accent} />
+            <Text style={[tvStyles.cursorHintText, { color: ac.accent }]}>digitando · OK confirma</Text>
           </View>
         )}
       </TVFocusable>
@@ -1542,7 +1556,7 @@ function FormField({ label, value, onChangeText, placeholder, secureTextEntry, k
   }
 
   return (
-    <View style={[styles.fieldWrap, isFocused && styles.fieldWrapFocused]}>
+    <View style={[styles.fieldWrap, isFocused && [styles.fieldWrapFocused, { borderColor: ac.accent, shadowColor: ac.accent }]]}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <View style={styles.fieldRow}>
         <TextInput
@@ -1717,7 +1731,7 @@ const tvStyles = StyleSheet.create({
   },
   railLabel: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text2 },
   railLabelActive: { color: colors.text1 },
-  railDesc: { fontSize: 10.5, color: colors.text3, marginTop: 2 },
+  railDesc: { fontSize: 12, color: colors.text3, marginTop: 2 },
   // "Pelo celular" — caminho alternativo: borda tracejada, não card de tipo
   pairCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -1737,7 +1751,7 @@ const tvStyles = StyleSheet.create({
   panelGlow: { position: 'absolute', top: 0, left: 0, right: 0, height: 160 },
   panelHeader: { paddingTop: 28, paddingBottom: spacing.lg },
   panelTitle: { fontSize: 24, fontWeight: '700', color: colors.text1, letterSpacing: -0.5 },
-  panelSub: { fontSize: fontSize.sm, color: colors.text3, marginTop: 4, lineHeight: 19 },
+  panelSub: { fontSize: fontSize.sm, color: colors.text2, marginTop: 4, lineHeight: 19 },
   panelContent: { paddingBottom: 24 },
 
   // Coluna direita — fontes ativas
@@ -1751,12 +1765,12 @@ const tvStyles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 14, fontWeight: '600', color: colors.text1, letterSpacing: -0.2 },
 
-  formGroup: { gap: 12 },
+  formGroup: { gap: 14 },
 
   // Field — TV (filled: superfície tonal; a borda acende no foco de digitação)
   fieldWrap: {
     borderWidth: 1.5, borderColor: 'transparent',
-    borderRadius: 14, padding: 12,
+    borderRadius: 14, padding: 14,
     backgroundColor: colors.bg1,
   },
   fieldWrapFocused: {
@@ -1769,27 +1783,27 @@ const tvStyles = StyleSheet.create({
     elevation: 10,
   },
   fieldLabel: {
-    fontSize: 11, color: colors.text3, letterSpacing: 0.8, fontWeight: '600', marginBottom: 6,
+    fontSize: 12, color: colors.text2, letterSpacing: 0.8, fontWeight: '600', marginBottom: 6,
   },
   fieldRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   fieldInput: {
-    flex: 1, fontSize: 16, color: colors.text1, padding: 0,
-    minHeight: 24,
+    flex: 1, fontSize: 18, color: colors.text1, padding: 0,
+    minHeight: 26,
   },
   fieldInputFocused: { color: colors.text1 },
   cursorHint: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     marginTop: 6,
   },
-  cursorHintText: { fontSize: 11, color: colors.accent, letterSpacing: 0.3 },
+  cursorHintText: { fontSize: 12, color: colors.accent, letterSpacing: 0.3 },
 
   // Submit — TV
   submitBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 8, backgroundColor: colors.accent,
-    borderRadius: 12, height: 48, marginTop: 6,
+    borderRadius: 12, height: 54, marginTop: 8,
   },
-  submitText: { color: colors.textInverse, fontSize: 15, fontWeight: '700', letterSpacing: -0.3 },
+  submitText: { color: colors.textInverse, fontSize: 17, fontWeight: '700', letterSpacing: -0.3 },
 
   // Options — TV
   optionsBox: {
@@ -1817,7 +1831,7 @@ const tvStyles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
 
-  securityText: { fontSize: 12, color: colors.text3 },
+  securityText: { fontSize: 12, color: colors.text2 },
 
   qcBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, height: 48, borderRadius: 12, borderWidth: 1.5, borderColor: colors.accent, backgroundColor: 'transparent' },
   qcBtnText: { color: colors.accent, fontSize: 15, fontWeight: '700' },
@@ -1834,26 +1848,27 @@ function QuickConnectModal({
   error: string;
   onCancel: () => void;
 }) {
+  const ac = useAccentColors();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <View style={qcStyles.overlay}>
         <View style={qcStyles.sheet}>
           <View style={qcStyles.header}>
-            <Ionicons name="phone-portrait-outline" size={IS_TV ? 22 : 18} color={colors.accent} />
+            <Ionicons name="phone-portrait-outline" size={IS_TV ? 22 : 18} color={ac.accent} />
             <Text style={qcStyles.title}>Quick Connect</Text>
           </View>
 
           <View style={qcStyles.body}>
             {status === 'loading' && (
               <>
-                <ActivityIndicator color={colors.accent} size="large" />
+                <ActivityIndicator color={ac.accent} size="large" />
                 <Text style={qcStyles.desc}>Conectando ao servidor...</Text>
               </>
             )}
 
             {status === 'waiting' && (
               <>
-                <View style={qcStyles.codeBox}>
+                <View style={[qcStyles.codeBox, { borderColor: ac.accent }]}>
                   <Text style={qcStyles.code}>{code}</Text>
                 </View>
                 <Text style={qcStyles.desc}>

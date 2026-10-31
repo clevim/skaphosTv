@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, ActivityIndicator, Pressable,
+  View, Text, StyleSheet, FlatList, Pressable,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable, { TVFocusableHandle } from './TVFocusable';
 import { colors, radius, fontFamily, shadow } from '../utils/theme';
+import { SkSectionHeader } from './sk';
+import { useAccentColors } from '../hooks/useAccentColors';
 import {
   getJellyfinAudioTracks, JellyfinAudioTrack,
   getJellyfinSubtitleTracks, JellyfinSubtitleTrack,
@@ -44,6 +46,7 @@ interface Props {
 type Tab = 'audio' | 'subtitle';
 
 export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onCancel }: Props) {
+  const ac = useAccentColors();
   const sources  = useStore(s => s.sources);
   const settings = useStore(s => s.settings);
   const [audioTracks, setAudioTracks]       = useState<JellyfinAudioTrack[]>([]);
@@ -146,10 +149,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
       />
 
       <View style={styles.sheet}>
-        <View style={styles.header}>
-          <Ionicons name="musical-notes-outline" size={18} color={colors.accent} />
-          <Text style={styles.title}>Faixas</Text>
-        </View>
+        <View style={styles.header}><SkSectionHeader title="faixas" /></View>
 
         {hasSubtitles && !loading && (
           <View style={styles.tabBar}>
@@ -157,7 +157,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
             <TVFocusable
               ref={tabAudioRef}
               onPress={() => setActiveTab('audio')}
-              style={[styles.tab, activeTab === 'audio' && styles.tabActive]}
+              style={[styles.tab, activeTab === 'audio' && { borderBottomColor: ac.accent }]}
               borderRadius={0}
               focusScale={1}
               nextFocusLeft={tabSubTag ?? undefined}
@@ -166,7 +166,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
             >
               <Ionicons
                 name="musical-note-outline"
-                size={13}
+                size={16}
                 color={activeTab === 'audio' ? colors.text1 : colors.text3}
               />
               <Text style={[styles.tabText, activeTab === 'audio' && styles.tabTextActive]}>
@@ -178,7 +178,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
             <TVFocusable
               ref={tabSubRef}
               onPress={() => setActiveTab('subtitle')}
-              style={[styles.tab, activeTab === 'subtitle' && styles.tabActive]}
+              style={[styles.tab, activeTab === 'subtitle' && { borderBottomColor: ac.accent }]}
               borderRadius={0}
               focusScale={1}
               nextFocusLeft={tabAudioTag ?? undefined}
@@ -187,13 +187,13 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
             >
               <Ionicons
                 name="chatbox-ellipses-outline"
-                size={13}
+                size={16}
                 color={activeTab === 'subtitle' ? colors.text1 : colors.text3}
               />
               <Text style={[styles.tabText, activeTab === 'subtitle' && styles.tabTextActive]}>
                 Legendas
                 {selectedSubtitle !== null && (
-                  <Text style={styles.tabBadge}> ●</Text>
+                  <Text style={[styles.tabBadge, { color: ac.accent }]}> ●</Text>
                 )}
               </Text>
             </TVFocusable>
@@ -202,8 +202,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
 
         {loading ? (
           <View style={styles.center}>
-            <ActivityIndicator color={colors.accent} />
-            <Text style={styles.loadingText}>Carregando faixas...</Text>
+            <Text style={[styles.loadingText, { color: ac.accent }]}>{'Carregando faixas…'}</Text>
           </View>
         ) : activeTab === 'audio' ? (
           <FlatList
@@ -218,7 +217,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
                 <TVFocusable
                   ref={isFirst ? firstItemRef : undefined}
                   onPress={() => setSelectedAudio(item.index)}
-                  style={[styles.trackRow, active && styles.trackRowActive]}
+                  style={[styles.trackRow, active && { backgroundColor: ac.accentSoft, borderLeftColor: ac.accent }]}
                   focusScale={1}
                   borderRadius={6}
                   hasTVPreferredFocus={selectedAudio !== null ? item.index === selectedAudio : isFirst}
@@ -228,8 +227,8 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
                   nextFocusLeft={cancelTag ?? undefined}
                   nextFocusRight={playTag ?? undefined}
                 >
-                  <View style={[styles.radio, active && styles.radioActive]}>
-                    {active && <View style={styles.radioDot} />}
+                  <View style={[styles.radio, active && { borderColor: ac.accent }]}>
+                    {active && <View style={[styles.radioDot, { backgroundColor: ac.accent }]} />}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.trackTitle, active && styles.trackTitleActive]}>
@@ -260,7 +259,7 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
                 <TVFocusable
                   ref={isFirst ? firstItemRef : undefined}
                   onPress={() => setSelectedSubtitle(isOff ? null : item.index)}
-                  style={[styles.trackRow, active && styles.trackRowActive]}
+                  style={[styles.trackRow, active && { backgroundColor: ac.accentSoft, borderLeftColor: ac.accent }]}
                   focusScale={1}
                   borderRadius={6}
                   hasTVPreferredFocus={isFirst}
@@ -268,8 +267,8 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
                   nextFocusLeft={cancelTag ?? undefined}
                   nextFocusRight={playTag ?? undefined}
                 >
-                  <View style={[styles.radio, active && styles.radioActive]}>
-                    {active && <View style={styles.radioDot} />}
+                  <View style={[styles.radio, active && { borderColor: ac.accent }]}>
+                    {active && <View style={[styles.radioDot, { backgroundColor: ac.accent }]} />}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.trackTitle, active && styles.trackTitleActive]}>
@@ -302,11 +301,11 @@ export default function JellyfinTrackSheet({ visible, channelUrl, onConfirm, onC
             ref={playRef}
             onPress={handlePlay}
             style={styles.playBtn}
-            focusStyle={styles.playBtnFocused}
+            focusStyle={{ backgroundColor: ac.accent2 }}
             nextFocusDown={topTag ?? undefined}
             nextFocusRight={cancelTag ?? undefined}
           >
-            <Ionicons name="play" size={14} color={colors.textInverse} />
+            <Ionicons name="play" size={16} color={colors.textInverse} />
             <Text style={styles.playText}>Assistir</Text>
           </TVFocusable>
         </View>
@@ -326,8 +325,8 @@ const styles = StyleSheet.create({
   },
   sheet: {
     ...shadow.floating,
-    width: 360,
-    maxHeight: 520,
+    width: 460,
+    maxHeight: 540,
     backgroundColor: colors.bg1,
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -339,11 +338,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSoft,
   },
-  title: { fontSize: 15, fontFamily: fontFamily.semiBold, color: colors.text1 },
   tabBar: {
     flexDirection: 'row',
     borderBottomWidth: 1,
@@ -355,37 +353,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 11,
+    paddingVertical: 14,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
   },
-  tabActive: { borderBottomColor: colors.accent },
-  tabText: { fontSize: 13, fontWeight: '500', color: colors.text3 },
-  tabTextActive: { color: colors.text1, fontWeight: '600' },
-  tabBadge: { color: colors.accent, fontSize: 10 },
-  center: { alignItems: 'center', gap: 10, padding: 32 },
-  loadingText: { fontSize: 13, color: colors.text3 },
-  list: { maxHeight: 300 },
+  tabText: { fontSize: 15, fontFamily: fontFamily.medium, color: colors.text3 },
+  tabTextActive: { color: colors.text1, fontFamily: fontFamily.semiBold },
+  tabBadge: { fontSize: 11 },
+  center: { alignItems: 'center', padding: 32 },
+  loadingText: { fontSize: 15, fontFamily: fontFamily.regular },
+  list: { maxHeight: 320 },
   trackRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 20,
-    paddingVertical: 13,
+    paddingVertical: 15,
+    borderLeftWidth: 4,
+    borderLeftColor: 'transparent',
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSoft,
   },
   trackRowActive: { backgroundColor: colors.accentSoft },
   radio: {
-    width: 18, height: 18, borderRadius: 9,
+    width: 22, height: 22, borderRadius: 11,
     borderWidth: 2, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
   radioActive: { borderColor: colors.accent },
-  radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
-  trackTitle: { fontSize: 13, fontWeight: '500', color: colors.text2 },
-  trackTitleActive: { color: colors.text1, fontWeight: '600' },
-  trackSub: { fontSize: 10, color: colors.text3, marginTop: 2 },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent },
+  trackTitle: { fontSize: 16, fontFamily: fontFamily.medium, color: colors.text2 },
+  trackTitleActive: { color: colors.text1, fontFamily: fontFamily.semiBold },
+  trackSub: { fontSize: 12, color: colors.text3, marginTop: 2 },
   actions: {
     flexDirection: 'row',
     gap: 10,
@@ -394,17 +393,17 @@ const styles = StyleSheet.create({
     borderTopColor: colors.borderSoft,
   },
   cancelBtn: {
-    flex: 1, height: 42, borderRadius: radius.md,
+    flex: 1, height: 48, borderRadius: radius.md,
     backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  cancelText: { fontSize: 13, fontWeight: '500', color: colors.text2 },
+  cancelText: { fontSize: 15, fontFamily: fontFamily.medium, color: colors.text1 },
   // Foco CLAREIA o controle claro/ativo — o FOCUS_BG translúcido padrão o escurecia
   playBtnFocused: { backgroundColor: colors.accent2 },
   playBtn: {
-    flex: 2, height: 42, borderRadius: radius.md,
+    flex: 2, height: 48, borderRadius: radius.md,
     backgroundColor: colors.text1,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
   },
-  playText: { fontSize: 13, fontWeight: '600', color: colors.textInverse },
+  playText: { fontSize: 15, fontFamily: fontFamily.semiBold, color: colors.textInverse },
 });

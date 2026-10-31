@@ -3,8 +3,10 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
-import { colors, spacing, fontSize, radius } from '../utils/theme';
+import { IS_NATIVE_TV } from '../utils/tvDetect';
+import { colors, spacing, fontSize, radius, fontFamily } from '../utils/theme';
 import { cleanGroupName } from '../utils/channelUtils';
+import { useAccentColors } from '../hooks/useAccentColors';
 
 interface Props {
   title: string;
@@ -27,41 +29,49 @@ export default function TVCatalogLayout({
   title, count, groups, selectedGroup, onGroupSelect, onReload, onRandom, onSort, sortIcon, sortLabel, children,
 }: Props) {
   // Trocar de aba (title muda) deixava a lista de subcategorias rolada no meio.
+  const { accent } = useAccentColors();
   const listRef = useRef<FlatList<string>>(null);
   useEffect(() => {
     listRef.current?.scrollToOffset({ offset: 0, animated: false });
   }, [title]);
   return (
     <View style={styles.root}>
-      {/* Left sidebar */}
+      {/* Sidebar = só navegação: título da categoria, UMA fileira de ferramentas e a lista.
+          Ferramentas numa linha só deixam o D-pad previsível: ↓ de qualquer uma cai em
+          "Todos", ↑ de "Todos" volta pra ferramenta de cima, ↑ das ferramentas sobe à barra
+          (antes eram 2 linhas desalinhadas e ↓/↑ caíam em "Atualizar" em vez de "Sorte").
+          Ordem fica no MEIO: o FocusFinder sobe de "Todos" pelo centro, e é ela que importa. */}
       <View style={styles.sidebar}>
         <View style={styles.sidebarHeader}>
-          <Text style={styles.sidebarTitle} numberOfLines={1} adjustsFontSizeToFit>{title}</Text>
-          <Text style={styles.sidebarCount} numberOfLines={1}>{count} itens</Text>
-          <View style={styles.headerActions}>
-            {onSort && (
-              // Rótulo visível: o ícone sozinho (antes uma estrela) parecia "favoritar".
-              <TVFocusable
-                accessibilityLabel={`Ordenar: ${sortLabel ?? 'Padrão'}`}
-                onPress={onSort}
-                style={styles.sortBtn}
-                borderRadius={8}
-              >
-                <Ionicons name={(sortIcon ?? 'swap-vertical-outline') as any} size={14} color={colors.accent} />
-                <Text style={styles.sortText} numberOfLines={1}>{sortLabel ?? 'Ordenar'}</Text>
-              </TVFocusable>
-            )}
-            {onRandom && (
-              <TVFocusable accessibilityLabel="Item aleatório" onPress={onRandom} style={styles.reloadBtn} borderRadius={8}>
-                <Ionicons name="dice-outline" size={16} color={colors.accent} />
-              </TVFocusable>
-            )}
-            {onReload && (
-              <TVFocusable accessibilityLabel="Recarregar" onPress={onReload} style={styles.reloadBtn} borderRadius={8}>
-                <Ionicons name="refresh-outline" size={16} color={colors.text2} />
-              </TVFocusable>
-            )}
-          </View>
+          <Text style={styles.sidebarTitle} numberOfLines={1}>{title}</Text>
+          <Text style={styles.sidebarCount} numberOfLines={1}>
+            {`${count.toLocaleString('pt-BR')} ${count === 1 ? 'título' : 'títulos'}`}
+          </Text>
+          {(onSort || onRandom || onReload) && (
+            <View style={styles.toolRow}>
+              {onRandom && (
+                <TVFocusable accessibilityLabel="Sortear um título" onPress={onRandom} style={styles.toolBtn} borderRadius={8}>
+                  <Ionicons name="shuffle" size={16} color={colors.text2} />
+                </TVFocusable>
+              )}
+              {onSort && (
+                <TVFocusable
+                  accessibilityLabel={`Ordenar: ${sortLabel ?? 'Padrão'}`}
+                  onPress={onSort}
+                  style={[styles.toolBtn, styles.sortBtn]}
+                  borderRadius={8}
+                >
+                  <Ionicons name={(sortIcon ?? 'swap-vertical-outline') as any} size={14} color={colors.text2} />
+                  <Text style={styles.toolText} numberOfLines={1}>{sortLabel ?? 'Padrão'}</Text>
+                </TVFocusable>
+              )}
+              {onReload && (
+                <TVFocusable accessibilityLabel="Recarregar catálogo" onPress={onReload} style={styles.toolBtn} borderRadius={8}>
+                  <Ionicons name="refresh" size={15} color={colors.text2} />
+                </TVFocusable>
+              )}
+            </View>
+          )}
         </View>
         {/*
           * VIRTUALIZADA. Era um ScrollView com `groups.map()` — TODA categoria
@@ -86,10 +96,11 @@ export default function TVCatalogLayout({
           ListHeaderComponent={
             <TVFocusable
               onPress={() => onGroupSelect(null)}
-              style={[styles.groupItem, !selectedGroup && styles.groupItemActive]}
+              style={styles.groupItem}
+              focusScale={1}
             >
               <Text
-                style={[styles.groupName, !selectedGroup && styles.groupNameActive]}
+                style={[styles.groupName, !selectedGroup && [styles.groupNameActive, { color: accent }]]}
                 numberOfLines={2}
               >
                 Todos
@@ -101,10 +112,12 @@ export default function TVCatalogLayout({
             return (
               <TVFocusable
                 onPress={() => onGroupSelect(isActive ? null : g)}
-                style={[styles.groupItem, isActive && styles.groupItemActive]}
+                style={styles.groupItem}
+                // Lista não amplia: o zoom empurrava o anel pra fora da sidebar (cortado na borda).
+                focusScale={1}
               >
                 <Text
-                  style={[styles.groupName, isActive && styles.groupNameActive]}
+                  style={[styles.groupName, isActive && [styles.groupNameActive, { color: accent }]]}
                   numberOfLines={2}
                 >
                   {cleanGroupName(g)}
@@ -121,6 +134,10 @@ export default function TVCatalogLayout({
           // Clipar destruiria a view nativa do item focado, e o foco vai junto.
           removeClippedSubviews={false}
         />
+        {/* Atalhos do controle que ninguém descobriria sozinho — só na TV física. */}
+        {IS_NATIVE_TV && (
+          <Text style={styles.hint} numberOfLines={2}>{'Avançar e voltar rápido pulam uma página. Menu muda a ordem.'}</Text>
+        )}
       </View>
 
       {/* Divider */}
@@ -144,8 +161,6 @@ const styles = StyleSheet.create({
   // Sidebar
   sidebar: {
     width: 240,
-    borderRightWidth: 1,
-    borderRightColor: colors.border,
     // minHeight:0 é OBRIGATÓRIO aqui para o ScrollView filho conseguir rolar no web:
     // por padrão CSS, um item flex não encolhe abaixo do tamanho do seu CONTEÚDO
     // (min-height:auto), então a lista de subcategorias cresce e empurra a tela
@@ -155,44 +170,42 @@ const styles = StyleSheet.create({
   },
   sidebarHeader: {
     paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSoft,
-  },
-  headerActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  sortBtn: {
-    flex: 1, height: 32, borderRadius: 8, paddingHorizontal: 8,
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
-  },
-  sortText: { flex: 1, fontSize: 11, fontWeight: '600', color: colors.text2 },
-  reloadBtn: {
-    width: 32, height: 32,
-    borderRadius: 8,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.bg2,
-    borderWidth: 1, borderColor: colors.border,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.lg,
   },
   sidebarTitle: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontFamily: fontFamily.bold,
+    fontSize: 24,
     color: colors.text1,
-    letterSpacing: -0.5,
+    letterSpacing: -0.6,
   },
   sidebarCount: {
-    fontSize: 11,
+    fontSize: 13,
     color: colors.text3,
-    marginTop: 3,
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
+    marginTop: 2,
+    fontFamily: fontFamily.regular,
+    fontVariant: ['tabular-nums'],
   },
+  toolRow: { flexDirection: 'row', gap: 8, marginTop: spacing.lg },
+  toolBtn: {
+    width: 36, height: 34, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  sortBtn: {
+    flex: 1, width: undefined, paddingHorizontal: 10,
+    flexDirection: 'row', justifyContent: 'flex-start', gap: 8,
+  },
+  toolText: { flexShrink: 1, fontFamily: fontFamily.medium, fontSize: 13, color: colors.text2 },
   sidebarList: {
-    paddingTop: spacing.sm,
-    // Folga inferior: a barra de dicas flutua sobre o rodapé e cortava o último item.
-    paddingBottom: 96,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xl,
     paddingHorizontal: spacing.md,
     gap: 2,
+  },
+  hint: {
+    paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
+    fontFamily: fontFamily.regular, fontSize: 11, color: colors.text3, lineHeight: 16,
   },
 
   groupItem: {
@@ -203,24 +216,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: radius.md,
   },
-  groupItemActive: {
-    backgroundColor: colors.accentSoft,
-  },
   groupName: {
     flex: 1,
-    fontSize: fontSize.sm,
-    fontWeight: '500',
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
     color: colors.text2,
-    lineHeight: 18,
+    lineHeight: 19,
   },
+  // Ativo = cor do acento + peso; sem pílula preenchida (o foco já é o anel).
   groupNameActive: {
-    color: colors.accent,
-    fontWeight: '600',
+    fontFamily: fontFamily.semiBold,
   },
 
   divider: {
     width: 1,
-    backgroundColor: colors.border,
+    marginVertical: spacing.lg,
+    backgroundColor: colors.borderSoft,
   },
 
   // Content

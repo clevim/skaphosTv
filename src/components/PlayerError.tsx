@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, fontSize, radius } from '@/utils/theme';
 import TVFocusable from './TVFocusable';
+import { useAccentColors } from '../hooks/useAccentColors';
 
 interface Props {
   channelName: string;
@@ -25,6 +26,7 @@ export default function PlayerError({
   onRetryNow,
   onNextChannel,
 }: Props) {
+  const acc = useAccentColors();
   const isRetrying = retryingIn !== null;
   const delaySeconds = Math.ceil((retryDelays[retryCount - 1] ?? 30000) / 1000);
   const countdownPct = isRetrying ? (retryingIn! / delaySeconds) * 100 : 0;
@@ -35,7 +37,7 @@ export default function PlayerError({
         <Ionicons
           name={isRetrying ? 'reload-circle' : 'warning'}
           size={52}
-          color={isRetrying ? colors.accent2 : colors.red}
+          color={isRetrying ? acc.accent2 : colors.red}
         />
 
         <Text style={styles.title}>
@@ -48,12 +50,12 @@ export default function PlayerError({
 
         {isRetrying ? (
           <View style={styles.countdownBox}>
-            <Text style={styles.countdownText}>
+            <Text style={[styles.countdownText, { color: acc.accent2 }]}>
               Nova tentativa em {retryingIn}s
               {retryCount > 0 && ` (${retryCount + 1}/${maxRetries})`}
             </Text>
             <View style={styles.countdownBar}>
-              <View style={[styles.countdownFill, { width: `${countdownPct}%` }]} />
+              <View style={[styles.countdownFill, { backgroundColor: acc.accent, width: `${countdownPct}%` }]} />
             </View>
           </View>
         ) : (
@@ -63,7 +65,7 @@ export default function PlayerError({
         )}
 
         <View style={styles.actions}>
-          <TVFocusable onPress={onRetryNow} style={styles.retryBtn} focusStyle={styles.retryBtnFocused} hasTVPreferredFocus>
+          <TVFocusable onPress={onRetryNow} style={[styles.retryBtn, { backgroundColor: acc.accent }]} focusStyle={{ backgroundColor: acc.accent2 }} hasTVPreferredFocus>
             <Ionicons name="reload" size={18} color={colors.textInverse} />
             <Text style={styles.retryText}>Tentar Agora</Text>
           </TVFocusable>

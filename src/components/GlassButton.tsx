@@ -7,19 +7,23 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
 import { colors, radius } from '../utils/theme';
 import { IS_WEB } from '../utils/tvDetect';
+import { useAccentColors } from '../hooks/useAccentColors';
 
 interface Props {
   icon: string;
   label: string;
   onPress?: () => void;
   style?: ViewStyle;
-  /** Ação principal: violeta mesmo em repouso. Focado é sempre violeta. */
+  /** Ação principal: preenchida com o acento. O foco é sempre o neutro do TVFocusable. */
   primary?: boolean;
 }
 
 export default function GlassButton({ icon, label, onPress, style, primary }: Props) {
   const [focused, setFocused] = useState(false);
-  const violet = primary || focused;
+  const { accent3 } = useAccentColors();
+  // Foco não troca a cor (era "fica violeta" — destoava do anel neutro do resto do app).
+  const strong = primary;
+  const bright = primary || focused;
   const glassStyle: ViewStyle = IS_WEB
     ? ({
         // @ts-ignore — backdropFilter is web-only
@@ -38,11 +42,10 @@ export default function GlassButton({ icon, label, onPress, style, primary }: Pr
       onPress={onPress}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
-      style={[styles.btn, glassStyle, primary && { backgroundColor: colors.accent3, borderColor: colors.accent3 }, style]}
-      focusStyle={{ backgroundColor: colors.accent3, borderColor: colors.accent2 }}
+      style={[styles.btn, glassStyle, strong && { backgroundColor: accent3, borderColor: accent3 }, style]}
     >
-      <Ionicons name={icon as any} size={18} color={violet ? '#fff' : colors.text2} />
-      <Text style={[styles.label, violet && { color: '#fff' }]}>{label}</Text>
+      <Ionicons name={icon as any} size={18} color={bright ? colors.white : colors.text2} />
+      <Text style={[styles.label, bright && { color: colors.white }]}>{label}</Text>
     </TVFocusable>
   );
 }

@@ -9,6 +9,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore, IPTVSource, resolveChannelType } from '../store/useStore';
 import ChannelCard, { LiveChannelRow, LIVE_ROW_STRIDE } from '../components/ChannelCard';
+import { SkDecodeText } from '../components/sk';
 import HomeContent from '../components/HomeContent';
 import { afterInteractions } from '../utils/afterInteractions';
 import SearchContent from '../components/SearchContent';
@@ -25,7 +26,6 @@ import { getSeriesBaseName, LAUNCH_YEAR, NAV_ITEMS, cleanGroupName } from '../ut
 import { searchChannels, SearchType } from '../utils/search';
 import { useRecentSearches } from '../store/recentSearches';
 import { useWatchEntries, watchStatusFor } from '../store/watchProgress';
-import RemoteHints from '../components/RemoteHints';
 import TVCatalogLayout from '../components/TVCatalogLayout';
 import TVSearchContent from '../components/TVSearchContent';
 
@@ -37,6 +37,7 @@ import { useTVFocusMemory } from '../utils/tvFocusMemory';
 import { whenNotPlaying } from '../utils/playbackGate';
 import { splashIsCovering } from '../utils/bootSplash';
 import { pageJumpTarget } from '../utils/gridJump';
+import { useAccentColors } from '../hooks/useAccentColors';
 
 // Barra de abas inferior: layout de smartphone (TV e web usam a top bar).
 const HAS_BOTTOM_NAV = IS_MOBILE;
@@ -120,6 +121,7 @@ const FlatItem = memo(function FlatItem({
 );
 
 export default function HomeScreen() {
+  const acc = useAccentColors();
   // Devolve o foco do D-pad pro item de onde o usuário saiu ao voltar pra cá
   useTVFocusMemory();
 
@@ -824,7 +826,7 @@ export default function HomeScreen() {
     if (isLoading) {
       return (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.accent2} />
+          <ActivityIndicator size="large" color={acc.accent2} />
           <Text style={styles.loadingText}>Carregando canais...</Text>
         </View>
       );
@@ -835,7 +837,7 @@ export default function HomeScreen() {
           <Ionicons name="warning" size={48} color={colors.red} />
           <Text style={styles.errorText}>{loadError}</Text>
           {/* Foco preferido: sem ele o D-pad fica órfão quando o grid some */}
-          <TVFocusable onPress={() => navigation.navigate('Setup')} style={styles.retryBtn} focusStyle={styles.retryBtnFocused} hasTVPreferredFocus={IS_TV}>
+          <TVFocusable onPress={() => navigation.navigate('Setup')} style={[styles.retryBtn, { backgroundColor: acc.accent }]} focusStyle={{ backgroundColor: acc.accent2 }} hasTVPreferredFocus={IS_TV}>
             <Text style={styles.retryBtnText}>Configurar Fonte</Text>
           </TVFocusable>
         </View>
@@ -917,7 +919,7 @@ export default function HomeScreen() {
       if (refreshingSources && !isEmptyFavorites) {
         return (
           <View style={styles.center}>
-            <ActivityIndicator size="large" color={colors.accent2} />
+            <ActivityIndicator size="large" color={acc.accent2} />
             <Text style={styles.loadingText}>Atualizando catálogo...</Text>
           </View>
         );
@@ -936,7 +938,7 @@ export default function HomeScreen() {
               : 'Tente outro filtro ou categoria'}
           </Text>
           {navKey.startsWith('jf-') && (
-            <TVFocusable onPress={handleRefresh} style={styles.retryBtn} focusStyle={styles.retryBtnFocused} hasTVPreferredFocus={IS_TV}>
+            <TVFocusable onPress={handleRefresh} style={[styles.retryBtn, { backgroundColor: acc.accent }]} focusStyle={{ backgroundColor: acc.accent2 }} hasTVPreferredFocus={IS_TV}>
               <Text style={styles.retryBtnText}>Recarregar</Text>
             </TVFocusable>
           )}
@@ -998,17 +1000,17 @@ export default function HomeScreen() {
         {/* Section header */}
         <View style={styles.sectionHeader}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.sectionTitle}>{sectionTitle}</Text>
+            <SkDecodeText text={sectionTitle} style={styles.sectionTitle} numberOfLines={1} />
             <Text style={styles.sectionCount}>
               {filteredChannels.length} item{filteredChannels.length !== 1 ? 's' : ''}
               {sortMode !== 'default' ? ` · ${SORT_LABEL[sortMode]}` : ''}
             </Text>
           </View>
           <TVFocusable accessibilityLabel="Ordenar" onPress={handleCycleSort} style={[styles.topbarIconBtn, { marginRight: 8 }]}>
-            <Ionicons name={SORT_ICON[sortMode] as any} size={18} color={colors.accent} />
+            <Ionicons name={SORT_ICON[sortMode] as any} size={18} color={acc.accent} />
           </TVFocusable>
           <TVFocusable accessibilityLabel="Item aleatório" onPress={handleRandomPick} style={[styles.topbarIconBtn, { marginRight: 8 }]}>
-            <Ionicons name="dice-outline" size={18} color={colors.accent} />
+            <Ionicons name="dice-outline" size={18} color={acc.accent} />
           </TVFocusable>
           <TVFocusable accessibilityLabel="Recarregar" onPress={handleRefresh} style={styles.topbarIconBtn}>
             <Ionicons name="refresh-outline" size={18} color={colors.text2} />
@@ -1047,7 +1049,7 @@ export default function HomeScreen() {
                   <TVFocusable
                     onPress={() => setSelectedGroup(selectedGroup === g ? null : g)}
                     style={[styles.chip, isActive && styles.chipActive]}
-                    focusStyle={isActive ? styles.chipFocused : undefined}
+                    focusStyle={isActive ? { backgroundColor: acc.accent2 } : undefined}
                   >
                     <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
                       {cleanName}
@@ -1114,18 +1116,9 @@ export default function HomeScreen() {
         <BottomTabBar active={navKey} onPress={handleNavPress} jellyfinSources={jellyfinSources} />
       )}
 
-      {/* Remote hints — TV only. No catálogo anuncia os atalhos novos: sem isso
-          ⏩/⏪/☰ existiriam mas ninguém descobriria que existem. */}
-      {IS_TV && (
-        <RemoteHints
-          hints={navKey === 'home' || navKey === 'search' ? undefined : [
-            { key: 'OK',    label: 'Selecionar' },
-            { key: '⏪ ⏩', label: 'Pular página' },
-            { key: '☰',     label: 'Ordenar' },
-            { key: '⬅',     label: 'Voltar' },
-          ]}
-        />
-      )}
+      {/* Sem faixa fixa de dicas: OK/setas/Voltar são óbvios e a faixa comia o
+          rodapé de toda tela. Os atalhos que ninguém descobriria (⏩/⏪/☰) moram
+          no rodapé da sidebar do catálogo, onde valem. */}
     </View>
   );
 }
@@ -1193,6 +1186,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.6,
   },
   sectionCount: {
+    fontFamily: fontFamily.medium, fontVariant: ['tabular-nums'],
     fontSize: 11,
     color: colors.text3,
     marginTop: 4,

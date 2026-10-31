@@ -16,8 +16,10 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore } from '../store/useStore';
 import { useWatchProgress, useWatchEntries, progressFractionFor } from '../store/watchProgress';
 import TVFocusable from '../components/TVFocusable';
+import { SkChip, SkDecodeText, SkSectionHeader } from '../components/sk';
 import GlassButton from '../components/GlassButton';
-import { colors, radius, fontFamily } from '../utils/theme';
+import { colors, radius, fontFamily, spacing } from '../utils/theme';
+import { useAccentColors, withAlpha } from '../hooks/useAccentColors';
 import { Channel, RootStackParamList } from '../types';
 import { getSeriesBaseName, cleanGroupName, cleanDisplayName } from '../utils/channelUtils';
 import { fetchSeriesInfo, parseSeriesCredentials, XtreamSeriesInfo } from '../utils/xtreamApi';
@@ -101,17 +103,22 @@ const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(ma
 /** Botão de temporada (TV) — mesmo padrão visual do NavItem da TVTopBar: sem
  *  pílula preenchida, ativo = texto em negrito + ponto embaixo, foco = destaque
  *  translúcido. Antes usava uma pílula sólida própria, destoando da barra. */
-function SeasonPill({ label, active, fontSize, onPress }: {
+function SeasonPill({ label, active, fontSize, onPress, dormant, onZoneFocus }: {
   label: string; active: boolean; fontSize: number; onPress: () => void;
+  /** Fora da fileira de temporadas só a ATIVA é focável: ↓ do CTA e ↑ do rail
+   *  caem nela (o FocusFinder escolhia a mais próxima — "Temporada 1"). */
+  dormant?: boolean;
+  onZoneFocus?: () => void;
 }) {
   const [focused, setFocused] = useState(false);
+  const acc = useAccentColors();
   return (
     <TVFocusable
       onPress={onPress}
-      onFocus={() => setFocused(true)}
+      disabled={dormant}
+      onFocus={() => { setFocused(true); onZoneFocus?.(); }}
       onBlur={() => setFocused(false)}
       style={tvStyles.seasonPill}
-      focusStyle={tvStyles.seasonPillFocused}
       focusScale={1}
       borderRadius={radius.full}
     >
@@ -127,14 +134,23 @@ function SeasonPill({ label, active, fontSize, onPress }: {
       </Text>
       {active && (
         <View style={tvStyles.seasonDotWrap}>
-          <View style={tvStyles.seasonDot} />
+          <View style={[tvStyles.seasonDot, { backgroundColor: acc.accent }]} />
         </View>
       )}
     </TVFocusable>
   );
 }
 
-function EpThumb({ logo, size }: { logo?: string; size: { w: number; h: number } }) {
+function EpThumb({ logo, size, code }: { logo?: string; size: { w: number; h: number }; code?: string }) {
+  // Sem imagem própria do episódio (só o pôster da série repetido, ou nada):
+  // tile tipográfico com o número — pôster 2:3 em caixa 16:9 virava tarja preta dos lados.
+  if (code) {
+    return (
+      <View style={[thumbStyles.ph, thumbStyles.type, { width: size.w, height: size.h }]}>
+        <Text style={[thumbStyles.code, { fontSize: Math.round(size.h * 0.42) }]} numberOfLines={1}>{code}</Text>
+      </View>
+    );
+  }
   return (
     <View style={[thumbStyles.ph, { width: size.w, height: size.h }]}>
       {logo ? (
@@ -154,6 +170,8 @@ const thumbStyles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  type: { alignItems: 'flex-start', justifyContent: 'flex-end', padding: 12 },
+  code: { fontFamily: fontFamily.bold, color: 'rgba(255,255,255,0.16)', letterSpacing: -2, includeFontPadding: false },
 });
 
 // ── Card do rail de episódios (TV) ────────────────────────────────────────────
@@ -178,17 +196,20 @@ interface EpCardProps {
   fDur: number;
   watched: boolean;
   frac: number;
-  preferred: boolean;
   onPlay: (item: Channel) => void;
   onMark: (item: Channel) => void;
   onFocus: (index: number) => void;
+  /** Episódio sem arte própria → tile tipográfico em vez do pôster da série esticado. */
+  artless?: boolean;
 }
 
 const EpisodeRailCard = React.memo(function EpisodeRailCard({
   item, index, label, epName, fallbackSynopsis, cardW, cardH,
-  fCode, fTitle, fSyn, fDur, watched, frac, preferred, onPlay, onMark, onFocus,
+  fCode, fTitle, fSyn, fDur, watched, frac, onPlay, onMark, onFocus, artless,
 }: EpCardProps) {
   const [focused, setFocused] = useState(false);
+  const acc = useAccentColors();
+  const synLh = Math.round(fSyn * 1.35);
   return (
     <TVFocusable
       onFocus={() => { setFocused(true); onFocus(index); }}
@@ -198,24 +219,23 @@ const EpisodeRailCard = React.memo(function EpisodeRailCard({
       // Web renderiza ESTE layout (IS_TV inclui web) — botão direito
       // também abre o menu de marcar, como na lista mobile.
       onContextMenu={IS_WEB ? (e: any) => { e?.preventDefault?.(); onMark(item); } : undefined}
-      style={[tvStyles.epCard, { width: cardW }, focused && tvStyles.epCardFocused]}
+      style={[tvStyles.epCard, { width: cardW }]}
       // O destaque genérico (bg violeta + zoom) virava um quadradão por
       // cima do card — o foco aqui já tem linguagem própria: card sobe,
       // overlay de play, título forte e sinopse revelada.
       focusScale={1}
       focusStyle={tvStyles.epCardFocusReset}
-      hasTVPreferredFocus={preferred}
     >
       <View style={[tvStyles.epThumbWrap, { width: cardW, height: cardH }]}>
-        <EpThumb logo={item.logo} size={{ w: cardW, h: cardH }} />
+        <EpThumb logo={item.logo} size={{ w: cardW, h: cardH }} code={artless ? label : undefined} />
         {watched && (
-          <View style={tvStyles.epWatchedBadge}>
+          <View style={[tvStyles.epWatchedBadge, { backgroundColor: acc.accent }]}>
             <Ionicons name="checkmark" size={Math.round(cardW * 0.06)} color={colors.textInverse} />
           </View>
         )}
         {frac > 0 && (
           <View style={tvStyles.epProgress}>
-            <View style={[tvStyles.epProgressFill, { width: `${Math.round(frac * 100)}%` }]} />
+            <View style={[tvStyles.epProgressFill, { width: `${Math.round(frac * 100)}%`, backgroundColor: acc.accent }]} />
           </View>
         )}
         {focused && (
@@ -236,7 +256,7 @@ const EpisodeRailCard = React.memo(function EpisodeRailCard({
         )}
       </View>
       <View style={tvStyles.epMeta}>
-        <Text style={[tvStyles.epCode, { fontSize: fCode }]}>{label}</Text>
+        {!artless && <Text style={[tvStyles.epCode, { fontSize: fCode }]}>{label}</Text>}
         <Text
           style={[tvStyles.epTitle, focused && tvStyles.epTitleFocused, { fontSize: fTitle }]}
           numberOfLines={1}
@@ -247,8 +267,8 @@ const EpisodeRailCard = React.memo(function EpisodeRailCard({
       {/* Sempre montada (opacity 0 sem foco): reserva a altura da sinopse, senão a
           fileira crescia ao focar e o rodapé do card era cortado/empurrado. */}
       <Text
-        style={[tvStyles.epSynopsis, { fontSize: fSyn, maxWidth: cardW, opacity: focused ? 1 : 0 }]}
-        numberOfLines={2}
+        style={[tvStyles.epSynopsis, { fontSize: fSyn, lineHeight: synLh, minHeight: synLh, maxWidth: cardW, opacity: focused ? 1 : 0 }]}
+        numberOfLines={1}
       >
         {item.plot || fallbackSynopsis || ' '}
       </Text>
@@ -265,6 +285,7 @@ export default function SeriesScreen() {
   // Devolve o foco do D-pad pro item de onde o usuário saiu ao voltar pra cá
   useTVFocusMemory();
 
+  const acc = useAccentColors();
   const navigation = useNavigation<Nav>();
   const route = useRoute<SeriesRoute>();
   const { seriesName, channels: routeChannels } = route.params;
@@ -293,11 +314,11 @@ export default function SeriesScreen() {
   const [trackSheetUrl, setTrackSheetUrl] = useState<string | null>(null);
   const pendingEpRef = useRef<Channel | null>(null);
   const railRef = useRef<FlatList<Channel>>(null);
-  // Foco inicial do rail concedido UMA vez por visita: hasTVPreferredFocus chama
-  // requestFocus() a cada MONTAGEM no Android — sem o gate, rolar longe e voltar
-  // (virtualização) remontava o episódio de resume e roubava a seleção de volta.
-  const railGrantRef = useRef(false);
-
+  // Foco dentro da fileira de temporadas? Fora dela, só a temporada ativa é focável
+  // (ver SeasonPill.dormant). Muda só ao entrar/sair da fileira, não a cada tecla.
+  const [seasonZone, setSeasonZone] = useState(false);
+  const enterSeasons = useCallback(() => setSeasonZone(true), []);
+  const leaveSeasons = useCallback(() => setSeasonZone(false), []);
   const doFetchEpisodes = useCallback(() => {
     if (!isXtreamSeries) return;
 
@@ -607,6 +628,7 @@ export default function SeriesScreen() {
 
   // Mantém o card focado visível — o destaque em si é estado local do card.
   const focusEpisode = useCallback((index: number) => {
+    setSeasonZone(false);
     railRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
   }, []);
 
@@ -642,8 +664,8 @@ export default function SeriesScreen() {
           colors={['rgba(10,8,16,0.7)', colors.bg0]}
           style={StyleSheet.absoluteFillObject}
         />
-        <ActivityIndicator size="large" color={colors.accent} />
-        <Text style={loadStyles.text}>Carregando episódios…</Text>
+        <ActivityIndicator size="large" color={acc.accent} />
+        <Text style={loadStyles.text}>{'Carregando episódios…'}</Text>
         <Text style={loadStyles.sub}>{baseName}</Text>
       </View>
     );
@@ -654,8 +676,9 @@ export default function SeriesScreen() {
       <View style={[styles.root, loadStyles.center]}>
         <StatusBar hidden />
         <Ionicons name="warning-outline" size={48} color={colors.red} />
-        <Text style={loadStyles.errorText}>{fetchError}</Text>
-        <TVFocusable onPress={doFetchEpisodes} style={loadStyles.retryBtn} focusStyle={loadStyles.retryBtnFocused} hasTVPreferredFocus>
+        <Text style={loadStyles.errorText}>Não foi possível carregar os episódios</Text>
+        <Text style={loadStyles.sub}>{fetchError}</Text>
+        <TVFocusable onPress={doFetchEpisodes} style={[loadStyles.retryBtn, { backgroundColor: acc.accent }]} focusStyle={[loadStyles.retryBtnFocused, { backgroundColor: acc.accent2 }]} hasTVPreferredFocus>
           <Ionicons name="refresh-outline" size={16} color={colors.textInverse} />
           <Text style={loadStyles.retryBtnText}>Tentar novamente</Text>
         </TVFocusable>
@@ -671,9 +694,9 @@ export default function SeriesScreen() {
       <View style={[styles.root, loadStyles.center]}>
         <StatusBar hidden />
         <Ionicons name="tv-outline" size={48} color={colors.text3} />
-        <Text style={loadStyles.errorText}>Nenhum episódio disponível</Text>
+        <Text style={loadStyles.errorText}>{'Nenhum episódio disponível'}</Text>
         <Text style={loadStyles.sub}>{baseName}</Text>
-        <TVFocusable onPress={doFetchEpisodes} style={loadStyles.retryBtn} focusStyle={loadStyles.retryBtnFocused} hasTVPreferredFocus>
+        <TVFocusable onPress={doFetchEpisodes} style={[loadStyles.retryBtn, { backgroundColor: acc.accent }]} focusStyle={[loadStyles.retryBtnFocused, { backgroundColor: acc.accent2 }]} hasTVPreferredFocus>
           <Ionicons name="refresh-outline" size={16} color={colors.textInverse} />
           <Text style={loadStyles.retryBtnText}>Recarregar</Text>
         </TVFocusable>
@@ -699,7 +722,7 @@ export default function SeriesScreen() {
   const displayPlot = seriesPlot
     || (isXtreamSeries ? (seriesChannel?.genre || seriesInfo?.genre || '') : groupClean);
 
-  const displayGenre = seriesChannel?.genre || seriesInfo?.genre || groupClean || 'Drama';
+  const displayGenre = seriesChannel?.genre || seriesInfo?.genre || groupClean;
 
   const backdropUri = seriesBackdrop || seriesChannel?.logo || heroChannel?.logo;
   // Sem backdrop de verdade (paisagem) — caiu pro logo (retrato/quadrado).
@@ -729,30 +752,26 @@ export default function SeriesScreen() {
     // Tipografia responsiva com limites legíveis (evita micro-texto em 720p / exagero em 4K)
     const fTitle   = clamp(sw * 0.038, 26, 56);
     const fTitleLh = clamp(sw * 0.044, 30, 64);
-    const fMeta    = clamp(sw * 0.010, 12, 20);
+    const fMeta    = clamp(sw * 0.010, 14, 20);
     const fBadge   = clamp(sw * 0.008, 10, 16);
     const fSyn     = clamp(sw * 0.011, 13, 22);
     const fSynLh   = clamp(sw * 0.016, 18, 30);
-    const fPill    = clamp(sw * 0.009, 12, 19);
+    const fPill    = clamp(sw * 0.009, 14, 20);
     const fEpCount = clamp(sw * 0.007,  9, 15);
-    const fEpCode  = clamp(sw * 0.008, 10, 16);
-    const fEpTitle = clamp(sw * 0.010, 12, 19);
-    const fEpSyn   = clamp(sw * 0.008, 10, 15);
-    const fEpDur   = clamp(sw * 0.007,  9, 14);
+    const fEpCode  = clamp(sw * 0.008, 12, 17);
+    const fEpTitle = clamp(sw * 0.010, 14, 20);
+    const fEpSyn   = clamp(sw * 0.008, 12, 16);
+    const fEpDur   = clamp(sw * 0.007, 11, 15);
     // Nunca menos que o rodapé do botão Voltar (top 4% + 36 de altura + folga):
     // em telas menores a tag "SÉRIE · N TEMPORADAS" ficava POR BAIXO do botão.
-    const padTop   = Math.max(clamp(sh * 0.07, 44, 110), Math.round(sh * 0.04) + 36 + 12);
+    // Sem botão Voltar na TV física (o controle tem Voltar) — o topo fica livre.
+    const padTop   = IS_WEB ? Math.max(clamp(sh * 0.07, 44, 110), Math.round(sh * 0.04) + 36 + 12) : clamp(sh * 0.08, 36, 110);
+    const seriesPoster = seriesChannel?.logo || heroChannel?.logo;
 
     // renderItem "solto" (não é hook — está dentro de um if): pode ter identidade
     // nova a cada render sem custo, porque o EpisodeRailCard é memoizado por props
     // escalares e os três handlers abaixo são estáveis.
     const renderRailItem = ({ item, index }: { item: Channel; index: number }) => {
-      const isResumeEp = index === currentEpIdx;
-      let railPreferred = false;
-      if (isResumeEp && !railGrantRef.current) {
-        railGrantRef.current = true;
-        railPreferred = true;
-      }
       const entry = watchEntries[item.id];
       const epWatched = !!entry?.watched;
       return (
@@ -773,10 +792,10 @@ export default function SeriesScreen() {
           fDur={fEpDur}
           watched={epWatched}
           frac={epWatched ? 0 : progressFractionFor(entry)}
-          preferred={railPreferred}
           onPlay={handlePlay}
           onMark={handleEpisodeMark}
           onFocus={focusEpisode}
+          artless={!item.logo || item.logo === seriesPoster}
         />
       );
     };
@@ -797,7 +816,7 @@ export default function SeriesScreen() {
             {backdropUri ? (
               <View style={{ width: Math.round(sw * 0.15), aspectRatio: 2 / 3, borderRadius: 14, overflow: 'hidden', backgroundColor: colors.bg3 }}>
                 <SafeImage uri={backdropUri} style={{ width: '100%', height: '100%' }} contentFit="cover"
-                  fallback={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text style={styles.heroInitials}>{baseName.slice(0, 3).toUpperCase()}</Text></View>} />
+                  fallback={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text style={[styles.heroInitials, { color: acc.accent }]}>{baseName.slice(0, 3).toUpperCase()}</Text></View>} />
               </View>
             ) : null}
           </LinearGradient>
@@ -813,57 +832,45 @@ export default function SeriesScreen() {
           style={tvStyles.gradH}
         />
 
-        <TVFocusable accessibilityLabel="Voltar"
-          onPress={() => navigation.goBack()}
-          style={[tvStyles.backBtn, { top: Math.round(sh * 0.04), left: pH }]}
-        >
-          <Ionicons name="chevron-back" size={Math.round(sw * 0.013)} color={colors.text1} />
-        </TVFocusable>
+        {/* Voltar visível só no web (teclado/mouse); na TV é a tecla do controle. */}
+        {IS_WEB && (
+          <TVFocusable accessibilityLabel="Voltar"
+            onPress={() => navigation.goBack()}
+            style={[tvStyles.backBtn, { top: Math.round(sh * 0.04), left: pH }]}
+          >
+            <Ionicons name="chevron-back" size={Math.round(sw * 0.013)} color={colors.text1} />
+          </TVFocusable>
+        )}
 
         {/* Flex column: empurra título para cima e rail para baixo */}
         <View style={[tvStyles.content, { paddingTop: padTop }]}>
           {/* Título + meta */}
           <View style={[tvStyles.titleBlock, { paddingLeft: pH, width: clamp(sw * 0.42, 360, 900) }]}>
-            <View style={tvStyles.origBadge}>
-              <Text style={[tvStyles.origBadgeText, { fontSize: fBadge }]}>
-                SÉRIE · {seasonKeys.length} TEMPORADA{seasonKeys.length !== 1 ? 'S' : ''}
-              </Text>
-            </View>
-            <Text
+            <SkDecodeText
+              text={cleanDisplayName(baseName)}
               style={[tvStyles.title, { fontSize: fTitle, lineHeight: fTitleLh }]}
               numberOfLines={2}
-            >
-              {cleanDisplayName(baseName)}
+            />
+            {/* deslop: 6 chips viraram UMA linha de metadado quieta (um acento só) */}
+            <Text style={[tvStyles.metaLine, { fontSize: fSyn }]} numberOfLines={1}>
+              {[`${seasonKeys.length} temporada${seasonKeys.length !== 1 ? 's' : ''}`,
+                `${allEpisodes.length} episódios`,
+                seriesChannel?.rating ? `★ ${seriesChannel.rating}` : null,
+                heroChannel?.quality !== 'HD' ? heroChannel?.quality : null,
+                displayGenre || null,
+              ].filter(Boolean).join('   ·   ')}
             </Text>
-            <View style={tvStyles.metaRow}>
-              <Text style={[tvStyles.metaAcc, { fontSize: fMeta }]}>
-                {allEpisodes.length} episódios
-              </Text>
-              {/* Sem rating nos dados → sem badge (o fallback "TV-MA" inventava
-                  uma classificação que não existe). */}
-              {seriesChannel?.rating ? (
-                <View style={tvStyles.ratingBadge}>
-                  <Text style={[tvStyles.ratingText, { fontSize: fBadge }]}>
-                    {seriesChannel.rating}
-                  </Text>
-                </View>
-              ) : null}
-              {heroChannel?.quality && (
-                <View style={tvStyles.ratingBadge}>
-                  <Text style={[tvStyles.ratingText, { fontSize: fBadge }]}>
-                    {heroChannel.quality}
-                  </Text>
-                </View>
-              )}
-            </View>
-            <View style={{ maxWidth: clamp(sw * 0.34, 300, 720) }}>
-              <ExpandableText
-                style={[tvStyles.synopsis, { fontSize: fSyn, lineHeight: fSynLh }]}
-                collapsedLines={2}
-                title={baseName}
-                text={displayPlot || displayGenre}
-              />
-            </View>
+            {/* Sem sinopse real, nada: o fallback (gênero) só repetia a linha de meta acima. */}
+            {seriesPlot ? (
+              <View style={{ maxWidth: clamp(sw * 0.34, 300, 720) }}>
+                <ExpandableText
+                  style={[tvStyles.synopsis, { fontSize: fSyn, lineHeight: fSynLh }]}
+                  collapsedLines={2}
+                  title={baseName}
+                  text={seriesPlot}
+                />
+              </View>
+            ) : null}
 
             {/* Ação primária da tela — antes não havia: para assistir era preciso
                 caçar o episódio no rail. Retoma o episódio certo (currentEpIdx já
@@ -872,10 +879,11 @@ export default function SeriesScreen() {
               {continueEp && (
                 <TVFocusable
                   onPress={() => handlePlay(continueEp)}
-                  style={tvStyles.playCta}
-                  // Foco padrão (violeta translúcido) apagaria o fundo claro — clareia sólido
-                  focusStyle={tvStyles.playCtaFocused}
+                  // Primário = acento em repouso, clareia no foco (mesma regra do hero da Home).
+                  style={[tvStyles.playCta, { backgroundColor: acc.accent }]}
+                  focusStyle={{ backgroundColor: acc.accent2 }}
                   hasTVPreferredFocus
+                  onFocus={leaveSeasons}
                 >
                   <Ionicons name="play" size={16} color={colors.textInverse} />
                   <Text style={[tvStyles.playCtaText, { fontSize: fMeta }]}>{continueLbl}</Text>
@@ -884,13 +892,14 @@ export default function SeriesScreen() {
               <TVFocusable
                 accessibilityLabel={isFav ? 'Remover da minha lista' : 'Adicionar à minha lista'}
                 onPress={toggleSeriesFav}
+                onFocus={leaveSeasons}
                 style={tvStyles.favBtn}
                 borderRadius={radius.full}
               >
                 <Ionicons
                   name={isFav ? 'heart' : 'heart-outline'}
                   size={18}
-                  color={isFav ? colors.accent : colors.text1}
+                  color={colors.text1}
                 />
               </TVFocusable>
             </View>
@@ -898,34 +907,37 @@ export default function SeriesScreen() {
 
           {/* Pills de temporada + rail de episódios */}
           <View style={tvStyles.bottom}>
-            <View style={[tvStyles.seasonRow, { paddingLeft: pH }]}>
-              {/* ScrollView: com 10+ temporadas as pills estouram a largura — antes
-                  era um View fixo e as excedentes ficavam INALCANÇÁVEIS (sem scroll
-                  de roda no web, sem auto-scroll de foco na TV). O contador fica
-                  fora do scroll para permanecer sempre visível. */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={tvStyles.seasonScroll}
-                contentContainerStyle={tvStyles.seasonScrollContent}
-              >
-                {seasonKeys.map((s) => (
-                  <SeasonPill
-                    key={s}
-                    label={seasonLabel(s)}
-                    active={s === selectedSeason}
-                    fontSize={fPill}
-                    onPress={() => {
-                      setSelectedSeason(s);
-                      railRef.current?.scrollToOffset({ offset: 0, animated: false });
-                    }}
-                  />
-                ))}
-              </ScrollView>
-              <Text style={[tvStyles.epCount, { fontSize: fEpCount }]}>
-                {episodes.length} EPISÓDIOS
-              </Text>
-            </View>
+            {/* Com 1 temporada a meta acima já diz tudo: sem pill nem contador */}
+            {seasonKeys.length > 1 && (
+              <View style={[tvStyles.seasonRow, { paddingLeft: pH - 22 }]}>
+                {/* ScrollView: com 10+ temporadas as pills estouram a largura — antes
+                    era um View fixo e as excedentes ficavam INALCANÇÁVEIS (sem scroll
+                    de roda no web, sem auto-scroll de foco na TV). O contador fica
+                    fora do scroll para permanecer sempre visível. */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={tvStyles.seasonScroll}
+                  contentContainerStyle={tvStyles.seasonScrollContent}
+                >
+                  {seasonKeys.map((s) => (
+                    <SeasonPill
+                      key={s}
+                      label={seasonLabel(s)}
+                      active={s === selectedSeason}
+                      dormant={!seasonZone && s !== selectedSeason}
+                      onZoneFocus={enterSeasons}
+                      fontSize={fPill}
+                      onPress={() => {
+                        setSelectedSeason(s);
+                        railRef.current?.scrollToOffset({ offset: 0, animated: false });
+                      }}
+                    />
+                  ))}
+                </ScrollView>
+                <Text style={[tvStyles.metaLine, { marginTop: 0, marginLeft: spacing.lg, fontSize: fPill * 0.8 }]}>{`${episodes.length} episódios`}</Text>
+              </View>
+            )}
 
             <FlatList
               ref={railRef}
@@ -938,7 +950,8 @@ export default function SeriesScreen() {
                 { paddingHorizontal: pH, gap },
               ]}
               showsHorizontalScrollIndicator={false}
-              initialScrollIndex={Math.min(currentEpIdx, Math.max(0, episodes.length - 1))}
+              // deslop: só rola quando retoma episódio > 0; no 1º preserva o paddingLeft (senão "E01" era cortado)
+              initialScrollIndex={currentEpIdx > 0 ? Math.min(currentEpIdx, Math.max(0, episodes.length - 1)) : undefined}
               getItemLayout={(_, index) => ({ length: stride, offset: stride * index + pH, index })}
               onScrollToIndexFailed={() => {}}
               renderItem={renderRailItem}
@@ -987,7 +1000,7 @@ export default function SeriesScreen() {
             >
               <View style={{ height: Math.round(heroH * 0.62), aspectRatio: 2 / 3, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.bg3 }}>
                 <SafeImage uri={backdropUri} style={{ width: '100%', height: '100%' }} contentFit="cover"
-                  fallback={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text style={styles.heroInitials}>{baseName.slice(0, 3).toUpperCase()}</Text></View>} />
+                  fallback={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text style={[styles.heroInitials, { color: acc.accent }]}>{baseName.slice(0, 3).toUpperCase()}</Text></View>} />
               </View>
             </LinearGradient>
           )}
@@ -1007,21 +1020,13 @@ export default function SeriesScreen() {
           </View>
 
           <View style={styles.heroInfo}>
-            <View style={styles.origBadge}>
-              <Text style={styles.origBadgeText}>SÉRIE</Text>
-            </View>
-            <Text style={[styles.heroTitle, { fontSize: fHeroTitle, lineHeight: Math.round(fHeroTitle * 1.12) }]} numberOfLines={2}>{cleanDisplayName(baseName)}</Text>
+            <SkChip label={`SÉRIE · ${seasonKeys.length} TEMPORADA${seasonKeys.length !== 1 ? 'S' : ''}`} />
+            <SkDecodeText text={cleanDisplayName(baseName)} style={[styles.heroTitle, { fontSize: fHeroTitle, lineHeight: Math.round(fHeroTitle * 1.12) }]} numberOfLines={2} />
             <View style={styles.heroMeta}>
-              <Text style={styles.metaAcc}>{allEpisodes.length} ep</Text>
-              <Text style={styles.metaDim}>·</Text>
+              <SkChip label={`${allEpisodes.length} episódios`} variant="ok" />
               {/* Sem rating nos dados → sem badge (não inventa classificação) */}
-              {seriesChannel?.rating ? (
-                <View style={styles.ratingBadge}><Text style={styles.ratingText}>{seriesChannel.rating}</Text></View>
-              ) : null}
-              <Text style={styles.metaDim}>{seasonKeys.length} temporada{seasonKeys.length !== 1 ? 's' : ''}</Text>
-              {heroChannel?.quality && (
-                <View style={styles.ratingBadge}><Text style={styles.ratingText}>{heroChannel.quality}</Text></View>
-              )}
+              {seriesChannel?.rating ? <SkChip label={`★ ${seriesChannel.rating}`} dot={false} /> : null}
+              {heroChannel?.quality ? <SkChip label={heroChannel.quality} dot={false} /> : null}
             </View>
           </View>
         </View>
@@ -1031,7 +1036,7 @@ export default function SeriesScreen() {
           <TVFocusable
             onPress={() => continueEp && handlePlay(continueEp)}
             style={styles.continueBtn}
-            focusStyle={styles.continueBtnFocused}
+            focusStyle={[styles.continueBtnFocused, { backgroundColor: acc.accent2 }]}
           >
             <View style={styles.continueBtnLeft}>
               <Ionicons name="play" size={16} color={colors.textInverse} />
@@ -1040,7 +1045,7 @@ export default function SeriesScreen() {
           </TVFocusable>
           <View style={styles.progressTrack}>
             {/* Avanço na SÉRIE inteira, não na temporada aberta */}
-            <View style={[styles.progressFill, { width: `${Math.round((Math.max(continueIdx, 0) / Math.max(orderedEps.length - 1, 1)) * 100)}%` }]} />
+            <View style={[styles.progressFill, { backgroundColor: acc.accent, width: `${Math.round((Math.max(continueIdx, 0) / Math.max(orderedEps.length - 1, 1)) * 100)}%` }]} />
           </View>
         </View>
 
@@ -1057,13 +1062,15 @@ export default function SeriesScreen() {
           <ExpandableText
             style={styles.synopsis}
             collapsedLines={4}
-            text={displayPlot ? displayPlot : `Série do gênero ${displayGenre}.`}
+            text={displayPlot || (displayGenre ? `Série do gênero ${displayGenre}.` : 'Sem sinopse disponível.')}
           />
           <View style={styles.metaGrid}>
-            <View style={styles.metaItem}>
-              <Text style={styles.metaKey}>Gênero</Text>
-              <Text style={styles.metaVal}>{displayGenre}</Text>
-            </View>
+            {displayGenre ? (
+              <View style={styles.metaItem}>
+                <Text style={styles.metaKey}>Gênero</Text>
+                <Text style={styles.metaVal}>{displayGenre}</Text>
+              </View>
+            ) : null}
             {isXtreamSeries && seriesCast ? (
               <View style={styles.metaItem}>
                 <Text style={styles.metaKey}>Elenco</Text>
@@ -1087,8 +1094,9 @@ export default function SeriesScreen() {
           </View>
         </View>
 
+        <View style={{ paddingHorizontal: 22, paddingTop: 22 }}><SkSectionHeader title="episódios" /></View>
         {/* Season tabs */}
-        <View style={styles.seasonTabsRow}>
+        <View style={[styles.seasonTabsRow, { paddingTop: 12 }]}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -1110,7 +1118,7 @@ export default function SeriesScreen() {
               );
             })}
           </ScrollView>
-          <Text style={styles.epCountLabel}>{episodes.length} EP</Text>
+          <SkChip label={`${episodes.length} EP`} dot={false} />
         </View>
 
         {/* Episode list */}
@@ -1143,11 +1151,11 @@ export default function SeriesScreen() {
                   <EpThumb logo={item.logo} size={{ w: thumbW, h: thumbH }} />
                   {inProgress && (
                     <View style={styles.epProgress}>
-                      <View style={[styles.epProgressFill, { width: `${Math.round(frac * 100)}%` }]} />
+                      <View style={[styles.epProgressFill, { backgroundColor: acc.accent, width: `${Math.round(frac * 100)}%` }]} />
                     </View>
                   )}
                   {watched && (
-                    <View style={styles.epWatchedBadge}>
+                    <View style={[styles.epWatchedBadge, { backgroundColor: acc.accent }]}>
                       <Ionicons name="checkmark" size={12} color={colors.textInverse} />
                     </View>
                   )}
@@ -1161,7 +1169,7 @@ export default function SeriesScreen() {
                 <View style={styles.epMeta}>
                   <View style={styles.epMetaTop}>
                     <Text style={styles.epCode}>{label}</Text>
-                    {inProgress && <View style={styles.watchingBadge}><Text style={styles.watchingText}>EM CURSO</Text></View>}
+                    {inProgress && <View style={[styles.watchingBadge, { backgroundColor: acc.accentSoft, borderColor: acc.accent }]}><Text style={[styles.watchingText, { color: acc.accent }]}>EM CURSO</Text></View>}
                     {watched && <View style={styles.watchedBadgePill}><Text style={styles.watchedText}>ASSISTIDO</Text></View>}
                   </View>
                   <Text style={styles.epTitle} numberOfLines={2}>{epName}</Text>
@@ -1186,14 +1194,14 @@ export default function SeriesScreen() {
 // ── Loading / Error styles ────────────────────────────────────────────────────
 const loadStyles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center', gap: 16 },
-  text: { fontSize: 16, color: colors.text2, marginTop: 8 },
-  sub: { fontSize: 13, color: colors.text3 },
-  errorText: { fontSize: 14, color: colors.text2, textAlign: 'center', maxWidth: 300 },
+  text: { fontSize: IS_TV ? 20 : 16, fontFamily: fontFamily.regular, color: colors.text2, marginTop: 8 },
+  sub: { fontSize: IS_TV ? 15 : 13, color: colors.text3, textAlign: 'center', maxWidth: 420 },
+  errorText: { fontSize: IS_TV ? 18 : 14, color: colors.text2, textAlign: 'center', maxWidth: 420 },
   retryBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     marginTop: 8,
     paddingHorizontal: 24, paddingVertical: 10,
-    backgroundColor: colors.accent,
+    backgroundColor: colors.accent, // sobrescrito no JSX por useAccentColors
     borderRadius: radius.md,
   },
   retryBtnFocused: { backgroundColor: colors.accent2 },
@@ -1225,8 +1233,8 @@ const tvStyles = StyleSheet.create({
     paddingTop: 80,
   },
   bottom: {
-    // Acima da barra de dicas (RemoteHints), que flutua sobre o rodapé da TV.
-    paddingBottom: 88,
+    // Sem faixa de dicas nesta tela: a folga antiga (88) só cortava o rail.
+    paddingBottom: 12,
   },
   gradV: {
     position: 'absolute',
@@ -1270,6 +1278,10 @@ const tvStyles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 12,
   },
+  metaLine: {
+    // fontSize vem do JSX
+    fontFamily: fontFamily.regular, color: colors.text2, marginTop: 10, letterSpacing: 0.2,
+  },
   metaAcc: {
     // fontSize vem do JSX
     fontWeight: '600', color: colors.accent,
@@ -1296,24 +1308,22 @@ const tvStyles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingHorizontal: 28, paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: colors.text1,
   },
   favBtn: {
-    width: 44, height: 44, borderRadius: radius.full,
+    width: 46, height: 46, borderRadius: radius.full,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderWidth: 1, borderColor: colors.border,
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
-  playCtaFocused: { backgroundColor: colors.accent2 },
   playCtaText: { fontFamily: fontFamily.semiBold, color: colors.textInverse },
 
   seasonRow: {
     flexDirection: 'row', alignItems: 'center',
-    // paddingLeft vem do JSX
-    paddingBottom: 16,
+    // paddingLeft vem do JSX (pH − folga do anel − padding da pill: o texto alinha ao título)
+    paddingBottom: 2,
   },
   seasonScroll: { flexShrink: 1, flexGrow: 0 },
-  seasonScrollContent: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 16 },
+  // Folga em volta: o anel de foco fica 5px FORA da pill e o ScrollView o cortava.
+  seasonScrollContent: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 8, paddingVertical: 7 },
   // Mesmo padrão do NavItem da TVTopBar: sem pílula preenchida — foco é um
   // destaque translúcido, ativo é só texto em negrito + ponto embaixo.
   seasonPill: {
@@ -1324,9 +1334,6 @@ const tvStyles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: radius.full,
     position: 'relative',
-  },
-  seasonPillFocused: {
-    backgroundColor: 'rgba(167,139,250,0.25)',
   },
   seasonPillText: {
     // fontSize vem do JSX
@@ -1374,9 +1381,6 @@ const tvStyles = StyleSheet.create({
   epCard: {
     // width vem do JSX
   },
-  epCardFocused: {
-    transform: [{ translateY: -6 }],
-  },
   // Anula o FOCUS_BG padrão do TVFocusable (focusStyle vence na composição)
   epCardFocusReset: { backgroundColor: 'transparent' },
   epThumbWrap: {
@@ -1409,7 +1413,8 @@ const tvStyles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   epMeta: {
-    flexDirection: 'row', gap: 8, alignItems: 'baseline',
+    // center, não baseline: no Android o baseline desalinha o código ao trocar o peso no foco
+    flexDirection: 'row', gap: 8, alignItems: 'center',
     marginTop: 12,
   },
   epCode: {
@@ -1428,7 +1433,7 @@ const tvStyles = StyleSheet.create({
   epSynopsis: {
     // fontSize e maxWidth vêm do JSX
     color: colors.text3,
-    lineHeight: 17, marginTop: 6, minHeight: 34,
+    marginTop: 6,
   },
   epDur: {
     // fontSize vem do JSX

@@ -7,6 +7,8 @@ import { colors, spacing, radius, fontFamily } from '../utils/theme';
 import { LAUNCH_YEAR } from '../utils/channelUtils';
 import { useStore } from '../store/useStore';
 import { useIsFocused } from '@react-navigation/native';
+import { useAccentColors } from '../hooks/useAccentColors';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const TV_NAV_STATIC_BEFORE = [
   { key: 'home',      label: 'Início'    },
@@ -45,6 +47,7 @@ function NavItem({
   onBarBlur: () => void;
 }) {
   const [focused, setFocused] = useState(false);
+  const { accent } = useAccentColors();
   return (
     <TVFocusable
       ref={itemRef}
@@ -52,7 +55,7 @@ function NavItem({
       onFocus={() => { setFocused(true); onBarFocus(active); }}
       onBlur={() => { setFocused(false); onBarBlur(); }}
       style={styles.navItem}
-      focusStyle={styles.navItemFocused}
+      // Foco neutro (anel + clareado padrão do TVFocusable): o acento fica só no traço da aba ativa.
       focusScale={1}            // sem zoom no menu inline (evita invadir vizinhos)
       borderRadius={radius.full}
     >
@@ -65,7 +68,7 @@ function NavItem({
       </Text>
       {active && (
         <View style={styles.activeDotWrap}>
-          <View style={styles.activeDot} />
+          <View style={[styles.activeDot, { backgroundColor: accent }]} />
         </View>
       )}
     </TVFocusable>
@@ -73,6 +76,7 @@ function NavItem({
 }
 
 export default function TVTopBar({ active, onNavPress, onSettingsPress, jellyfinSources }: Props) {
+  const { accent: logoAccent } = useAccentColors();
   // Relógio local: antes vivia no HomeScreen e cada mudança de minuto
   // re-renderizava a tela inteira (hero + ~120 focusables) só pra este <Text>.
   const [clock, setClock] = useState('');
@@ -111,6 +115,15 @@ export default function TVTopBar({ active, onNavPress, onSettingsPress, jellyfin
 
   return (
     <View style={styles.container}>
+      {/* Scrim em degradê em vez de faixa opaca: o hero da Home sobe por trás da
+          barra e o conteúdo rolado some suave, sem a "tampa" com fio embaixo. */}
+      <LinearGradient
+        pointerEvents="none"
+        // Opaco até a linha dos itens: o que rola por baixo não "fantasma" atrás do texto.
+        colors={['rgba(10,8,16,1)', 'rgba(10,8,16,0.97)', 'rgba(10,8,16,0)']}
+        locations={[0, 0.6, 1]}
+        style={styles.scrim}
+      />
       {/* Wordmark */}
       <View style={styles.wordmark}>
         <View style={styles.logoIcon}>
@@ -118,7 +131,7 @@ export default function TVTopBar({ active, onNavPress, onSettingsPress, jellyfin
           <Image source={require('../../assets/icon.png')} style={styles.logoImg} resizeMode="cover" />
         </View>
         <Text style={styles.logoText}>
-          Skaphos<Text style={styles.logoDot}>·</Text>TV
+          Skaphos<Text style={[styles.logoDot, { color: logoAccent }]}>·</Text>TV
         </Text>
       </View>
 
@@ -142,7 +155,6 @@ export default function TVTopBar({ active, onNavPress, onSettingsPress, jellyfin
         {showClock && (
           <>
             <Text style={styles.clock}>{clock}</Text>
-            <View style={styles.separator} />
           </>
         )}
         <TVFocusable accessibilityLabel="Ajustes"
@@ -169,13 +181,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xxl,   // 48 → 32
     paddingVertical: 14,              // 20 → 14
     gap: 20,                          // 36 → 20
-    // Scrim: mais opaco + fio inferior + sombra p/ os itens não sumirem sobre hero claro
-    backgroundColor: 'rgba(10,8,16,0.94)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-    elevation: 6,
-    shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+    paddingBottom: 26, // o degradê precisa de cauda abaixo dos itens pra dissolver
   },
+  scrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
 
   // Wordmark
   wordmark: {
@@ -216,9 +224,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     flexShrink: 0,   // rótulo nunca quebra ("Favorito/s")
     borderRadius: radius.full,
-  },
-  navItemFocused: {
-    backgroundColor: 'rgba(167,139,250,0.25)',
   },
   navLabel: {
     fontSize: 14,
@@ -263,11 +268,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.text2,
     fontFamily: fontFamily.medium,
-  },
-  separator: {
-    width: 1,
-    height: 14,
-    backgroundColor: colors.border,
   },
   settingsBtn: {
     width: 34,

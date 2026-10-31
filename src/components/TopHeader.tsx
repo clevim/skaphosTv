@@ -5,6 +5,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius } from '../utils/theme';
+import { useAccentColors } from '../hooks/useAccentColors';
 
 interface Props {
   onSettingsPress?: () => void;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export default function TopHeader({ onSettingsPress, onAddPress }: Props) {
+  const acc = useAccentColors();
   // Status bar agora é visível no mobile — o header precisa descer o inset dela
   const insets = useSafeAreaInsets();
   return (
@@ -27,7 +29,7 @@ export default function TopHeader({ onSettingsPress, onAddPress }: Props) {
 
         <View>
           <Text style={styles.logoText}>
-            SKAPHOS<Text style={styles.logoDot}>·</Text>TV
+            SKAPHOS<Text style={[styles.logoDot, { color: acc.accent }]}>·</Text>TV
           </Text>
           <Text style={styles.logoSub}>IPTV</Text>
         </View>
@@ -36,7 +38,7 @@ export default function TopHeader({ onSettingsPress, onAddPress }: Props) {
       {/* Right actions */}
       <View style={styles.actions}>
         {/* Add / manage lists */}
-        <TVFocusable accessibilityLabel="Adicionar lista" onPress={onAddPress || (() => {})} style={styles.addBtn} hitSlop={9}>
+        <TVFocusable accessibilityLabel="Adicionar lista" onPress={onAddPress || (() => {})} style={[styles.addBtn, { backgroundColor: acc.accent }]} hitSlop={9}>
           <Ionicons name="add" size={17} color={colors.textInverse} />
         </TVFocusable>
 

@@ -1,5 +1,5 @@
 // TVSearchContent.tsx — TV search UI, two-panel layout
-import React, { useRef } from 'react';
+import React, { memo, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, StyleSheet, TextInput, FlatList,
 } from 'react-native';
@@ -7,10 +7,25 @@ import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
-import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
+import { colors, spacing, fontSize, radius, fontFamily, UI_FONT_SCALE } from '../utils/theme';
 import { getSeriesBaseName, cleanGroupName, LAUNCH_YEAR } from '../utils/channelUtils';
 import { resolveChannelType, useStore } from '../store/useStore';
 import { SearchType, useSearchPending } from '../utils/search';
+import { SkSectionHeader } from './sk';
+import { useAccentColors, withAlpha } from '../hooks/useAccentColors';
+
+/** Estilos de chip no acento do tema: selecionado = tinta + borda acento; FOCADO = fundo
+ *  mais forte (o anel vem do TVFocusable) — focado != selecionado. */
+function useChipStyles() {
+  const ac = useAccentColors();
+  return useMemo(() => ({
+    // Ativo = acento suave (estado); foco = clareado neutro + anel (igual ao resto do app).
+    active: { backgroundColor: withAlpha(ac.accent, 0.14), borderColor: 'transparent' },
+    focus: { backgroundColor: 'rgba(255,255,255,0.12)' },
+    activeText: { color: ac.accent2 },
+  }), [ac]);
+}
+
 
 interface Props {
   query: string;
@@ -38,6 +53,7 @@ interface Props {
 function FilterChipsRow({ options, value, onChange }: {
   options: string[]; value: string | null; onChange: (v: string | null) => void;
 }) {
+  const cs = useChipStyles();
   if (options.length === 0) return null;
   return (
     <View style={styles.filterRow}>
@@ -47,11 +63,11 @@ function FilterChipsRow({ options, value, onChange }: {
           <TVFocusable
             key={opt}
             onPress={() => onChange(active ? null : opt)}
-            style={[styles.filterChip, active && styles.filterChipActive]}
-            focusStyle={styles.filterChipFocused}
+            style={[styles.filterChip, active && cs.active]}
+            focusStyle={cs.focus}
             focusScale={1}
           >
-            <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{opt}</Text>
+            <Text style={[styles.filterChipText, active && cs.activeText, active && styles.filterChipTextActive]} numberOfLines={1}>{opt}</Text>
           </TVFocusable>
         );
       })}
@@ -60,7 +76,7 @@ function FilterChipsRow({ options, value, onChange }: {
 }
 
 const TYPE_LABEL: Record<string, string> = {
-  live: 'CANAL', movies: 'FILME', series: 'SÉRIE',
+  live: 'Canal', movies: 'Filme', series: 'Série',
 };
 
 const TYPE_FILTERS: { key: SearchType; label: string }[] = [
@@ -72,16 +88,21 @@ const TYPE_FILTERS: { key: SearchType; label: string }[] = [
 
 const SUGGESTIONS = ['Ao Vivo', 'Filmes', 'Séries', `Lançamentos ${LAUNCH_YEAR}`];
 
-function ResultItem({ channel, onPress, preferred }: {
-  channel: Channel; onPress: () => void; preferred?: boolean;
+// memo + onPress estável (recebe o canal): antes cada render do painel (a cada
+// tecla/foco de filtro) re-renderizava TODAS as linhas montadas, pois a arrow
+// inline `() => onResultPress(item)` nascia nova por item.
+const ResultItem = memo(function ResultItem({ channel, onPress, preferred }: {
+  channel: Channel; onPress: (c: Channel) => void; preferred?: boolean;
 }) {
+  const handlePress = useCallback(() => onPress(channel), [onPress, channel]);
   const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
+  const ac = useAccentColors();
   const type = resolveChannelType(channel);
   const displayName = type === 'series' ? getSeriesBaseName(channel.name) : channel.name;
   const groupClean = channel.group ? cleanGroupName(channel.group) : '';
 
   return (
-    <TVFocusable onPress={onPress} style={styles.resultItem} hasTVPreferredFocus={preferred}>
+    <TVFocusable onPress={handlePress} style={styles.resultItem} hasTVPreferredFocus={preferred}>
       <View style={styles.resultThumb}>
         {channel.logo ? (
           <Image source={channel.logo} style={styles.resultThumbImg} contentFit="contain" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
@@ -92,14 +113,16 @@ function ResultItem({ channel, onPress, preferred }: {
         )}
       </View>
       <View style={styles.resultMeta}>
-        <Text style={styles.resultType}>{TYPE_LABEL[type] || 'CONTEÚDO'}</Text>
         <Text style={[styles.resultName, { fontSize: fontSize.sm * scale }]} numberOfLines={1}>{displayName}</Text>
-        {groupClean ? <Text style={[styles.resultSub, { fontSize: 10 * scale }]} numberOfLines={1}>{groupClean}</Text> : null}
+        <Text style={[styles.resultSub, { fontSize: fontSize.xs * scale }]} numberOfLines={1}>
+          <Text style={styles.resultType}>{TYPE_LABEL[type] || 'Item'}</Text>
+          {groupClean ? `  ·  ${groupClean}` : ''}
+        </Text>
       </View>
-      <Ionicons name="play-circle-outline" size={22} color={colors.text3} />
+      <Ionicons name="play-circle-outline" size={22} color={colors.text2} />
     </TVFocusable>
   );
-}
+});
 
 export default function TVSearchContent({
   query, onQueryChange, results, onResultPress,
@@ -109,6 +132,8 @@ export default function TVSearchContent({
   qualityOptions, filterQuality, onFilterQualityChange,
 }: Props) {
   const inputRef = useRef<TextInput>(null);
+  const cs = useChipStyles();
+  const ac = useAccentColors();
   const hasResults = results.length > 0;
   const isEmpty = query.trim() === '';
   const pending = useSearchPending(query);
@@ -163,11 +188,11 @@ export default function TVSearchContent({
               <TVFocusable
                 key={f.key}
                 onPress={() => onSearchTypeChange(f.key)}
-                style={[styles.filterChip, active && styles.filterChipActive]}
-            focusStyle={styles.filterChipFocused}
+                style={[styles.filterChip, active && cs.active]}
+                focusStyle={cs.focus}
                 focusScale={1}
               >
-                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{f.label}</Text>
+                <Text style={[styles.filterChipText, active && cs.activeText, active && styles.filterChipTextActive]}>{f.label}</Text>
               </TVFocusable>
             );
           })}
@@ -186,26 +211,12 @@ export default function TVSearchContent({
           {isEmpty ? (
             <>
               <Ionicons name="search" size={44} color={colors.text3} style={{ opacity: 0.4 }} />
-              <Text style={styles.stateTitle}>Busque canais, filmes e séries</Text>
-              <Text style={styles.stateSub}>Digite o nome, categoria ou gênero</Text>
-            </>
-          ) : hasResults ? (
-            <>
-              <Text style={styles.statsCount}>{results.length}</Text>
-              <Text style={styles.statsLabel}>resultado{results.length !== 1 ? 's' : ''} encontrado{results.length !== 1 ? 's' : ''}</Text>
+              <Text style={styles.stateTitle}>{'Busque canais, filmes e séries'}</Text>
+              <Text style={styles.stateSub}>digite o nome, categoria ou gênero</Text>
             </>
           ) : pending ? (
-            <>
-              <Ionicons name="hourglass-outline" size={44} color={colors.text3} style={{ opacity: 0.4 }} />
-              <Text style={styles.stateTitle}>Buscando…</Text>
-            </>
-          ) : (
-            <>
-              <Ionicons name="alert-circle-outline" size={44} color={colors.text3} style={{ opacity: 0.4 }} />
-              <Text style={styles.stateTitle}>Sem resultados para "{query.trim()}"</Text>
-              <Text style={styles.stateSub}>Tente outro termo ou limpe os filtros</Text>
-            </>
-          )}
+            <Text style={styles.stateSub}>{'Buscando…'}</Text>
+          ) : null /* contagem já mora no título da lista à direita (sem "número herói") */}
         </View>
       </View>
 
@@ -216,8 +227,8 @@ export default function TVSearchContent({
             {recent.length > 0 && (
               <>
                 <View style={styles.recentHeaderRow}>
-                  <Text style={styles.sectionLabel}>BUSCAS RECENTES</Text>
-                  <TVFocusable onPress={onClearRecent} focusScale={1}>
+                  <SkSectionHeader title="buscas recentes" />
+                  <TVFocusable onPress={onClearRecent} focusScale={1} style={{ marginLeft: 12 }}>
                     <Text style={styles.recentClear}>Limpar</Text>
                   </TVFocusable>
                 </View>
@@ -229,23 +240,25 @@ export default function TVSearchContent({
                 ))}
               </>
             )}
-            <Text style={[styles.sectionLabel, recent.length > 0 && { marginTop: spacing.lg }]}>SUGESTÕES</Text>
+            <View style={[styles.sectionLabel, recent.length > 0 && { marginTop: spacing.lg }]}>
+              <SkSectionHeader title="sugestões" />
+            </View>
             {SUGGESTIONS.map((s) => (
               <TVFocusable
                 key={s}
                 onPress={() => pickQuery(s)}
                 style={styles.suggestionItem}
               >
-                <Ionicons name="trending-up-outline" size={14} color={colors.text3} />
+                <Ionicons name="search-outline" size={14} color={colors.text3} />
                 <Text style={styles.suggestionText}>{s}</Text>
               </TVFocusable>
             ))}
           </>
         ) : hasResults ? (
           <>
-            <Text style={styles.sectionLabel}>
-              {results.length} RESULTADO{results.length !== 1 ? 'S' : ''}
-            </Text>
+            <View style={styles.sectionLabel}>
+              <SkSectionHeader title={`${results.length} resultado${results.length !== 1 ? 's' : ''}`} />
+            </View>
             {/* Virtualizada: eram até 100 linhas montadas de uma vez, cada uma
                 com imagem e listener de foco — caro demais pra uma Fire Stick.
                 removeClippedSubviews FALSO porque clipar destrói a view nativa
@@ -260,7 +273,7 @@ export default function TVSearchContent({
               renderItem={({ item, index }) => (
                 <ResultItem
                   channel={item}
-                  onPress={() => onResultPress(item)}
+                  onPress={onResultPress}
                   preferred={index === 0 && takeResultFocus()}
                 />
               )}
@@ -282,7 +295,7 @@ export default function TVSearchContent({
             <Text style={styles.rightEmptyTitle}>
               {pending ? 'Buscando…' : `Sem resultados para "${query.trim()}"`}
             </Text>
-            {!pending && <Text style={styles.rightEmptySub}>Tente outro termo ou limpe os filtros</Text>}
+            {!pending && <Text style={styles.rightEmptySub}>tente outro termo ou limpe os filtros</Text>}
           </View>
         )}
       </View>
@@ -292,8 +305,8 @@ export default function TVSearchContent({
 
 const styles = StyleSheet.create({
   rightEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
-  rightEmptyTitle: { fontSize: fontSize.lg, fontWeight: '600', color: colors.text2, textAlign: 'center' },
-  rightEmptySub: { fontSize: fontSize.sm, color: colors.text3, textAlign: 'center' },
+  rightEmptyTitle: { fontFamily: fontFamily.semiBold, fontSize: fontSize.lg, fontWeight: '600', color: colors.text2, textAlign: 'center' },
+  rightEmptySub: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.text3, textAlign: 'center' },
   root: {
     flex: 1,
     flexDirection: 'row',
@@ -310,6 +323,7 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   panelTitle: {
+    fontFamily: fontFamily.semiBold,
     fontSize: 28,
     fontWeight: '600',
     color: colors.text1,
@@ -341,16 +355,12 @@ const styles = StyleSheet.create({
     borderRadius: 999, backgroundColor: colors.bg1,
     borderWidth: 1, borderColor: colors.border,
   },
-  // Selecionado = violeta sólido discreto; FOCADO = anel violeta grosso + fundo claro (mais forte)
-  filterChipActive: { backgroundColor: 'rgba(167,139,250,0.10)', borderColor: 'transparent' },
-  // Foco = só o fundo; o anel vem do TVFocusable (um único token de foco).
-  filterChipFocused: { backgroundColor: 'rgba(167,139,250,0.30)' },
-  filterChipText: { fontSize: fontSize.sm, fontWeight: '500', color: colors.text1 },
-  filterChipTextActive: { color: colors.accent2, fontWeight: '700' },
+  filterChipText: { fontFamily: fontFamily.medium, fontSize: fontSize.sm, fontWeight: '500', color: colors.text1 },
+  filterChipTextActive: { fontWeight: '700' },
   recentHeaderRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
-  recentClear: { fontSize: fontSize.xs, color: colors.accent, fontWeight: '500' },
+  recentClear: { fontFamily: fontFamily.semiBold, fontSize: fontSize.xs, color: colors.text2 },
   stateArea: {
     flex: 1,
     alignItems: 'center',
@@ -358,26 +368,29 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   stateTitle: {
+    fontFamily: fontFamily.semiBold,
     fontSize: fontSize.md,
     fontWeight: '600',
     color: colors.text1,
     marginTop: spacing.sm,
   },
   stateSub: {
+    fontFamily: fontFamily.regular,
     fontSize: fontSize.xs,
-    color: colors.text3,
+    color: colors.text2,
     textAlign: 'center',
   },
   statsCount: {
-    fontSize: 72,
+    fontSize: 56,
     fontWeight: '700',
     color: colors.accent,
-    letterSpacing: -2,
-    lineHeight: 78,
+    letterSpacing: -1.5,
+    lineHeight: 62,
   },
   statsLabel: {
+    fontFamily: fontFamily.medium,
     fontSize: fontSize.xs,
-    color: colors.text3,
+    color: colors.text2,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
@@ -388,14 +401,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xl,
   },
-  sectionLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.text3,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    marginBottom: spacing.sm,
-  },
+  sectionLabel: { marginBottom: spacing.sm },
 
   // Result items
   resultItem: {
@@ -422,9 +428,9 @@ const styles = StyleSheet.create({
   },
   resultThumbText: { fontSize: 12, fontWeight: '700', color: colors.text3 },
   resultMeta: { flex: 1 },
-  resultType: { fontSize: 9, color: colors.text3, letterSpacing: 0.6, fontWeight: '600' },
-  resultName: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text1, marginTop: 1 },
-  resultSub: { fontSize: 10, color: colors.text3, marginTop: 2 },
+  resultType: { fontFamily: fontFamily.medium, fontSize: fontSize.xs, color: colors.text3 },
+  resultName: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text1 },
+  resultSub: { fontSize: fontSize.xs, color: colors.text2, marginTop: 2 },
 
   // Suggestions
   suggestionItem: {

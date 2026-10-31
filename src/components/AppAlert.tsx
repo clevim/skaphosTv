@@ -14,7 +14,8 @@ import { View, Text, StyleSheet, Modal } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { create } from 'zustand';
 import TVFocusable from './TVFocusable';
-import { colors, spacing, fontSize, radius, shadow } from '../utils/theme';
+import { colors, spacing, fontSize, radius, shadow, fontFamily } from '../utils/theme';
+import { useAccentColors } from '../hooks/useAccentColors';
 
 export interface AlertButton {
   text: string;
@@ -52,6 +53,7 @@ function hide() {
 
 export default function AppAlertHost() {
   const { visible, title, message, buttons } = useAlertStore();
+  const ac = useAccentColors();
   if (!visible) return null;
 
   const hasDestructive = buttons.some(b => b.style === 'destructive');
@@ -83,7 +85,7 @@ export default function AppAlertHost() {
               const variant =
                 btn.style === 'destructive' ? styles.btnDestructive
                 : btn.style === 'cancel'      ? styles.btnCancel
-                : styles.btnDefault;
+                : [styles.btnDefault, { backgroundColor: ac.accent3 }];
               const textVariant =
                 btn.style === 'destructive' ? styles.btnDestructiveText
                 : btn.style === 'cancel'      ? styles.btnCancelText
@@ -109,7 +111,7 @@ export default function AppAlertHost() {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: colors.overlay,
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.xl,
@@ -117,7 +119,7 @@ const styles = StyleSheet.create({
   box: {
     ...shadow.floating,
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 460,
     backgroundColor: colors.bg1,
     borderRadius: radius.xl,
     borderWidth: 1,
@@ -125,9 +127,9 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.md,
   },
-  title: { fontSize: fontSize.lg, fontWeight: '600', color: colors.text1 },
-  message: { fontSize: 13.5, color: colors.text2, lineHeight: 20 },
-  actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
+  title: { fontSize: fontSize.lg, fontFamily: fontFamily.semiBold, color: colors.text1 },
+  message: { fontSize: fontSize.md, fontFamily: fontFamily.regular, color: colors.text2, lineHeight: 22 },
+  actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   // Empilhado (3+ botões): ordem natural do array (Cancelar por último = embaixo).
   actionsColumn: { flexDirection: 'column' },
   // flex fica FORA da base: no modo linha os botões dividem a largura (flex:1);
@@ -140,14 +142,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    height: 44,
+    height: 48,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
   },
-  btnDefault: { backgroundColor: colors.accent3 },
-  btnDefaultText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.white },
+  btnDefault: { backgroundColor: colors.accent3 }, // sobrescrito pelo tema (inline)
+  btnDefaultText: { fontSize: fontSize.md, fontFamily: fontFamily.semiBold, color: colors.white },
   btnCancel: { backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border },
-  btnCancelText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text2 },
-  btnDestructive: { backgroundColor: colors.red },
-  btnDestructiveText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.white },
+  btnCancelText: { fontSize: fontSize.md, fontFamily: fontFamily.semiBold, color: colors.text2 },
+  btnDestructive: { backgroundColor: '#dc2626' }, // red 600: texto branco >= 4.5:1
+  btnDestructiveText: { fontSize: fontSize.md, fontFamily: fontFamily.semiBold, color: colors.white },
 });

@@ -73,7 +73,8 @@ export default function ExpandableText({ text, style, collapsedLines = 4, toggle
 }
 
 const s = StyleSheet.create({
-  toggle: { color: colors.accent, marginTop: 6, fontWeight: '600', fontSize: 12 },
+  // Neutro: "ver mais" é affordance, não destaque — o acento fica pras ações.
+  toggle: { color: colors.text2, marginTop: 6, fontFamily: fontFamily.semiBold, fontSize: 13 },
   overlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.75)',
     alignItems: 'center', justifyContent: 'center', padding: 32,
@@ -89,9 +90,9 @@ const s = StyleSheet.create({
   closeBtn: {
     marginTop: 20, alignSelf: 'flex-start',
     paddingHorizontal: 28, paddingVertical: 12, borderRadius: 10,
-    backgroundColor: colors.accent,
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
-  // Foco CLAREIA o botão accent — o FOCUS_BG translúcido padrão o escurecia
-  closeBtnFocused: { backgroundColor: colors.accent2 },
-  closeText: { color: colors.textInverse, fontSize: 15, fontWeight: '700' },
+  // Fechar é secundário: vidro neutro que clareia no foco (sem acento fixo violeta).
+  closeBtnFocused: { backgroundColor: 'rgba(255,255,255,0.22)' },
+  closeText: { color: colors.text1, fontSize: 15, fontFamily: fontFamily.semiBold },
 });

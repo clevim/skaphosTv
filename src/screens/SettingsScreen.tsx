@@ -10,20 +10,21 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useStore } from '../store/useStore';
 import TVFocusable from '../components/TVFocusable';
-import SonarLine from '../components/SonarLine';
 import {
   checkOtaUpdate, reloadApp, fetchLatestRelease, isNewerVersion,
   downloadAndInstallApk,
   UpdateBlockedError,
 } from '../utils/appUpdate';
 import { APP_VERSION, VERSION_LABEL } from '../utils/version';
-import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
+import { colors, spacing, fontSize, radius, fontFamily, UI_FONT_SCALE } from '../utils/theme';
 import { IS_TV, IS_WEB, IS_NATIVE_TV } from '../utils/tvDetect';
 import { isAfrSupported } from '../utils/displayMode';
 import { showAlert } from '../components/AppAlert';
 import { IS_DEV_BUILD, dlog } from '../utils/debugLog';
 import { shareBackup, downloadBackupWeb, copyBackupToClipboard, pasteFromClipboard, pickBackupFileWeb, importBackup } from '../utils/backup';
-import { useThemeStore } from '../store/useThemeStore';
+import { useThemeStore, THEME_PRESETS } from '../store/useThemeStore';
+import { useAccentColors, withAlpha } from '../hooks/useAccentColors';
+import { SkSectionHeader, SkDecodeText } from '../components/sk';
 import { useUsageStats, topChannelFor, formatWatchTime, computeWrapped, WrappedSummary } from '../store/usageStats';
 import WrappedModal from '../components/WrappedModal';
 import { getAchievements, Achievement } from '../utils/achievements';
@@ -67,6 +68,13 @@ function formatCreatedAt(unixStr: string): string {
 function maskUser(u?: string): string {
   if (!u) return '—';
   return u[0] + '•'.repeat(Math.min(u.length - 1, 9));
+}
+
+/** URL M3U costuma carregar usuário/senha na query: mostra só o host (TV compartilhada). */
+function hostOnly(u?: string): string {
+  if (!u) return '—';
+  const m = u.match(/^[a-z]+:\/\/([^/?#]+)/i);
+  return m ? m[1] : '—';
 }
 
 function statusColor(status: string): string {
@@ -125,25 +133,25 @@ const BUFFER_OPTIONS = [
 function SettingsGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <View style={styles.group}>
-      {/* Linha de sonda — o título seguido da varredura violeta que se dissolve */}
+      {/* ponytail: SkSectionHeader (não focável) substitui título + SonarLine; fio estático do DNA */}
       <View style={styles.groupHeader}>
-        <Text style={styles.groupTitle}>{title}</Text>
-        <SonarLine />
+        <SkSectionHeader title={title} />
       </View>
       <View style={styles.groupBox}>{children}</View>
     </View>
   );
 }
 
-function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle, onPress }: {
-  icon: string; label: string; sub?: string; value?: string; valueColor?: string;
+function SettingsRow({ icon, iconColor, label, sub, value, valueColor, toggle, on, onToggle, onPress }: {
+  icon: string; iconColor?: string; label: string; sub?: string; value?: string; valueColor?: string;
   toggle?: boolean; on?: boolean; onToggle?: (v: boolean) => void;
   onPress?: () => void;
 }) {
   const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
+  const { accent } = useAccentColors();
   const content = (
     <View style={styles.row}>
-      <Ionicons name={icon as any} size={17} color={colors.text3} style={styles.rowIcon} />
+      <Ionicons name={icon as any} size={17} color={iconColor ?? colors.text3} style={styles.rowIcon} />
       <View style={{ flex: 1 }}>
         <Text style={[styles.rowLabel, { fontSize: 14.5 * scale }]}>{label}</Text>
         {sub && <Text style={[styles.rowSub, { fontSize: fontSize.xs * scale }]}>{sub}</Text>}
@@ -153,7 +161,7 @@ function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle
           value={on}
           onValueChange={onToggle}
           // off: text3 (#8a8a95) dá ≥3:1 contra o card (WCAG 1.4.11); antes ≈1,3:1
-          trackColor={{ true: colors.accent, false: colors.text3 }}
+          trackColor={{ true: accent, false: colors.text3 }}
           thumbColor={colors.white}
           // RNW: sem isto o thumb ligado usa o verde default da lib no web
           {...({ activeThumbColor: colors.white } as any)}
@@ -182,7 +190,7 @@ function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle
   // dentro do próprio handler.
   if (onPress) {
     return (
-      <TVFocusable onPress={onPress} style={{ borderRadius: 0 }} focusScale={1}>
+      <TVFocusable onPress={onPress} borderRadius={10} focusScale={1}>
         {content}
       </TVFocusable>
     );
@@ -192,11 +200,12 @@ function SettingsRow({ icon, label, sub, value, valueColor, toggle, on, onToggle
 
 function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
   icon: string; label: string; sub?: string;
-  options: readonly { value: string; label: string }[];
+  options: readonly { value: string; label: string; color?: string }[];
   value: string;
   onChange: (v: string) => void;
 }) {
   const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
+  const { accent, accentSoft } = useAccentColors();
   const [open, setOpen] = useState(false);
   const current = options.find(o => o.value === value) ?? options[0];
   // ponytail: até 3 opções o ciclo é previsível; acima disso, lista modal (S2).
@@ -215,8 +224,9 @@ function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
             {sub && <Text style={[styles.rowSub, { fontSize: fontSize.xs * scale }]}>{sub}</Text>}
           </View>
           <View style={styles.rowChip}>
+            {current.color && <View style={[backupStyles.swatchSm, { backgroundColor: current.color }]} />}
             <Text numberOfLines={1} style={[styles.rowChipText, { fontSize: 12 * scale }]}>{current.label}</Text>
-            <Ionicons name={useModal ? 'chevron-forward' : 'swap-horizontal-outline'} size={11} color={colors.accent} />
+            <Ionicons name={useModal ? 'chevron-forward' : 'swap-horizontal-outline'} size={11} color={colors.text3} />
           </View>
         </View>
       </TVFocusable>
@@ -225,24 +235,28 @@ function SettingsRowSelect({ icon, label, sub, options, value, onChange }: {
           <View style={backupStyles.overlay}>
             <View style={backupStyles.box}>
               <Text style={backupStyles.title}>{label}</Text>
+              {/* Lista longa (9 temas) estoura a altura da TV: rola dentro do modal */}
+              <ScrollView style={backupStyles.optionScroll} contentContainerStyle={backupStyles.optionScrollInner}>
               {options.map(o => {
                 const selected = o.value === current.value;
                 return (
                   <TVFocusable
                     key={o.value}
                     onPress={() => { onChange(o.value); setOpen(false); }}
-                    style={backupStyles.optionRow}
+                    style={[backupStyles.optionRow, selected && { borderColor: accent, backgroundColor: accentSoft }]}
                     hasTVPreferredFocus={selected}
                   >
                     <Ionicons
                       name={selected ? 'radio-button-on' : 'radio-button-off'}
                       size={18}
-                      color={selected ? colors.accent : colors.text3}
+                      color={selected ? accent : colors.text3}
                     />
+                    {o.color && <View style={[backupStyles.swatch, { backgroundColor: o.color }]} />}
                     <Text style={backupStyles.optionText}>{o.label}</Text>
                   </TVFocusable>
                 );
               })}
+              </ScrollView>
               <TVFocusable onPress={() => setOpen(false)} style={backupStyles.btnCancel}>
                 <Text style={backupStyles.btnCancelText}>Cancelar</Text>
               </TVFocusable>
@@ -270,6 +284,26 @@ function SeasonalThemeRow() {
       toggle
       on={seasonalEnabled}
       onToggle={setSeasonalEnabled}
+    />
+  );
+}
+
+// ── ThemePresetRow ──────────────────────────────────────────────────────────
+// Seletor manual de tema (modal de lista via SettingsRowSelect). Com o sazonal
+// ativo numa data comemorativa, a escolha é preservada e só vale depois.
+const THEME_OPTIONS = THEME_PRESETS.map(p => ({ value: p.key, label: p.label, color: p.primary }));
+
+function ThemePresetRow() {
+  const manualKey = useThemeStore(s => s.manualPreset.key);
+  const setPreset = useThemeStore(s => s.setPreset);
+  return (
+    <SettingsRowSelect
+      icon="color-palette-outline"
+      label="Tema"
+      sub="Cor de destaque do app"
+      options={THEME_OPTIONS}
+      value={manualKey}
+      onChange={k => { const p = THEME_PRESETS.find(x => x.key === k); if (p) setPreset(p); }}
     />
   );
 }
@@ -526,6 +560,7 @@ function AchievementsRow() {
 }
 
 function BackupRows() {
+  const { accent, accent3 } = useAccentColors();
   const [showExport, setShowExport] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -596,7 +631,7 @@ function BackupRows() {
                 style={backupStyles.optionRow}
                 hasTVPreferredFocus
               >
-                <Ionicons name="cloud-download-outline" size={18} color={colors.accent} />
+                <Ionicons name="cloud-download-outline" size={18} color={accent} />
                 <Text style={backupStyles.optionText}>Baixar arquivo .json</Text>
               </TVFocusable>
             )}
@@ -606,7 +641,7 @@ function BackupRows() {
                 style={backupStyles.optionRow}
                 hasTVPreferredFocus={!IS_WEB}
               >
-                <Ionicons name="share-social-outline" size={18} color={colors.accent} />
+                <Ionicons name="share-social-outline" size={18} color={accent} />
                 <Text style={backupStyles.optionText}>Compartilhar / salvar arquivo</Text>
               </TVFocusable>
             )}
@@ -614,7 +649,7 @@ function BackupRows() {
               onPress={() => runExport(() => copyBackupToClipboard(), 'Copiado — cole em outro aparelho ou app.')}
               style={backupStyles.optionRow}
             >
-              <Ionicons name="copy-outline" size={18} color={colors.accent} />
+              <Ionicons name="copy-outline" size={18} color={accent} />
               <Text style={backupStyles.optionText}>Copiar para a área de transferência</Text>
             </TVFocusable>
 
@@ -661,7 +696,7 @@ function BackupRows() {
               <TVFocusable onPress={() => setShowImport(false)} style={backupStyles.btnCancel}>
                 <Text style={backupStyles.btnCancelText}>Cancelar</Text>
               </TVFocusable>
-              <TVFocusable onPress={handleImport} style={backupStyles.btnConfirm}>
+              <TVFocusable onPress={handleImport} style={[backupStyles.btnConfirm, { backgroundColor: accent3 }]}>
                 <Text style={backupStyles.btnConfirmText}>{importBusy ? 'Importando…' : 'Importar'}</Text>
               </TVFocusable>
             </View>
@@ -685,6 +720,10 @@ const backupStyles = StyleSheet.create({
   },
   title: { fontSize: fontSize.lg, fontWeight: '600', color: colors.text1 },
   desc: { fontSize: 12.5, color: colors.text2 },
+  optionScroll: { maxHeight: 300, flexGrow: 0 },
+  optionScrollInner: { gap: spacing.sm },
+  swatch: { width: 14, height: 14, borderRadius: 7, borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)' },
+  swatchSm: { width: 8, height: 8, borderRadius: 4, marginRight: 2 },
   optionRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingVertical: 13, paddingHorizontal: 14,
@@ -714,7 +753,6 @@ const backupStyles = StyleSheet.create({
   btnCancelText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text2 },
   btnConfirm: {
     flex: 1, height: 44, borderRadius: radius.md,
-    backgroundColor: colors.accent3,
     alignItems: 'center', justifyContent: 'center',
   },
   btnConfirmText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.white },
@@ -737,6 +775,23 @@ function UsageRows({ sourceId }: { sourceId: string }) {
   );
 }
 
+/** Linha de carregamento alinhada ao grid das SettingsRow (ícone 20 + gap 12). */
+function LoadingRow({ text }: { text: string }) {
+  const { accent } = useAccentColors();
+  const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
+  return (
+    <View style={styles.row}>
+      <ActivityIndicator size="small" color={accent} style={styles.rowIcon} />
+      <Text style={[styles.rowSub, { fontSize: 12 * scale, marginTop: 0 }]}>{text}</Text>
+    </View>
+  );
+}
+
+function TrialRow() {
+  const { accent } = useAccentColors();
+  return <SettingsRow icon="flask-outline" iconColor={accent} label="Tipo" value="Trial" valueColor={accent} />;
+}
+
 function XtreamSourceCard({ source, authInfo }: {
   source: { id: string; name: string; host?: string; username?: string; password?: string; channelCount?: number };
   authInfo: XtreamUserInfo | 'loading' | 'error' | undefined;
@@ -754,18 +809,16 @@ function XtreamSourceCard({ source, authInfo }: {
       <SettingsRow icon="layers-outline"      label="Canais"   value={`${source.channelCount ?? 0} itens`} />
       <UsageRows sourceId={source.id} />
       {isLoading && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10 }}>
-          <ActivityIndicator size="small" color={colors.accent} />
-          <Text style={{ fontSize: 12, color: colors.text3 }}>Verificando conta...</Text>
-        </View>
+        <LoadingRow text="> Verificando conta…" />
       )}
       {isError && (
-        <SettingsRow icon="warning-outline" label="Conta" value="Sem resposta do servidor" valueColor={colors.text3} />
+        <SettingsRow icon="warning-outline" iconColor={colors.yellow} label="Conta" value="Sem resposta do servidor" />
       )}
       {info && (
         <>
           <SettingsRow
             icon="checkmark-circle-outline"
+            iconColor={statusColor(info.status)}
             label="Status"
             value={statusLabel(info.status)}
             valueColor={statusColor(info.status)}
@@ -787,7 +840,7 @@ function XtreamSourceCard({ source, authInfo }: {
             value={`${info.active_cons} de ${info.max_connections} ativa${info.max_connections !== '1' ? 's' : ''}`}
           />
           {info.is_trial === '1' && (
-            <SettingsRow icon="flask-outline" label="Tipo" value="Trial" valueColor={colors.accent} />
+            <TrialRow />
           )}
         </>
       )}
@@ -820,17 +873,14 @@ function JellyfinSourceCard({ source }: {
       <SettingsRow icon="layers-outline"    label="Conteúdo"  value={`${source.channelCount ?? 0} itens`} />
       <UsageRows sourceId={source.id} />
       {serverInfo === 'loading' && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10 }}>
-          <ActivityIndicator size="small" color="#00a4dc" />
-          <Text style={{ fontSize: 12, color: colors.text3 }}>Verificando servidor...</Text>
-        </View>
+        <LoadingRow text="> Verificando servidor…" />
       )}
       {serverInfo === 'error' && (
-        <SettingsRow icon="warning-outline" label="Status" value="Sem resposta" valueColor={colors.text3} />
+        <SettingsRow icon="warning-outline" iconColor={colors.yellow} label="Status" value="Sem resposta" />
       )}
       {info && (
         <>
-          <SettingsRow icon="checkmark-circle-outline" label="Status"  value="Conectado"   valueColor={colors.green} />
+          <SettingsRow icon="checkmark-circle-outline" iconColor={colors.green} label="Status"  value="Conectado"   valueColor={colors.green} />
           {info.ServerName && <SettingsRow icon="tv-outline"         label="Nome"    value={info.ServerName} />}
           {info.Version    && <SettingsRow icon="code-slash-outline" label="Versão"  value={`v${info.Version}`} />}
         </>
@@ -850,7 +900,7 @@ function PlaybackRows({ settings, updateSettings }: {
   return (
     <>
       <SettingsRow
-        icon="sparkles-outline"
+        icon="play-forward-outline"
         label="Reprodução automática"
         toggle
         on={settings.autoPlay}
@@ -865,7 +915,7 @@ function PlaybackRows({ settings, updateSettings }: {
         onChange={v => updateSettings({ bufferSize: parseInt(v, 10) })}
       />
       <SettingsRowSelect
-        icon="refresh-circle-outline"
+        icon="timer-outline"
         label="Retomada após travar"
         sub="Quanto o player junta antes de voltar — menos espera, porém mais chance de travar de novo"
         options={REBUFFER_OPTIONS}
@@ -905,7 +955,7 @@ function FrameRateRow({ settings, updateSettings }: {
 
   return (
     <SettingsRow
-      icon="tv-outline"
+      icon="pulse-outline"
       label="Ajustar taxa da TV ao vídeo"
       sub="Tira o solavanco de filmes 24p — a tela pisca uma vez ao iniciar"
       toggle
@@ -953,6 +1003,7 @@ function AccountCard({ sources, authInfoMap }: {
   sources: any[];
   authInfoMap: Record<string, XtreamUserInfo | 'loading' | 'error'>;
 }) {
+  const { accent, accent3, accentSoft } = useAccentColors();
   // Resumo das fontes: "3 listas · 2 Xtream · 1 Jellyfin" (só os tipos presentes)
   const byType = (t: string) => sources.filter(s => s.type === t).length;
   const parts = [
@@ -987,20 +1038,14 @@ function AccountCard({ sources, authInfoMap }: {
   }
 
   return (
+    // Superfície tonal igual às caixas de grupo: o ícone já é a marca (sem névoa/borda de acento).
     <View style={styles.accountCard}>
-      {/* Névoa violeta diagonal — o único momento "de marca" da tela */}
-      <LinearGradient
-        colors={['rgba(124,58,237,0.22)', 'rgba(124,58,237,0.03)']}
-        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
       <View style={styles.accountLogo}>
         <Image source={require('../../assets/icon.png')} style={styles.accountLogoImg} contentFit="cover" />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.accountName}>
-          Skaphos<Text style={{ color: colors.accent }}>·</Text>TV <Text style={styles.accountVersion}>v{APP_VERSION}</Text>
+          SkaphosTV <Text style={styles.accountVersion}>v{APP_VERSION}</Text>
         </Text>
         <Text style={styles.accountFacts}>{parts}</Text>
         {statusText && (
@@ -1036,11 +1081,11 @@ function CategoryPanel({
   if (category === 'reproducao') {
     return (
       <>
-        <SettingsGroup title="Reprodução">
+        <SettingsGroup title="Player">
           <PlaybackRows settings={settings} updateSettings={updateSettings} />
         </SettingsGroup>
         <InterfaceGroup settings={settings} updateSettings={updateSettings} />
-        <SettingsGroup title="Legenda e fonte">
+        <SettingsGroup title="Legenda e texto">
           <SettingsRowSelect
             icon="text-outline"
             label="Tamanho da legenda"
@@ -1100,7 +1145,7 @@ function CategoryPanel({
         ))}
         {sources.filter(s => s.type === 'm3u').map(s => (
           <SettingsGroup key={s.id} title={s.name}>
-            <SettingsRow icon="link-outline"   label="URL"    value={s.url ?? '—'} />
+            <SettingsRow icon="link-outline"   label="URL"    value={hostOnly(s.url)} />
             <SettingsRow icon="layers-outline" label="Canais" value={`${s.channelCount ?? 0} itens`} />
             <UsageRows sourceId={s.id} />
           </SettingsGroup>
@@ -1117,7 +1162,7 @@ function CategoryPanel({
     <>
       <SettingsGroup title="Notificações">
         <SettingsRow
-          icon="tv-outline"
+          icon="cloud-offline-outline"
           label="Canal indisponível"
           sub="Avisa quando um canal ao vivo para de responder"
           toggle
@@ -1133,7 +1178,7 @@ function CategoryPanel({
           onToggle={v => updateSettings({ notifyCatalogUpdate: v })}
         />
         <SettingsRow
-          icon="calendar-outline"
+          icon="alarm-outline"
           label="Fonte prestes a vencer"
           sub="Avisa quando a assinatura Xtream está perto do vencimento"
           toggle
@@ -1143,14 +1188,14 @@ function CategoryPanel({
       </SettingsGroup>
       <SettingsGroup title="Estatísticas">
         <SettingsRow
-          icon="sparkles-outline"
+          icon="eye-outline"
           label="Mostrar resumo do ano"
           toggle
           on={settings.showWrapped}
           onToggle={v => updateSettings({ showWrapped: v })}
         />
         <SettingsRow
-          icon="trophy-outline"
+          icon="eye-outline"
           label="Mostrar conquistas"
           toggle
           on={settings.showAchievements}
@@ -1162,8 +1207,9 @@ function CategoryPanel({
       <SettingsGroup title="Backup">
         <BackupRows />
       </SettingsGroup>
-      <SettingsGroup title="Sistema">
+      <SettingsGroup title="Aplicativo">
         <SettingsRow icon="language-outline"           label="Idioma"   value="Português (Brasil)" />
+        <ThemePresetRow />
         <SeasonalThemeRow />
         <DevUpdateUrlRow />
         <UpdateCheckRow />
@@ -1179,6 +1225,7 @@ function CategoryPanel({
 export default function SettingsScreen() {
   // Devolve o foco do D-pad pro item de onde o usuário saiu ao voltar pra cá
   useTVFocusMemory();
+  const { accent, accent3, accentSoft } = useAccentColors();
 
   const navigation = useNavigation();
   const settings       = useStore(s => s.settings);
@@ -1210,12 +1257,7 @@ export default function SettingsScreen() {
         {/* Sidebar */}
         <View style={tvStyles.sidebar}>
           {/* Identidade + título da tela — a sidebar abria direto nas categorias */}
-          <View style={tvStyles.sidebarHeader}>
-            <View style={tvStyles.sidebarLogo}>
-              <Image source={require('../../assets/icon.png')} style={tvStyles.sidebarLogoImg} contentFit="cover" />
-            </View>
-            <Text style={tvStyles.sidebarTitle}>Ajustes</Text>
-          </View>
+          <Text style={tvStyles.sidebarTitle}>Ajustes</Text>
           <View style={tvStyles.categoryList}>
             {CATEGORIES.map((cat, i) => {
               const active = cat.key === activeCategory;
@@ -1223,41 +1265,39 @@ export default function SettingsScreen() {
                 <TVFocusable
                   key={cat.key}
                   onPress={() => setActiveCategory(cat.key)}
-                  style={[tvStyles.categoryItem, active && tvStyles.categoryItemActive]}
+                  // Focar já abre a categoria (padrão de ajustes de TV): → entra no painel
+                  // sem precisar de OK. São só 3 itens, a troca de painel é barata.
+                  onFocus={() => setActiveCategory(cat.key)}
+                  style={tvStyles.categoryItem}
                   hasTVPreferredFocus={i === 0}
-                  borderRadius={radius.lg}
+                  focusScale={1}
+                  borderRadius={radius.md}
                 >
-                  {/* Ícone inline + dot violeta no ativo — mesma linguagem dos
-                      grupos (tick) e do chip de valor; nada de caixinhas */}
-                  <Ionicons name={cat.icon as any} size={18} color={active ? colors.accent : colors.text3} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[tvStyles.categoryLabel, active && tvStyles.categoryLabelActive]}>
-                      {cat.label}
-                    </Text>
-                    <Text style={tvStyles.categorySub} numberOfLines={1}>{cat.sub}</Text>
-                  </View>
+                  {/* Ativo = acento no ícone + texto forte; sem pílula preenchida
+                      (o anel já marca o foco). Subtítulo mora no cabeçalho do painel. */}
+                  <Ionicons name={cat.icon as any} size={18} color={active ? accent : colors.text3} />
+                  <Text style={[tvStyles.categoryLabel, active && tvStyles.categoryLabelActive]} numberOfLines={1}>
+                    {cat.label}
+                  </Text>
                 </TVFocusable>
               );
             })}
           </View>
 
           <View style={tvStyles.sidebarFooter}>
-            <Text style={tvStyles.madeBy}>made by clevs · v{APP_VERSION}</Text>
-            <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={tvStyles.backBtn}>
-              <Ionicons name="chevron-back" size={14} color={colors.text2} />
-              <Text style={tvStyles.backBtnText}>Voltar</Text>
-            </TVFocusable>
+            {/* Voltar só no web; na TV física é a tecla do controle. */}
+            {IS_WEB && (
+              <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={tvStyles.backBtn} focusScale={1}>
+                <Ionicons name="chevron-back" size={14} color={colors.text2} />
+                <Text style={tvStyles.backBtnText}>Voltar</Text>
+              </TVFocusable>
+            )}
+            <Text style={tvStyles.madeBy}>{`SkaphosTV ${APP_VERSION} · made by clevs`}</Text>
           </View>
         </View>
 
         {/* Right panel */}
         <View style={tvStyles.panel}>
-          {/* Névoa violeta descendo do topo — profundidade sem decoração */}
-          <LinearGradient
-            colors={['rgba(124,58,237,0.10)', 'rgba(10,8,16,0)']}
-            style={tvStyles.panelGlow}
-            pointerEvents="none"
-          />
           <View style={tvStyles.panelHeader}>
             <Text style={tvStyles.panelTitle}>
               {CATEGORIES.find(c => c.key === activeCategory)?.label}
@@ -1288,7 +1328,7 @@ export default function SettingsScreen() {
     <View style={styles.root}>
       {/* Névoa violeta descendo do topo — dá profundidade ao header sem decorar */}
       <LinearGradient
-        colors={['rgba(124,58,237,0.14)', 'rgba(10,8,16,0)']}
+        colors={[withAlpha(accent3, 0.14), 'rgba(10,8,16,0)']}
         style={styles.headerGlow}
         pointerEvents="none"
       />
@@ -1296,7 +1336,7 @@ export default function SettingsScreen() {
         <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.back}>
           <Ionicons name="chevron-back" size={20} color={colors.text2} />
         </TVFocusable>
-        <Text style={styles.title}>Ajustes</Text>
+        <SkDecodeText text="Ajustes" style={styles.title} />
       </View>
 
       {/* Controle segmentado (ícone sobre rótulo) — as 3 categorias sempre
@@ -1308,10 +1348,10 @@ export default function SettingsScreen() {
             <TVFocusable
               key={cat.key}
               onPress={() => setActiveCategory(cat.key)}
-              style={[styles.segment, active && styles.segmentActive]}
+              style={[styles.segment, active && styles.segmentActive, active && { backgroundColor: accentSoft }]}
               borderRadius={12}
             >
-              <Ionicons name={cat.icon as any} size={16} color={active ? colors.accent : colors.text3} />
+              <Ionicons name={cat.icon as any} size={16} color={active ? accent : colors.text3} />
               <Text style={[styles.segmentLabel, active && styles.segmentLabelActive]}>{cat.short}</Text>
             </TVFocusable>
           );
@@ -1338,7 +1378,7 @@ export default function SettingsScreen() {
               <Image source={require('../../assets/icon.png')} style={styles.footerLogoImg} contentFit="cover" />
             </View>
             <Text style={styles.footerLogoText}>
-              Skaphos<Text style={{ color: colors.accent }}>·</Text>TV
+              Skaphos<Text style={{ color: accent }}>·</Text>TV
             </Text>
           </View>
           <Text style={styles.footerVersion}>{VERSION_LABEL}</Text>
@@ -1362,61 +1402,42 @@ const tvStyles = StyleSheet.create({
     width: 264,
     borderRightWidth: 1,
     borderRightColor: colors.borderSoft,
-    paddingTop: 32,
-    gap: spacing.xl,
+    paddingTop: 40,
   },
-  sidebarHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingHorizontal: spacing.lg,
-  },
-  sidebarLogo: {
-    width: 28, height: 28, borderRadius: 8,
-    overflow: 'hidden',
-    borderWidth: 1, borderColor: 'rgba(167,139,250,0.25)',
-    backgroundColor: colors.bg0,
-  },
-  sidebarLogoImg: { width: 40, height: 40, marginTop: -7, marginLeft: -7 },
   sidebarTitle: {
-    fontSize: 20, fontWeight: '700', color: colors.text1, letterSpacing: -0.4,
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.xl,
+    fontFamily: fontFamily.bold, fontSize: 26, color: colors.text1, letterSpacing: -0.6,
   },
+  // Folga lateral ≥ anel (5px fora do item): antes o anel do 1º item encostava na borda e cortava.
   categoryList: {
     flex: 1,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.lg,
     gap: 4,
   },
   categoryItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: radius.lg,
-  },
-  categoryItemActive: {
-    backgroundColor: colors.accentSoft,
+    gap: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 12,
   },
   categoryLabel: {
-    fontSize: fontSize.sm,
-    fontWeight: '500',
+    flex: 1,
+    fontFamily: fontFamily.medium,
+    fontSize: 16,
     color: colors.text2,
   },
   categoryLabelActive: {
     color: colors.text1,
-    fontWeight: '600',
-  },
-  categorySub: {
-    fontSize: 10.5,
-    color: colors.text3,
-    marginTop: 2,
+    fontFamily: fontFamily.semiBold,
   },
 
   sidebarFooter: {
     padding: spacing.xl,
-    borderTopWidth: 1,
-    borderTopColor: colors.borderSoft,
-    gap: 8,
+    gap: 12,
   },
-  madeBy: { fontSize: 10, color: colors.text3, letterSpacing: 0.4 },
+  madeBy: { fontSize: 12, fontFamily: fontFamily.regular, color: colors.text3 },
   backBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1424,13 +1445,11 @@ const tvStyles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: radius.md,
-    backgroundColor: colors.bg1,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   backBtnText: {
     fontSize: fontSize.sm,
-    fontWeight: '500',
+    fontFamily: fontFamily.medium,
     color: colors.text2,
   },
 
@@ -1438,19 +1457,16 @@ const tvStyles = StyleSheet.create({
   panel: {
     flex: 1,
   },
-  panelGlow: {
-    position: 'absolute', top: 0, left: 0, right: 0, height: 180,
-  },
   panelHeader: {
     paddingHorizontal: spacing.xxxl,
-    paddingTop: 32,
+    paddingTop: 40,
     paddingBottom: spacing.lg,
   },
   panelTitle: {
-    fontSize: 26,
-    fontWeight: '700',
+    fontFamily: fontFamily.semiBold,
+    fontSize: 22,
     color: colors.text1,
-    letterSpacing: -0.5,
+    letterSpacing: -0.4,
   },
   panelSub: {
     fontSize: fontSize.sm,
@@ -1460,8 +1476,8 @@ const tvStyles = StyleSheet.create({
   panelContent: {
     padding: spacing.xxxl,
     paddingTop: spacing.sm,
-    gap: 26,
-    maxWidth: 640,
+    gap: spacing.xl,
+    maxWidth: 680,
   },
 });
 
@@ -1503,14 +1519,14 @@ const styles = StyleSheet.create({
   segmentLabelActive: { color: colors.text1 },
   tabCaption: {
     fontSize: fontSize.xs, color: colors.text3,
-    paddingHorizontal: 26, paddingTop: 10,
+    paddingHorizontal: 26, paddingTop: spacing.md,
   },
 
   content: { flex: 1 },
   inner: {
     paddingHorizontal: 22,
     paddingBottom: 60,
-    gap: 26,
+    gap: spacing.xl,
     maxWidth: 600,
     alignSelf: 'center',
     width: '100%',
@@ -1520,14 +1536,14 @@ const styles = StyleSheet.create({
   // Card de status da conta — hero com névoa violeta (LinearGradient no JSX)
   accountCard: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
-    borderRadius: 18, overflow: 'hidden',
-    borderWidth: 1, borderColor: 'rgba(167,139,250,0.22)',
+    borderRadius: 16, overflow: 'hidden',
+    backgroundColor: colors.bg1,
     padding: 18,
   },
   accountLogo: {
     width: 50, height: 50, borderRadius: 14,
     overflow: 'hidden',
-    borderWidth: 1, borderColor: 'rgba(167,139,250,0.3)',
+    borderWidth: 1, borderColor: colors.border,
     backgroundColor: colors.bg0,
   },
   accountLogoImg: { width: 72, height: 72, marginTop: -11, marginLeft: -11 },
@@ -1542,9 +1558,11 @@ const styles = StyleSheet.create({
   groupHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 2 },
   groupTitle: { fontSize: 14, fontWeight: '600', color: colors.text1, letterSpacing: -0.2 },
   // Superfície tonal sem borda nem separadores — o respiro entre linhas chunca
+  // Sem overflow:'hidden' e com folga de 6px: o anel de foco da linha (5px fora)
+  // cabe dentro da caixa em vez de ser cortado pela borda dela.
   groupBox: {
     backgroundColor: colors.bg1, borderRadius: 16,
-    overflow: 'hidden', paddingVertical: 4,
+    padding: 6,
   },
 
   row: {

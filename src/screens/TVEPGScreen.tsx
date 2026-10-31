@@ -14,18 +14,20 @@ import { useEpgStore } from '../store/epgStore';
 import { EpgProgram, nowNextFor } from '../utils/epg';
 import { fold } from '../utils/search';
 import TVFocusable from '../components/TVFocusable';
-import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
+import { SkChip } from '../components/sk';
+import { colors, spacing, fontSize, radius, fontFamily, UI_FONT_SCALE } from '../utils/theme';
+import { useAccentColors } from '../hooks/useAccentColors';
 import { RootStackParamList, Channel } from '../types';
-import { IS_MOBILE } from '../utils/tvDetect';
+import { IS_MOBILE, IS_WEB } from '../utils/tvDetect';
 import { useTVFocusMemory } from '../utils/tvFocusMemory';
 
 type Nav = StackNavigationProp<RootStackParamList>;
 
-const SLOT_WIDTH = 180;   // px per 30-min slot
+const SLOT_WIDTH = 200;   // px per 30-min slot
 const SLOT_MS = 30 * 60 * 1000;
 const PX_PER_MS = SLOT_WIDTH / SLOT_MS;
-const CHANNEL_COL = 200; // px for left channel column
-const ROW_HEIGHT = 60;
+const CHANNEL_COL = 220; // px for left channel column
+const ROW_HEIGHT = 64;
 const SLOT_COUNT = 14;
 
 /** Início da janela: meia hora "cheia" anterior à atual, menos 1 slot de contexto. */
@@ -67,6 +69,7 @@ const fmtTime = (ms: number) =>
 function MobileEpgRow({ ch, programs, onPress }: {
   ch: Channel; programs?: EpgProgram[]; onPress: () => void;
 }) {
+  const ac = useAccentColors();
   const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
   const { now, next } = nowNextFor(programs);
   const progress = now ? Math.min(1, Math.max(0, (Date.now() - now.start) / (now.end - now.start))) : 0;
@@ -83,12 +86,12 @@ function MobileEpgRow({ ch, programs, onPress }: {
         <Text style={[mStyles.channelName, { fontSize: 13 * scale }]} numberOfLines={1}>{ch.name}</Text>
         {now ? (
           <>
-            <Text style={[mStyles.nowTitle, { fontSize: 12 * scale }]} numberOfLines={1}>
+            <Text style={[mStyles.nowTitle, { fontSize: 12 * scale, color: ac.accent2 }]} numberOfLines={1}>
               {now.title}
               <Text style={mStyles.nowTime}>  {fmtTime(now.start)}–{fmtTime(now.end)}</Text>
             </Text>
             <View style={mStyles.progressBg}>
-              <View style={[mStyles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
+              <View style={[mStyles.progressFill, { backgroundColor: ac.accent, width: `${Math.round(progress * 100)}%` }]} />
             </View>
             {next && (
               <Text style={[mStyles.nextTitle, { fontSize: 11 * scale }]} numberOfLines={1}>A seguir: {next.title}</Text>
@@ -111,21 +114,27 @@ const DetailBar = React.memo(function DetailBar({ setterRef }: {
   setterRef: React.MutableRefObject<(f: FocusedProgram) => void>;
 }) {
   const [focused, setFocused] = useState<FocusedProgram | null>(null);
+  const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
   setterRef.current = setFocused;
+  const p = focused?.program;
+  const live = !!p && p.start <= Date.now() && Date.now() < p.end;
   return (
     <View style={styles.detailBar}>
-      {focused && (
+      {focused && p ? (
         <>
-          <Text style={styles.detailTitle} numberOfLines={1}>
-            {focused.program.title}
-            <Text style={styles.detailMeta}>
-              {'   '}{focused.channel} · {fmtTime(focused.program.start)}–{fmtTime(focused.program.end)}
-            </Text>
+          <View style={styles.detailHead}>
+            {live && <SkChip label="NO AR" variant="live" />}
+            <Text style={[styles.detailTitle, { fontSize: 16 * scale }]} numberOfLines={1}>{p.title}</Text>
+          </View>
+          <Text style={[styles.detailMeta, { fontSize: 12 * scale }]} numberOfLines={1}>
+            {focused.channel} · {fmtTime(p.start)}–{fmtTime(p.end)} · {Math.round((p.end - p.start) / 60000)} min
           </Text>
-          {!!focused.program.desc && (
-            <Text style={styles.detailDesc} numberOfLines={2}>{focused.program.desc}</Text>
+          {!!p.desc && (
+            <Text style={[styles.detailDesc, { fontSize: 13 * scale, lineHeight: 18 * scale }]} numberOfLines={2}>{p.desc}</Text>
           )}
         </>
+      ) : (
+        <Text style={styles.detailHint}>{'Use as setas para explorar a grade · OK para assistir'}</Text>
       )}
     </View>
   );
@@ -143,13 +152,14 @@ const ChannelCell = React.memo(function ChannelCell({ ch, scale, preferred, onPl
           <Text style={styles.channelLogoText}>{ch.name.slice(0, 2).toUpperCase()}</Text>
         </View>
       )}
-      <Text style={[styles.channelName, { fontSize: 11 * scale }]} numberOfLines={2}>{ch.name}</Text>
+      <Text style={[styles.channelName, { fontSize: 13 * scale, lineHeight: 17 * scale }]} numberOfLines={2}>{ch.name}</Text>
     </TVFocusable>
   );
 });
 
-const ProgramRow = React.memo(function ProgramRow({ ch, programs, winStart, winEnd, gridNow, scale, onPlay, onFocusProgram }: {
+const ProgramRow = React.memo(function ProgramRow({ ch, programs, winStart, winEnd, gridNow, scale, nowStyle, nowColor, nowBar, onPlay, onFocusProgram }: {
   ch: Channel; programs?: EpgProgram[]; winStart: number; winEnd: number; gridNow: number; scale: number;
+  nowStyle: object; nowColor: string; nowBar: string;
   onPlay: (ch: Channel) => void; onFocusProgram: (f: FocusedProgram) => void;
 }) {
   const blocks = useMemo(() => buildRowBlocks(programs, winStart, winEnd), [programs, winStart, winEnd]);
@@ -160,32 +170,72 @@ const ProgramRow = React.memo(function ProgramRow({ ch, programs, winStart, winE
           return (
             <View key={block.key} style={[styles.programBlock, styles.programBlockEmpty, { width: block.width - 2 }]}>
               {block.width > 90 && (
-                <Text style={styles.programEmptyText} numberOfLines={1}>Sem informação</Text>
+                <Text style={[styles.programEmptyText, { fontSize: 12 * scale }]} numberOfLines={1}>Sem informação</Text>
               )}
             </View>
           );
         }
         const p = block.program;
         const isNow = p.start <= gridNow && gridNow < p.end;
+        const isPast = p.end <= gridNow;
         return (
           <TVFocusable
             key={block.key}
             onPress={() => onPlay(ch)}
             onFocus={() => onFocusProgram({ channel: ch.name, program: p })}
-            style={[styles.programBlock, { width: block.width - 2 }, isNow && styles.programBlockNow]}
+            borderRadius={radius.sm}
+            // Sem zoom: bloco largo ampliado invadia os vizinhos da grade.
+            focusScale={1}
+            style={[styles.programBlock, { width: block.width - 2 }, isNow && nowStyle]}
           >
-            <Text style={[styles.programTitle, { fontSize: 12 * scale }, isNow && styles.programTitleNow]} numberOfLines={1}>
+            <Text
+              style={[styles.programTitle, { fontSize: 14 * scale }, isPast && styles.programTitlePast, isNow && styles.programTitleNow, isNow && { color: nowColor }]}
+              numberOfLines={1}
+            >
               {p.title}
             </Text>
             {/* Bloco estreito: só o título — o horário espremido virava ruído */}
             {block.width > 76 && (
-              <Text style={[styles.programTime, { fontSize: 10 * scale }]} numberOfLines={1}>
+              <Text style={[styles.programTime, { fontSize: 11 * scale }]} numberOfLines={1}>
                 {fmtTime(p.start)} — {fmtTime(p.end)}
               </Text>
+            )}
+            {/* Progresso do "no ar": barra estática (sem timer/animação) */}
+            {isNow && block.width > 76 && (
+              <View
+                pointerEvents="none"
+                style={[styles.nowProgress, {
+                  backgroundColor: nowBar,
+                  width: Math.max(4, Math.min(1, (gridNow - p.start) / (p.end - p.start)) * (block.width - 24)),
+                }]}
+              />
             )}
           </TVFocusable>
         );
       })}
+    </View>
+  );
+});
+
+/** Campo "Onde passa": o foco vive aqui dentro (anel de acento) — focar/desfocar
+ *  re-renderiza só este componente, não a tela nem a grade. */
+const EpgSearch = React.memo(function EpgSearch({ value, onChange, accent, children }: {
+  value: string; onChange: (t: string) => void; accent: string; children?: React.ReactNode;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <View style={[styles.searchWrap, focused && { borderColor: accent, borderWidth: 2 }]}>
+      <Ionicons name="search-outline" size={16} color={focused ? accent : colors.text3} />
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder="Onde passa…"
+        placeholderTextColor={colors.text3}
+        style={styles.searchInput}
+      />
+      {children}
     </View>
   );
 });
@@ -201,6 +251,7 @@ export default function TVEPGScreen() {
   const epgByChannel = useEpgStore(s => s.byChannelId);
   const epgLoading   = useEpgStore(s => s.loading);
   const epgError     = useEpgStore(s => s.error);
+  const ac = useAccentColors();
   const loadEpg      = useEpgStore(s => s.load);
 
   // Programa focado no D-pad — sinopse no rodapé
@@ -281,12 +332,22 @@ export default function TVEPGScreen() {
   // Uma leitura do relógio para a grade toda (mesma frescura de antes).
   const gridNow = useMemo(() => Date.now(), [liveChannels, epgByChannel, winStart, winEnd]);
 
+  // Estilo do "no ar" a partir do tema: objeto estável (muda só com o tema),
+  // repassado às linhas como prop — nenhuma assinatura de store por célula.
+  // Neutro: com a coluna "agora" inteira tingida, o acento passava de longe dos ~10%
+  // da tela. O "no ar" se lê pelo fundo um tom mais claro + título forte + a barrinha
+  // de progresso (essa sim no acento).
+  const nowStyle = useMemo(() => ({ backgroundColor: 'rgba(255,255,255,0.075)' }), []);
+  const nowSlotStyle = useMemo(() => ({}), []);
+  const nowX = (gridNow - winStart) * PX_PER_MS;
+
   const renderProgramRow = useCallback(({ item: ch }: { item: Channel }) => (
     <ProgramRow
       ch={ch} programs={epgByChannel[ch.id]} winStart={winStart} winEnd={winEnd}
-      gridNow={gridNow} scale={scale} onPlay={handlePlay} onFocusProgram={onFocusProgram}
+      gridNow={gridNow} scale={scale} nowStyle={nowStyle} nowColor={colors.text1} nowBar={ac.accent}
+      onPlay={handlePlay} onFocusProgram={onFocusProgram}
     />
-  ), [gridNow, epgByChannel, winStart, winEnd, scale, handlePlay, onFocusProgram]);
+  ), [gridNow, epgByChannel, winStart, winEnd, scale, nowStyle, ac, handlePlay, onFocusProgram]);
 
   const epgKeyExtractor = useCallback((ch: Channel) => ch.id, []);
   // Altura fixa por linha → a lista sabe posicionar sem medir, o que mantém a
@@ -338,7 +399,7 @@ export default function TVEPGScreen() {
           <Text style={styles.headerTitle}>Guia</Text>
           <View style={{ flex: 1 }} />
           {epgLoading ? (
-            <ActivityIndicator size="small" color={colors.accent} />
+            <ActivityIndicator size="small" color={ac.accent} />
           ) : (
             <TVFocusable accessibilityLabel="Atualizar guia" onPress={() => loadEpg(true)} style={styles.nowBtn}>
               <Ionicons name="refresh-outline" size={14} color={colors.text2} />
@@ -404,23 +465,18 @@ export default function TVEPGScreen() {
             tela — joga o usuário para fora dela. O foco inicial vai para a
             primeira linha da grade (ver renderChannelCell); daqui se chega
             subindo. */}
-        <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={18} color={colors.text1} />
-        </TVFocusable>
-        <Text style={styles.headerTitle}>Guia de Programação</Text>
+        {/* Voltar só no web; na TV física é a tecla do controle. */}
+        {IS_WEB && (
+          <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="chevron-back" size={18} color={colors.text1} />
+          </TVFocusable>
+        )}
+        <Text style={styles.headerTitle}>Guia</Text>
         <Text style={styles.headerSub}>
-          {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+          {(() => { const d = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }); return d[0].toUpperCase() + d.slice(1); })()}
         </Text>
 
-        <View style={styles.searchWrap}>
-          <Ionicons name="search-outline" size={14} color={colors.text3} />
-          <TextInput
-            value={programQuery}
-            onChangeText={setProgramQuery}
-            placeholder="Onde passa..."
-            placeholderTextColor={colors.text3}
-            style={styles.searchInput}
-          />
+        <EpgSearch value={programQuery} onChange={setProgramQuery} accent={ac.accent}>
           {programMatches.length > 0 && (
             <View style={styles.searchResults}>
               {programMatches.map(({ channel, program }) => (
@@ -437,14 +493,19 @@ export default function TVEPGScreen() {
               ))}
             </View>
           )}
-        </View>
+          {programQuery.length > 0 && programMatches.length === 0 && (
+            <View style={styles.searchResults}>
+              <Text style={styles.searchEmpty}>{'Nenhum programa encontrado'}</Text>
+            </View>
+          )}
+        </EpgSearch>
 
         <View style={{ flex: 1 }} />
         {/* Estado do guia + atualizar */}
         {epgLoading && (
           <View style={styles.epgStatus}>
-            <ActivityIndicator size="small" color={colors.accent} />
-            <Text style={styles.epgStatusText}>Baixando guia…</Text>
+            <ActivityIndicator size="small" color={ac.accent} />
+            <Text style={styles.epgStatusText}>{'Baixando guia…'}</Text>
           </View>
         )}
         {!epgLoading && epgError && (
@@ -454,16 +515,17 @@ export default function TVEPGScreen() {
         )}
         {!epgLoading && (
           <TVFocusable onPress={() => loadEpg(true)} style={styles.nowBtn}>
-            <Ionicons name="refresh-outline" size={13} color={colors.text2} />
+            <Ionicons name="refresh-outline" size={15} color={colors.text2} />
             <Text style={styles.nowBtnText}>Atualizar</Text>
           </TVFocusable>
         )}
         {/* Jump to now */}
         <TVFocusable
           onPress={() => scrollRef.current?.scrollTo({ x: 0, animated: true })}
+          accessibilityLabel="Voltar para agora"
           style={styles.nowBtn}
         >
-          <View style={styles.nowDot} />
+          <Ionicons name="time-outline" size={15} color={colors.text2} />
           <Text style={styles.nowBtnText}>Agora</Text>
         </TVFocusable>
       </View>
@@ -473,7 +535,7 @@ export default function TVEPGScreen() {
           <Ionicons name="calendar-outline" size={64} color={colors.text3} />
           <Text style={styles.emptyTitle}>Nenhum canal ao vivo</Text>
           <Text style={styles.emptySubtitle}>Configure uma fonte M3U ou Xtream para ver a programação</Text>
-          <TVFocusable onPress={() => (navigation as any).navigate('Setup')} style={styles.emptyBtn}>
+          <TVFocusable onPress={() => (navigation as any).navigate('Setup')} style={[styles.emptyBtn, { backgroundColor: ac.accent }]}>
             <Text style={styles.emptyBtnText}>Configurar fonte</Text>
           </TVFocusable>
         </View>
@@ -482,7 +544,7 @@ export default function TVEPGScreen() {
           <View style={styles.gridBody}>
             {/* Coluna FIXA de canais — rola no eixo Y em sincronia com as linhas */}
             <View style={styles.channelCol}>
-              <View style={styles.cornerCell} />
+              <View style={styles.cornerCell}><Text style={styles.cornerText}>Canais</Text></View>
               <FlatList
                 ref={leftColRef}
                 // Altura limitada: sem isso a lista mede a si mesma pelo CONTEÚDO e
@@ -517,10 +579,12 @@ export default function TVEPGScreen() {
                   {/* Cabeçalho de horários */}
                   <View style={styles.timeHeader}>
                     {timeSlots.map((t, i) => (
-                      <View key={i} style={[styles.timeCell, i === nowOffset && styles.timeCellNow]}>
-                        <Text style={[styles.timeText, i === nowOffset && styles.timeTextNow]}>{t}</Text>
+                      <View key={i} style={[styles.timeCell, i === nowOffset && nowSlotStyle]}>
+                        <Text style={[styles.timeText, i === nowOffset && { color: colors.text1, fontFamily: fontFamily.semiBold }]}>{t}</Text>
                       </View>
                     ))}
+                    {/* Marca do instante atual na régua */}
+                    <View pointerEvents="none" style={[styles.nowTick, { left: nowX, backgroundColor: ac.accent }]} />
                   </View>
 
                   {/* Linhas de programas — eixo Y sincronizado com a coluna de canais */}
@@ -643,8 +707,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xxxl,
     paddingTop: 28,
     paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
   backBtn: {
     width: 36, height: 36, borderRadius: radius.full,
@@ -652,22 +714,22 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 26,
+    fontFamily: fontFamily.bold,
     color: colors.text1,
-    letterSpacing: -0.4,
+    letterSpacing: -0.6,
   },
   headerSub: {
-    fontSize: 13,
+    fontSize: 14,
     color: colors.text3,
-    textTransform: 'capitalize',
+    fontFamily: fontFamily.regular,
   },
   nowBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: radius.full,
     backgroundColor: colors.bg1,
     borderWidth: 1,
@@ -678,7 +740,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.live,
   },
   nowBtnText: {
-    fontSize: 12, fontWeight: '600', color: colors.text1,
+    fontSize: 14, fontWeight: '600', color: colors.text1,
   },
 
   // Busca de programa no guia
@@ -687,8 +749,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    width: 220,
-    paddingHorizontal: 12,
+    width: 280,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: radius.full,
     backgroundColor: colors.bg1,
@@ -697,10 +759,11 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 15,
     color: colors.text1,
     padding: 0,
   },
+  searchEmpty: { fontSize: 13, color: colors.text2, fontFamily: fontFamily.regular, padding: 14 },
   searchResults: {
     position: 'absolute',
     top: '100%',
@@ -722,8 +785,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSoft,
   },
-  searchResultTitle: { fontSize: 13, fontWeight: '600', color: colors.text1 },
-  searchResultMeta: { fontSize: 11, color: colors.text3, marginTop: 2 },
+  searchResultTitle: { fontSize: 15, fontWeight: '600', color: colors.text1 },
+  searchResultMeta: { fontSize: 12, color: colors.text3, marginTop: 2 },
 
   // Grid layout
   // minHeight:0 em toda a cadeia flex vertical até os ScrollViews: sem isso, no
@@ -741,6 +804,9 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     minHeight: 0,
+    // Respiro lateral: o zoom/anel de foco da 1a coluna não pode ser cortado (overscan)
+    paddingLeft: spacing.xxl,
+    paddingRight: spacing.xl,
   },
   channelCol: {
     width: CHANNEL_COL,
@@ -753,7 +819,10 @@ const styles = StyleSheet.create({
     height: ROW_HEIGHT * 0.75,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
   },
+  cornerText: { fontSize: 13, color: colors.text3, fontFamily: fontFamily.medium },
   timelineWrap: {
     flex: 1,
     minHeight: 0,
@@ -762,6 +831,7 @@ const styles = StyleSheet.create({
   // horizontal (react-native-web dá flexGrow:1 só no eixo principal).
   timelineContent: {
     flexGrow: 1,
+    paddingLeft: 8, // folga p/ o zoom de foco da 1a coluna de tempo
   },
   timeline: {
     width: SLOT_COUNT * SLOT_WIDTH,
@@ -781,19 +851,13 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderRightColor: colors.borderSoft,
   },
-  timeCellNow: {
-    backgroundColor: 'rgba(167,139,250,0.06)',
-  },
   timeText: {
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: '500',
-    color: colors.text3,
+    color: colors.text2,
     letterSpacing: 0.4,
   },
-  timeTextNow: {
-    color: colors.accent,
-    fontWeight: '700',
-  },
+  nowTick: { position: 'absolute', top: 0, bottom: 0, width: 2 },
 
   // Rows
   programsLine: {
@@ -807,24 +871,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     backgroundColor: colors.bg0,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSoft,
   },
   channelLogo: {
-    width: 32, height: 32, borderRadius: radius.sm,
+    width: 40, height: 40, borderRadius: radius.sm,
   },
   channelLogoPlaceholder: {
-    width: 32, height: 32, borderRadius: radius.sm,
+    width: 40, height: 40, borderRadius: radius.sm,
     backgroundColor: colors.bg2,
     alignItems: 'center', justifyContent: 'center',
   },
   channelLogoText: {
-    fontSize: 10, fontWeight: '700', color: colors.text3,
+    fontSize: 12, fontWeight: '700', color: colors.text3,
   },
   channelName: {
-    flex: 1, fontSize: 11, fontWeight: '500', color: colors.text1, lineHeight: 14,
+    flex: 1, fontSize: 13, fontWeight: '500', color: colors.text1, lineHeight: 17,
   },
 
   // Chip arredondado; o borderRight cor-de-fundo faz o "vão" entre blocos sem
@@ -838,47 +902,45 @@ const styles = StyleSheet.create({
     borderRightWidth: 2,
     borderRightColor: colors.bg0,
   },
-  // "No ar": tinta violeta + contorno completo sutil — NUNCA listra lateral
-  // (side-stripe é banido no design system).
-  programBlockNow: {
-    backgroundColor: 'rgba(167,139,250,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(167,139,250,0.35)',
-  },
+  // "No ar": tinta + contorno do tema aplicados via prop nowStyle (NUNCA listra lateral).
   programTitle: {
-    fontSize: 12, fontWeight: '500', color: colors.text1,
+    fontSize: 14, fontWeight: '600', color: colors.text1,
   },
-  programTitleNow: {
-    color: colors.accent2,
-    fontWeight: '600',
-  },
+  programTitlePast: { color: colors.text3, fontWeight: '500' },
+  programTitleNow: { fontWeight: '700' },
   programTime: {
-    fontSize: 10, color: colors.text3, marginTop: 2,
+    fontSize: 11, color: colors.text2, marginTop: 2,
   },
+  nowProgress: { position: 'absolute', left: 10, bottom: 6, height: 3, borderRadius: 2 },
+  // Lacuna sem dados: contorno discreto, sem opacity (opacity derrubava o contraste do texto)
   programBlockEmpty: {
-    backgroundColor: colors.bgSoft,
-    opacity: 0.6,
+    backgroundColor: colors.bg0,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
   },
   programEmptyText: {
-    fontSize: 11, color: colors.text3, fontStyle: 'italic',
+    fontSize: 12, color: colors.text3, fontStyle: 'italic',
   },
 
   // Status do guia no header
   epgStatus: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  epgStatusText: { fontSize: 12, color: colors.text3, maxWidth: 260 },
+  epgStatusText: { fontSize: 13, fontFamily: fontFamily.regular, color: colors.text2, maxWidth: 260 },
 
-  // Rodapé com detalhes do programa focado
+  // Rodapé com detalhes do programa focado (altura mínima fixa: sem pulo de layout)
   detailBar: {
     paddingHorizontal: spacing.xxxl,
     paddingVertical: 10,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.bg1,
-    minHeight: 58,
+    minHeight: 84,
+    justifyContent: 'center',
   },
-  detailTitle: { fontSize: 13, fontWeight: '700', color: colors.text1 },
-  detailMeta: { fontSize: 11, fontWeight: '400', color: colors.text3 },
-  detailDesc: { fontSize: 11, color: colors.text2, marginTop: 3, lineHeight: 15 },
+  detailHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  detailTitle: { flexShrink: 1, fontSize: 16, fontWeight: '700', color: colors.text1 },
+  detailMeta: { fontSize: 12, color: colors.text2, marginTop: 2 },
+  detailDesc: { fontSize: 13, color: colors.text2, marginTop: 3, lineHeight: 18 },
+  detailHint: { fontSize: 13, color: colors.text2, fontFamily: fontFamily.regular },
 
   // Empty state
   empty: {

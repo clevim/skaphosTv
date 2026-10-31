@@ -4,8 +4,9 @@ import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
-import { colors, fontSize, radius, spacing } from '@/utils/theme';
+import { colors, fontSize, fontFamily, radius, spacing } from '@/utils/theme';
 import { IS_TV } from '../utils/tvDetect';
+import { useAccentColors } from '../hooks/useAccentColors';
 
 
 interface Props {
@@ -24,6 +25,7 @@ export default function PlayerSidebar({
   onClose,
   title,
 }: Props) {
+  const acc = useAccentColors();
   const currentIndex = channels.findIndex(c => c.id === currentChannel.id);
   // A lista abre já com o D-pad em cima do item atual — sem isso o foco fica no
   // botão do OSD que abriu o painel e o usuário precisa "caçar" a lista. Uma vez
@@ -36,6 +38,7 @@ export default function PlayerSidebar({
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title} numberOfLines={1}>{title ?? currentChannel.group}</Text>
+        <Text style={styles.count}>{currentIndex >= 0 ? currentIndex + 1 : '–'}/{channels.length}</Text>
         <TVFocusable accessibilityLabel="Fechar lista" onPress={onClose} style={styles.closeBtn}>
           <Ionicons name="close" size={20} color={colors.text2} />
         </TVFocusable>
@@ -58,7 +61,7 @@ export default function PlayerSidebar({
           return (
             <TVFocusable
               onPress={() => onSelectChannel(item)}
-              style={[styles.item, isActive && styles.itemActive]}
+              style={[styles.item, isActive && [styles.itemActive, { backgroundColor: acc.accentSoft, borderLeftColor: acc.accent }]]}
               hasTVPreferredFocus={preferred}
             >
               {item.logo ? (
@@ -69,7 +72,7 @@ export default function PlayerSidebar({
                 </View>
               )}
               <View style={styles.meta}>
-                <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+                <Text style={[styles.name, isActive && [styles.nameActive, { color: acc.accent2 }]]} numberOfLines={1}>{item.name}</Text>
                 {/* Episódio: título real ("Pilot") vale mais que repetir o grupo */}
                 <Text style={styles.group} numberOfLines={1}>{item.epTitle || item.group}</Text>
               </View>
@@ -111,11 +114,12 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   title: {
-    fontSize: fontSize.sm,
-    fontWeight: '700',
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.semiBold,
     color: colors.text1,
     flex: 1,
   },
+  count: { color: colors.text2, fontSize: fontSize.xs, fontFamily: fontFamily.medium, fontVariant: ['tabular-nums'], marginRight: spacing.sm },
   closeBtn: { padding: 4 },
   item: {
     flexDirection: 'row',
@@ -125,8 +129,12 @@ const styles = StyleSheet.create({
     height: 64,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.03)',
+    // barra de "tocando agora" reserva espaço sempre — sem deslocar o conteúdo
+    borderLeftWidth: 3,
+    borderLeftColor: 'transparent',
   },
-  itemActive: { backgroundColor: colors.accent + '22' },
+  itemActive: { backgroundColor: colors.accentSoft, borderLeftColor: colors.accent },
+  nameActive: { color: colors.accent2, fontFamily: fontFamily.semiBold },
   logo: { width: 36, height: 36, borderRadius: radius.sm },
   logoPlaceholder: {
     width: 36, height: 36, borderRadius: radius.sm,

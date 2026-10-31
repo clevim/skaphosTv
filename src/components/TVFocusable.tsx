@@ -6,7 +6,8 @@
  * para redirecionar o D-pad antes que o FocusFinder escape para o conteúdo de trás.
  */
 
-import React, { useRef, useEffect, useState, useImperativeHandle } from 'react';
+import React, { useRef, useEffect, useState, useImperativeHandle, useContext } from 'react';
+import { NavigationRouteContext } from '@react-navigation/native';
 import {
   View,
   Pressable,
@@ -15,15 +16,20 @@ import {
   StyleProp,
   findNodeHandle,
 } from 'react-native';
-import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import { IS_TV, IS_WEB, IS_NATIVE_TV } from '../utils/tvDetect';
 import { shadow, colors } from '../utils/theme';
 import { useReducedMotion } from '../utils/reducedMotion';
 import { reportTVFocus, claimTVFocus, releaseTVFocus } from '../utils/tvFocusMemory';
 import { addFocusListener, watchView } from '../../modules/tv-focus';
 
 const FOCUS_SCALE = IS_TV ? 1.05 : 1;
-// Mais opaco que colors.accentSoft (0.16): o highlight de foco precisa ler à distância na TV
-const FOCUS_BG    = 'rgba(167,139,250,0.22)';
+// Anel "com respiro" (estilo Google TV): branco, fino, afastado do elemento.
+// Neutro de propósito — o acento do tema fica pro estado ATIVO, não pro foco.
+const RING_W   = 2;
+const RING_GAP = 3;
+const RING_OUT = RING_W + RING_GAP;
+// Sem zoom (botões/linhas): clareia o fundo em vez de tingir com o tema.
+const FOCUS_LIFT = 'rgba(255,255,255,0.10)';
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 // Registro global: UMA assinatura do evento nativo para o app inteiro, com
@@ -97,6 +103,7 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
   // Já inicia destacado se for o foco preferido — assim o highlight aparece ao
   // entrar na tela, sem depender do usuário mexer pro listener disparar.
   const [isFocused, setIsFocused] = useState(IS_TV && hasTVPreferredFocus);
+  const isFocusedInit = useRef(IS_TV && hasTVPreferredFocus);
 
   const targetScale = focusScale ?? FOCUS_SCALE;
   const zooming     = targetScale > 1;
@@ -122,15 +129,33 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
   onFocusPropRef.current = onFocusProp;
   onBlurPropRef.current  = onBlurProp;
 
-  // Identidade estável: é ela que a memória de foco da tela guarda para
-  // devolver o D-pad aqui quando o usuário voltar (ver tvFocusMemory).
-  const focusSelf = useRef(() => { (pressableRef.current as any)?.focus?.(); }).current;
   const idRef = useRef({}).current;
+  // Rota dona deste focável (contexto estável — não re-renderiza ao trocar de tela).
+  const routeKey = useContext(NavigationRouteContext)?.key;
+  const routeKeyRef = useRef(routeKey);
+  routeKeyRef.current = routeKey;
+  // Apagado à força (outro focável assumiu sem blur nativo — troca de janela/tela):
+  // avisa o onBlur também, senão quem guarda estado próprio de foco (aba da
+  // TVTopBar, pill de temporada, card de episódio) ficava "aceso" pra sempre.
+  const forceOff = useRef(() => { setIsFocused(false); onBlurPropRef.current?.(); }).current;
   // Único ponto que acende/apaga: acender reivindica o foco global (apaga o anterior).
   const light = useRef((on: boolean) => {
     setIsFocused(on);
-    if (on) claimTVFocus(idRef, () => setIsFocused(false));
+    if (on) claimTVFocus(idRef, forceOff);
     else releaseTVFocus(idRef);
+  }).current;
+  // Identidade estável: é ela que a memória de foco da tela guarda para
+  // devolver o D-pad aqui quando o usuário voltar (ver tvFocusMemory).
+  //
+  // Android: `View.focus()` do RN 0.74 é no-op (ReactViewManager não trata o comando
+  // "focus" — só TextInput tem), então a memória de foco, o redirecionamento da
+  // TVTopBar e o play do player nunca devolviam o foco de verdade. O setter nativo
+  // de `hasTVPreferredFocus` chama requestFocus(); via setNativeProps ele roda a
+  // cada chamada, sem mexer no estado do React (o próximo render segue com false).
+  const focusSelf = useRef(() => {
+    const r = pressableRef.current as any;
+    if (IS_NATIVE_TV && r?.setNativeProps) r.setNativeProps({ hasTVPreferredFocus: true });
+    else r?.focus?.();
   }).current;
 
   useImperativeHandle(ref, () => ({
@@ -155,9 +180,13 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
     ensureFocusSub();
     focusHandlers.set(myTag, (focused) => {
       light(focused);
-      if (focused) reportTVFocus(focusSelf);
+      if (focused) reportTVFocus(focusSelf, routeKeyRef.current);
       (focused ? onFocusPropRef : onBlurPropRef).current?.();
     });
+    // Aceso pelo hasTVPreferredFocus no 1º render: entra no "um aceso por vez" também.
+    // Sem isso, dois preferidos na tela (ex.: aba da topbar + CTA do hero) ficavam
+    // os dois destacados até o usuário mexer o D-pad.
+    if (isFocusedInit.current) claimTVFocus(idRef, forceOff);
     // Modais RN abrem outra janela nativa (Dialog) — garante que o observer de
     // foco também esteja nela, senão o highlight não segue o D-pad em modais.
     watchView(myTag);
@@ -185,12 +214,13 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
       // Mecanismo 2: Pressable.onFocus/onBlur — redundância para mecanismo 1.
       // Captura o foco inicial do hasTVPreferredFocus antes do listener ser subscrito,
       // e garante highlighting em casos que o ViewTreeObserver não alcança.
-      onFocus={IS_TV ? () => { light(true);  reportTVFocus(focusSelf); onFocusPropRef.current?.(); } : undefined}
+      onFocus={IS_TV ? () => { light(true);  reportTVFocus(focusSelf, routeKeyRef.current); onFocusPropRef.current?.(); } : undefined}
       onBlur ={IS_TV ? () => { light(false); onBlurPropRef.current?.();  } : undefined}
       style={[
         { borderRadius },
         style,
-        isFocused && { backgroundColor: FOCUS_BG },
+        // Card com zoom já se destaca pela escala+sombra: fundo tingido só sujava o pôster.
+        isFocused && !zooming && { backgroundColor: FOCUS_LIFT },
         isFocused && focusStyle,
         isFocused && (zooming
           ? { zIndex: 20, ...shadow.focus }
@@ -211,14 +241,13 @@ const TVFocusable = React.forwardRef<TVFocusableHandle, TVFocusableProps>(functi
       } as any)}
     >
       {children}
-      {/* Ring próprio do design (substitui o highlight laranja do Android):
-          sempre visível, 3px, violeta claro com contraste a 3m. */}
+      {/* Anel com respiro: fora do elemento (RING_GAP de folga), acompanha o raio. */}
       {IS_TV && isFocused && (
         <View
           pointerEvents="none"
           style={{
-            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-            borderRadius, borderWidth: 3, borderColor: colors.accent2,
+            position: 'absolute', top: -RING_OUT, left: -RING_OUT, right: -RING_OUT, bottom: -RING_OUT,
+            borderRadius: borderRadius + RING_OUT, borderWidth: RING_W, borderColor: colors.text1,
           }}
         />
       )}

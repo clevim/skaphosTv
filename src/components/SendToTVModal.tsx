@@ -14,7 +14,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Modal, ActivityIndicator, Pressable, Vibration, ScrollView } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import axios from 'axios';
-import { colors, fontSize, radius, spacing, shadow } from '../utils/theme';
+import { colors, fontSize, radius, spacing, shadow, fontFamily } from '../utils/theme';
+import { useAccentColors } from '../hooks/useAccentColors';
+import { SkSectionHeader } from './sk';
 import { useStore, IPTVSource } from '../store/useStore';
 import { useWatchProgress } from '../store/watchProgress';
 import type { PairingPayload, PairingExtras } from '../utils/pairingServer';
@@ -78,12 +80,13 @@ function buildExtras(source: IPTVSource, scope: Scope): PairingExtras | undefine
   };
 }
 
-const TYPE_META: Record<string, { icon: string; tint: string; tintSoft: string; label: string }> = {
-  xtream: { icon: 'server',        tint: '#34d399',     tintSoft: 'rgba(52,211,153,0.14)', label: 'Xtream'   },
-  m3u:    { icon: 'document-text', tint: colors.accent, tintSoft: colors.accentSoft,       label: 'Lista M3U' },
+const TYPE_META: Record<string, { icon: string; label: string }> = {
+  xtream: { icon: 'server',        label: 'Xtream'   },
+  m3u:    { icon: 'document-text', label: 'Lista M3U' },
 };
 
 export default function SendToTVModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const ac = useAccentColors();
   const sources = useStore(s => s.sources);
   const eligible = sources.filter(s => s.type === 'xtream' || s.type === 'm3u');
 
@@ -150,9 +153,10 @@ export default function SendToTVModal({ visible, onClose }: { visible: boolean; 
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={st.overlay}>
         <View style={st.box}>
+          <SkSectionHeader title="enviar" />
           <View style={st.header}>
-            <View style={st.headerIcon}>
-              <Ionicons name="scan-outline" size={18} color={colors.accent} />
+            <View style={[st.headerIcon, { backgroundColor: ac.accentSoft }]}>
+              <Ionicons name="scan-outline" size={18} color={ac.accent} />
             </View>
             <Text style={st.title}>Enviar para uma TV</Text>
           </View>
@@ -173,7 +177,7 @@ export default function SendToTVModal({ visible, onClose }: { visible: boolean; 
 
           {step === 'requesting' && (
             <View style={st.center}>
-              <ActivityIndicator color={colors.accent} />
+              <ActivityIndicator color={ac.accent} />
               <Text style={st.desc}>Abrindo a câmera…</Text>
             </View>
           )}
@@ -200,15 +204,15 @@ export default function SendToTVModal({ visible, onClose }: { visible: boolean; 
                 />
                 {/* Moldura de mira — quatro cantos violeta */}
                 <View pointerEvents="none" style={st.frame}>
-                  <View style={[st.corner, st.cTL]} />
-                  <View style={[st.corner, st.cTR]} />
-                  <View style={[st.corner, st.cBL]} />
-                  <View style={[st.corner, st.cBR]} />
+                  <View style={[st.corner, st.cTL, { borderColor: ac.accent }]} />
+                  <View style={[st.corner, st.cTR, { borderColor: ac.accent }]} />
+                  <View style={[st.corner, st.cBL, { borderColor: ac.accent }]} />
+                  <View style={[st.corner, st.cBR, { borderColor: ac.accent }]} />
                 </View>
               </View>
               <View style={st.waitRow}>
-                <ActivityIndicator size="small" color={colors.accent} />
-                <Text style={st.waitText}>Procurando QR code…</Text>
+                <ActivityIndicator size="small" color={ac.accent} />
+                <Text style={[st.waitText, { color: ac.accent }]}>Procurando QR code…</Text>
               </View>
             </>
           )}
@@ -233,14 +237,14 @@ export default function SendToTVModal({ visible, onClose }: { visible: boolean; 
                       onPress={() => send(s)}
                       style={({ pressed }) => [st.pickCard, pressed && { opacity: 0.7 }]}
                     >
-                      <View style={[st.pickIcon, { backgroundColor: meta.tintSoft }]}>
-                        <Ionicons name={meta.icon as any} size={16} color={meta.tint} />
+                      <View style={[st.pickIcon, { backgroundColor: ac.accentSoft }]}>
+                        <Ionicons name={meta.icon as any} size={16} color={ac.accent} />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={st.pickName} numberOfLines={1}>{s.name}</Text>
                         <Text style={st.pickMeta}>{meta.label} · {s.channelCount || 0} itens</Text>
                       </View>
-                      <Ionicons name="paper-plane-outline" size={16} color={colors.accent} />
+                      <Ionicons name="paper-plane-outline" size={16} color={ac.accent} />
                     </Pressable>
                   );
                 })}
@@ -250,7 +254,7 @@ export default function SendToTVModal({ visible, onClose }: { visible: boolean; 
 
           {step === 'sending' && (
             <View style={st.center}>
-              <ActivityIndicator color={colors.accent} size="large" />
+              <ActivityIndicator color={ac.accent} size="large" />
               <Text style={st.desc}>Enviando para a TV…</Text>
             </View>
           )}
@@ -277,7 +281,7 @@ export default function SendToTVModal({ visible, onClose }: { visible: boolean; 
             onPress={onClose}
             style={({ pressed }) => [st.closeBtn, pressed && { opacity: 0.7 }]}
           >
-            <Text style={st.closeText}>{step === 'done' ? 'Concluir' : 'Fechar'}</Text>
+            <Text style={st.closeText}>{step === 'done' ? 'Concluir' : step === 'scan' || step === 'pick' ? 'Cancelar' : 'Fechar'}</Text>
           </Pressable>
         </View>
       </View>
@@ -297,13 +301,12 @@ const st = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border,
     padding: spacing.xl,
   },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: spacing.md },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: spacing.md },
   headerIcon: {
     width: 36, height: 36, borderRadius: 18,
-    backgroundColor: colors.accentSoft,
     alignItems: 'center', justifyContent: 'center',
   },
-  title: { fontSize: fontSize.lg, fontWeight: '600', color: colors.text1 },
+  title: { fontSize: fontSize.lg, fontFamily: fontFamily.semiBold, color: colors.text1 },
   desc: { fontSize: fontSize.sm, color: colors.text2, lineHeight: 19, textAlign: 'center', marginBottom: spacing.md },
   extrasNote: { fontSize: fontSize.xs, color: colors.text3 },
   bold: { color: colors.text1, fontWeight: '600' },
@@ -314,13 +317,13 @@ const st = StyleSheet.create({
     backgroundColor: colors.black, marginBottom: spacing.md,
   },
   frame: { ...StyleSheet.absoluteFillObject, margin: 42 },
-  corner: { position: 'absolute', width: 26, height: 26, borderColor: colors.accent },
+  corner: { position: 'absolute', width: 26, height: 26 },
   cTL: { top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 8 },
   cTR: { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 8 },
   cBL: { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 8 },
   cBR: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 8 },
   waitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: spacing.sm },
-  waitText: { fontSize: fontSize.sm, color: colors.accent },
+  waitText: { fontSize: fontSize.sm, fontFamily: fontFamily.regular },
 
   linkedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: spacing.sm },
   linkedText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.green },
@@ -345,9 +348,9 @@ const st = StyleSheet.create({
   doneTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text1 },
 
   closeBtn: {
-    marginTop: spacing.sm, height: 44, borderRadius: radius.md,
+    marginTop: spacing.sm, height: 48, borderRadius: radius.md,
     backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  closeText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text1 },
+  closeText: { fontSize: fontSize.md, fontFamily: fontFamily.semiBold, color: colors.text1 },
 });

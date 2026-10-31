@@ -1,8 +1,9 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable, { TVFocusableHandle } from './TVFocusable';
 import { colors, radius, fontFamily, shadow } from '../utils/theme';
+import { SkSectionHeader } from './sk';
+import { useAccentColors } from '../hooks/useAccentColors';
 import { JellyfinAudioTrack } from '../utils/jellyfinLoader';
 import { IS_TV } from '../utils/tvDetect';
 
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export default function AudioTrackSheet({ visible, tracks, selectedIndex, onSelect, onClose }: Props) {
+  const ac = useAccentColors();
   // Refs para os elementos de borda do sheet — usados para focus trapping via nextFocus*.
   const closeRef = useRef<TVFocusableHandle | null>(null);
   const firstRef = useRef<TVFocusableHandle | null>(null);
@@ -43,10 +45,7 @@ export default function AudioTrackSheet({ visible, tracks, selectedIndex, onSele
       />
 
       <View style={styles.sheet}>
-        <View style={styles.header}>
-          <Ionicons name="musical-notes-outline" size={18} color={colors.accent} />
-          <Text style={styles.title}>Faixa de áudio</Text>
-        </View>
+        <View style={styles.header}><SkSectionHeader title="faixas de áudio" /></View>
 
         <FlatList
           data={tracks}
@@ -60,7 +59,7 @@ export default function AudioTrackSheet({ visible, tracks, selectedIndex, onSele
               <TVFocusable
                 ref={isFirst ? firstRef : undefined}
                 onPress={() => { onSelect(item.index); onClose(); }}
-                style={[styles.row, active && styles.rowActive]}
+                style={styles.row /* ativo = só o rádio no acento; sem faixa lateral nem fundo tingido */}
                 focusScale={1}
                 borderRadius={6}
                 hasTVPreferredFocus={isFirst}
@@ -70,8 +69,8 @@ export default function AudioTrackSheet({ visible, tracks, selectedIndex, onSele
                 nextFocusLeft={closeTag ?? undefined}
                 nextFocusRight={closeTag ?? undefined}
               >
-                <View style={[styles.radio, active && styles.radioActive]}>
-                  {active && <View style={styles.radioDot} />}
+                <View style={[styles.radio, active && { borderColor: ac.accent }]}>
+                  {active && <View style={[styles.radioDot, { backgroundColor: ac.accent }]} />}
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.trackTitle, active && styles.trackTitleActive]}>
@@ -112,8 +111,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.7)',
   },
   sheet: {
-    width: 340,
-    maxHeight: 440,
+    width: 420,
+    maxHeight: 480,
     ...shadow.floating,
     backgroundColor: colors.bg1,
     borderRadius: radius.lg,
@@ -126,37 +125,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSoft,
   },
-  title: { fontSize: 15, fontFamily: fontFamily.semiBold, color: colors.text1 },
-  list: { maxHeight: 320 },
+  list: { maxHeight: 340 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 20,
-    paddingVertical: 13,
+    paddingVertical: 15,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSoft,
   },
   rowActive: { backgroundColor: colors.accentSoft },
   radio: {
-    width: 18, height: 18, borderRadius: 9,
+    width: 22, height: 22, borderRadius: 11,
     borderWidth: 2, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
   radioActive: { borderColor: colors.accent },
-  radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
-  trackTitle: { fontSize: 13, fontWeight: '500', color: colors.text2 },
-  trackTitleActive: { color: colors.text1, fontWeight: '600' },
-  sub: { fontSize: 10, color: colors.text3, marginTop: 2 },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent },
+  trackTitle: { fontSize: 16, fontFamily: fontFamily.medium, color: colors.text2 },
+  trackTitleActive: { color: colors.text1, fontFamily: fontFamily.semiBold },
+  sub: { fontSize: 12, color: colors.text3, marginTop: 2 },
   actions: { padding: 14, borderTopWidth: 1, borderTopColor: colors.borderSoft },
   closeBtn: {
-    height: 40, borderRadius: radius.md,
+    height: 48, borderRadius: radius.md,
     backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  closeText: { fontSize: 13, fontWeight: '500', color: colors.text2 },
+  closeText: { fontSize: 15, fontFamily: fontFamily.medium, color: colors.text1 },
 });

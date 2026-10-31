@@ -17,6 +17,8 @@ export const THEME_PRESETS: ThemePreset[] = [
   { key: 'indigo',   label: 'Índigo',    primary: '#4338ca', accent: '#818cf8' },
   { key: 'orange',   label: 'Laranja',   primary: '#ea580c', accent: '#fb923c' },
   { key: 'pink',     label: 'Pink',      primary: '#db2777', accent: '#f472b6' },
+  // ponytail: só "Terminal" novo; "Abissal" seria igual ao Violeta (já é o default)
+  { key: 'terminal', label: 'Terminal',  primary: '#ffb13b', accent: '#ffd27a' },
 ];
 
 export const DEFAULT_THEME = THEME_PRESETS[0];
@@ -31,11 +33,13 @@ interface SeasonalPreset extends ThemePreset {
 
 const SEASONAL_PRESETS: SeasonalPreset[] = [
   {
-    key: 'christmas', label: 'Natal', primary: '#dc2626', accent: '#16a34a',
+    // deslop: single-hue (acento da MESMA família do primary, só mais claro) —
+    // vermelho+verde / laranja+roxo criavam dois hues brigando na UI.
+    key: 'christmas', label: 'Natal', primary: '#dc2626', accent: '#f87171',
     startMonth: 11, startDay: 1, endMonth: 11, endDay: 26,
   },
   {
-    key: 'halloween', label: 'Halloween', primary: '#ea580c', accent: '#7c3aed',
+    key: 'halloween', label: 'Halloween', primary: '#ea580c', accent: '#fb923c',
     startMonth: 9, startDay: 24, endMonth: 9, endDay: 31,
   },
 ];
@@ -73,7 +77,7 @@ function effectivePreset(manual: ThemePreset, seasonalEnabled: boolean): ThemePr
 export const useThemeStore = create<ThemeState>((set, get) => ({
   preset: DEFAULT_THEME,
   manualPreset: DEFAULT_THEME,
-  seasonalEnabled: true,
+  seasonalEnabled: false,
 
   setPreset: async (preset) => {
     set({ manualPreset: preset, preset: effectivePreset(preset, get().seasonalEnabled) });
@@ -96,7 +100,9 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
         AsyncStorage.getItem(SEASONAL_KEY),
       ]);
       const manual = (key && THEME_PRESETS.find(p => p.key === key)) || DEFAULT_THEME;
-      const seasonalEnabled = seasonalRaw !== '0'; // default true na primeira vez
+      // deslop: sazonal é OPT-IN. Ligado por padrão deixava o app laranja/vermelho
+      // (Halloween/Natal) brigando com o roxo da identidade. Default false.
+      const seasonalEnabled = seasonalRaw === '1';
       set({ manualPreset: manual, seasonalEnabled, preset: effectivePreset(manual, seasonalEnabled) });
     } catch (_) {}
   },

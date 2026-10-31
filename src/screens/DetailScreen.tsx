@@ -1,10 +1,10 @@
 // DetailScreen.tsx — Filme/VOD detail page
 // Mobile: vertical scroll with hero top
-// TV: landscape two-panel (backdrop left 60% + metadata right 40%)
-import React, { useEffect, useState } from 'react';
+// TV: palco em tela cheia (arte + coluna de info + ações) e "Mais como este" abaixo
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView,
-  StatusBar,
+  View, Text, StyleSheet, ScrollView, FlatList,
+  StatusBar, useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,14 +14,16 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore, resolveChannelType } from '../store/useStore';
 import { useWatchProgress, useWatchEntries, progressFractionFor, resumePositionFor } from '../store/watchProgress';
 import TVFocusable from '../components/TVFocusable';
+import { SkChip, SkDecodeText } from '../components/sk';
 import PulsingDot from '../components/PulsingDot';
 import GlassButton from '../components/GlassButton';
 import JellyfinTrackSheet from '../components/JellyfinTrackSheet';
 import ExpandableText from '../components/ExpandableText';
-import { colors, fontSize, radius, fontFamily } from '../utils/theme';
+import { colors, fontSize, radius, fontFamily, spacing, shadow } from '../utils/theme';
+import { useAccentColors } from '../hooks/useAccentColors';
 import { RootStackParamList } from '../types';
 import { getSeriesBaseName, cleanGroupName, cleanDisplayName } from '../utils/channelUtils';
-import { IS_TV } from '../utils/tvDetect';
+import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import { fetchVodInfo, parseMovieCredentials, XtreamVodDetails } from '../utils/xtreamApi';
 import { parseJellyfinVideoUrl } from '../utils/jellyfinLoader';
 import { useTVFocusMemory } from '../utils/tvFocusMemory';
@@ -30,6 +32,10 @@ type DetailRoute = RouteProp<RootStackParamList, 'Detail'>;
 type Nav = StackNavigationProp<RootStackParamList>;
 
 const TABS = ['Sobre', 'Mais como este'] as const;
+// TV: fileira "Mais como este" (fonte única p/ estilo e getItemLayout)
+const TV_PAD = 48;
+const REL_W = 120;
+const REL_GAP = 16;
 type Tab = typeof TABS[number];
 
 
@@ -45,7 +51,10 @@ export default function DetailScreen() {
   const favorites         = useStore(s => s.favorites);
   const [activeTab, setActiveTab] = useState<Tab>('Sobre');
   const [trackSheetUrl, setTrackSheetUrl] = useState<string | null>(null);
+  const tvScrollRef = useRef<ScrollView>(null);
+  const { height: winH } = useWindowDimensions();
 
+  const acc = useAccentColors();
   const type = resolveChannelType(channel);
   const displayName = cleanDisplayName(type === 'series' ? getSeriesBaseName(channel.name) : channel.name);
   const groupClean = (channel.group ? cleanGroupName(channel.group) : '') || '';
@@ -74,7 +83,7 @@ export default function DetailScreen() {
   const heroIsLogo = !channel.backdrop && !vod?.backdrop && !!channel.logo;
   const displayGenre  = channel.genre  || vod?.genre  || groupClean;
   const ratingValue   = channel.rating || vod?.rating;
-  const displayRating = ratingValue ? `⭐ ${ratingValue}` : null;
+  const displayRating = ratingValue ? `★ ${ratingValue}` : null;
   const displayYear   = (channel.releaseDate ?? vod?.releaseDate)?.slice(0, 4) ?? null;
   const displayPlot   = channel.plot   || vod?.plot;
   const displayCast   = channel.cast   || vod?.cast;
@@ -151,23 +160,14 @@ export default function DetailScreen() {
   // ── Shared: tab content (about + related grid) ──────────────────────────────
   const tabContent = (
     <>
-      <View style={IS_TV ? tvStyles.tabBar : styles.tabBar}>
+      {/* Só mobile: a TV mostra tudo numa página só (palco + "Mais como este"). */}
+      <View style={styles.tabBar}>
         {TABS.map(tab => {
           const on = tab === activeTab;
-          return IS_TV ? (
-            <TVFocusable
-              key={tab}
-              onPress={() => setActiveTab(tab)}
-              style={[tvStyles.tabPill, on && tvStyles.tabPillActive]}
-              focusStyle={on ? tvStyles.tabPillFocused : undefined}
-              borderRadius={99}
-            >
-              <Text style={[tvStyles.tabText, on && tvStyles.tabTextActive]}>{tab}</Text>
-            </TVFocusable>
-          ) : (
+          return (
             <TVFocusable key={tab} onPress={() => setActiveTab(tab)} style={styles.tab}>
               <Text style={[styles.tabText, on && styles.tabTextActive]}>{tab}</Text>
-              {on && <View style={styles.tabIndicator} />}
+              {on && <View style={[styles.tabIndicator, { backgroundColor: acc.accent }]} />}
             </TVFocusable>
           );
         })}
@@ -218,10 +218,12 @@ export default function DetailScreen() {
                 <Text style={styles.metaVal}>{displayCast}</Text>
               </View>
             ) : null}
-            <View style={styles.metaItem}>
-              <Text style={styles.metaKey}>Qualidade</Text>
-              <Text style={styles.metaVal}>{channel.quality || 'HD'}</Text>
-            </View>
+            {channel.quality ? (
+              <View style={styles.metaItem}>
+                <Text style={styles.metaKey}>Qualidade</Text>
+                <Text style={styles.metaVal}>{channel.quality}</Text>
+              </View>
+            ) : null}
           </View>
         </View>
       ) : (
@@ -240,7 +242,7 @@ export default function DetailScreen() {
                     <Image source={ch.logo} style={styles.relPosterImg} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={ch.id} />
                   ) : (
                     <View style={styles.relPosterFallback}>
-                      <Text style={styles.relPosterInitials}>{rName.slice(0, 2).toUpperCase()}</Text>
+                      <Text style={[styles.relPosterInitials, { color: acc.accent }]}>{rName.slice(0, 2).toUpperCase()}</Text>
                     </View>
                   )}
                 </View>
@@ -249,17 +251,24 @@ export default function DetailScreen() {
             );
           })}
           {relatedChannels.length === 0 && (
-            <Text style={styles.emptyRelated}>Nenhum conteúdo relacionado</Text>
+            <Text style={styles.emptyRelated}>{'Nenhum conteúdo relacionado'}</Text>
           )}
         </View>
       )}
     </>
   );
 
-  // ── TV Layout: two-panel horizontal ─────────────────────────────────────────
+  // ── TV Layout: palco + fileira ──────────────────────────────────────────────
+  // Zonas: (1) palco = arte em tela cheia + coluna de informação à esquerda,
+  // ações numa linha; (2) abaixo, "Mais como este" espiando no rodapé.
+  // Foco: Assistir é o preferido; ↓ desce pra fileira (a tela rola), ↑ volta e
+  // a tela retorna ao topo. Sem abas "Sobre/Mais como este" (parada de foco que
+  // escondia metade do conteúdo) e sem Voltar na TV física (o controle tem).
   if (IS_TV) {
+    const realBackdrop = !!heroImage && !heroIsLogo;
+    const toTop = () => tvScrollRef.current?.scrollTo({ y: 0, animated: true });
     return (
-      <View style={tvStyles.root}>
+      <View style={tv.root}>
         {trackSheetUrl !== null && (
           <JellyfinTrackSheet
             visible
@@ -270,109 +279,132 @@ export default function DetailScreen() {
         )}
         <StatusBar hidden />
 
-        {/* Left panel — backdrop (60%) */}
-        <View style={tvStyles.leftPanel}>
-          {heroImage ? (
-            <Image
-              source={heroImage}
-              style={tvStyles.backdrop}
-              contentFit={heroIsLogo ? 'contain' : 'cover'}
-              contentPosition="center"
-              transition={150}
-              cachePolicy="memory-disk"
-            />
-          ) : (
-            <View style={[tvStyles.backdrop, tvStyles.backdropFallback]}>
-              <Text style={tvStyles.backdropInitials}>{displayName.slice(0, 3).toUpperCase()}</Text>
+        {/* Arte: backdrop de verdade cobre a tela; sem ele, o pôster entra inteiro
+            num tile à direita (nunca ampliado/cortado). */}
+        {realBackdrop ? (
+          <Image source={heroImage} style={tv.fill} contentFit="cover" transition={150} cachePolicy="memory-disk" />
+        ) : (
+          <LinearGradient colors={[colors.bg2, '#15111f', colors.bg0]} start={{ x: 1, y: 0 }} end={{ x: 0, y: 1 }} style={[tv.fill, tv.posterStage]}>
+            {heroImage ? (
+              <View style={tv.posterTile}>
+                <Image source={heroImage} style={tv.fillRel} contentFit="cover" transition={150} cachePolicy="memory-disk" />
+              </View>
+            ) : null}
+          </LinearGradient>
+        )}
+        <LinearGradient
+          colors={['rgba(10,8,16,0.94)', 'rgba(10,8,16,0.6)', 'rgba(10,8,16,0)']}
+          locations={[0, 0.5, 1]}
+          start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }}
+          style={tv.gradH}
+        />
+        <LinearGradient
+          colors={['rgba(10,8,16,0)', colors.bg0]}
+          style={tv.gradV}
+        />
+
+        <ScrollView ref={tvScrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={tv.scroll}>
+          <View style={[tv.stage, { minHeight: Math.round(winH * 0.8) }]}>
+            <Text style={tv.title} numberOfLines={2}>{displayName}</Text>
+            <Text style={tv.meta} numberOfLines={1}>
+              {[displayYear ? String(displayYear) : null,
+                displayDuration ? String(displayDuration) : null,
+                displayGenre || typeLabel,
+                displayRating,
+                channel.quality && channel.quality !== 'HD' ? channel.quality : null,
+              ].filter(Boolean).join('  ·  ')}
+            </Text>
+            <View style={tv.synopsisWrap}>
+              <ExpandableText
+                style={tv.synopsis}
+                collapsedLines={3}
+                title={displayName}
+                text={displayPlot || (groupClean ? `${typeLabel} · ${groupClean}` : typeLabel)}
+              />
+            </View>
+            {castShort ? <Text style={tv.cast} numberOfLines={1}>{`Com ${castShort}`}</Text> : null}
+
+            <View style={tv.actions}>
+              <TVFocusable
+                onPress={handlePlay}
+                onFocus={toTop}
+                style={[tv.playBtn, { backgroundColor: acc.accent }]}
+                focusStyle={{ backgroundColor: acc.accent2 }}
+                hasTVPreferredFocus
+              >
+                <Ionicons name="play" size={18} color={colors.textInverse} />
+                <Text style={tv.playText}>{playLabel}</Text>
+              </TVFocusable>
+              {resumeFrac > 0 && (
+                <TVFocusable onPress={handleStartOver} onFocus={toTop} style={tv.ghostBtn} accessibilityLabel="Começar do início">
+                  <Ionicons name="refresh" size={17} color={colors.text1} />
+                  <Text style={tv.ghostText}>Do início</Text>
+                </TVFocusable>
+              )}
+              <TVFocusable onPress={() => toggleFavorite(channel.id)} onFocus={toTop} style={tv.ghostBtn}>
+                <Ionicons name={isFav ? 'checkmark' : 'add'} size={18} color={colors.text1} />
+                <Text style={tv.ghostText}>Minha lista</Text>
+              </TVFocusable>
+              {type !== 'live' && (
+                <TVFocusable onPress={toggleWatched} onFocus={toTop} style={tv.ghostBtn}>
+                  <Ionicons name={isWatched ? 'eye' : 'eye-outline'} size={17} color={colors.text1} />
+                  <Text style={tv.ghostText}>{isWatched ? 'Assistido' : 'Marcar assistido'}</Text>
+                </TVFocusable>
+              )}
+            </View>
+            {resumeFrac > 0 && (
+              <View style={tv.resume}>
+                <View style={shared.resumeTrack}>
+                  <View style={[shared.resumeFill, { width: `${Math.round(resumeFrac * 100)}%`, backgroundColor: acc.accent }]} />
+                </View>
+                <Text style={shared.resumeLabel}>Restam {remainMin} min</Text>
+              </View>
+            )}
+          </View>
+
+          {relatedChannels.length > 0 && (
+            <View style={tv.related}>
+              <Text style={tv.relatedTitle}>Mais como este</Text>
+              <FlatList
+                horizontal
+                data={relatedChannels.slice(0, 20)}
+                keyExtractor={ch => ch.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={tv.relatedRow}
+                initialNumToRender={8}
+                windowSize={3}
+                removeClippedSubviews={false}
+                getItemLayout={(_, i) => ({ length: REL_W + REL_GAP, offset: (REL_W + REL_GAP) * i + TV_PAD, index: i })}
+                renderItem={({ item: ch }) => {
+                  const rName = cleanDisplayName(resolveChannelType(ch) === 'series' ? getSeriesBaseName(ch.name) : ch.name);
+                  return (
+                    <TVFocusable
+                      onPress={() => navigation.replace('Detail', { channel: ch, relatedChannels })}
+                      style={tv.relCard}
+                      accessibilityLabel={rName}
+                    >
+                      <View style={tv.relPoster}>
+                        {ch.logo ? (
+                          <Image source={ch.logo} style={tv.fillRel} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={ch.id} />
+                        ) : (
+                          <Text style={[tv.relInitials, { color: acc.accent2 }]}>{rName.slice(0, 2).toUpperCase()}</Text>
+                        )}
+                      </View>
+                      <Text style={tv.relName} numberOfLines={1}>{rName}</Text>
+                    </TVFocusable>
+                  );
+                }}
+              />
             </View>
           )}
+        </ScrollView>
 
-          {/* Right-edge gradient blending into right panel */}
-          <LinearGradient
-            colors={['transparent', colors.bg0]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={tvStyles.backdropGradientRight}
-          />
-          {/* Bottom gradient */}
-          <LinearGradient
-            colors={['transparent', 'rgba(10,8,16,0.85)']}
-            style={tvStyles.backdropGradientBottom}
-          />
-
-          {/* Back button */}
-          <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={tvStyles.backBtn}>
+        {/* Voltar visível só no web (teclado/mouse); na TV é a tecla do controle. */}
+        {IS_WEB && (
+          <TVFocusable accessibilityLabel="Voltar" onPress={() => navigation.goBack()} style={tv.backBtn}>
             <Ionicons name="chevron-back" size={18} color={colors.text1} />
           </TVFocusable>
-
-          {/* Type badge bottom-left */}
-          <View style={tvStyles.typeBadgeWrap}>
-            <View style={tvStyles.typeBadge}>
-              {type === 'live' && <PulsingDot size={5} />}
-              <Text style={tvStyles.typeBadgeText}>
-                {typeLabel.toUpperCase()}{groupClean ? ` · ${groupClean.toUpperCase()}` : ''}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Right panel — metadata (40%) */}
-        <ScrollView
-          style={tvStyles.rightPanel}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={tvStyles.rightContent}
-        >
-          {/* Title block */}
-          <Text style={tvStyles.title} numberOfLines={3}>{displayName}</Text>
-          <View style={tvStyles.metaRow}>
-            {channel.quality && (
-              <View style={tvStyles.qualBadge}>
-                <Text style={tvStyles.qualBadgeText}>{channel.quality}</Text>
-              </View>
-            )}
-            {displayRating && <Text style={tvStyles.metaText}>{displayRating}</Text>}
-            {displayYear && <Text style={tvStyles.metaText}>{displayYear}</Text>}
-            {displayDuration && <Text style={tvStyles.metaText}>{displayDuration}</Text>}
-            <Text style={tvStyles.metaText}>{displayGenre || typeLabel}</Text>
-          </View>
-          {castShort ? <Text style={tvStyles.metaText} numberOfLines={2}>Elenco: {castShort}</Text> : null}
-
-          {/* Play button */}
-          <TVFocusable onPress={handlePlay} style={tvStyles.playBtn} focusStyle={tvStyles.playBtnFocused} hasTVPreferredFocus>
-            <Ionicons name="play" size={18} color={colors.textInverse} />
-            <Text style={tvStyles.playText}>{playLabel}</Text>
-          </TVFocusable>
-          {resumeFrac > 0 && (
-            <View style={shared.resumeRow}>
-              <View style={shared.resumeTrack}>
-                <View style={[shared.resumeFill, { width: `${Math.round(resumeFrac * 100)}%` }]} />
-              </View>
-              <Text style={shared.resumeLabel}>Restam {remainMin} min</Text>
-            </View>
-          )}
-
-          {/* Secondary actions */}
-          <View style={tvStyles.secondaryRow}>
-            {resumeFrac > 0 && (
-              <GlassButton icon="refresh" label="Começar do início" onPress={handleStartOver} />
-            )}
-            <GlassButton
-              icon={isFav ? 'heart' : 'heart-outline'}
-              label="Minha lista"
-              onPress={() => toggleFavorite(channel.id)}
-            />
-            {type !== 'live' && (
-              <GlassButton
-                icon={isWatched ? 'checkmark-circle' : 'checkmark-circle-outline'}
-                label={isWatched ? 'Assistido' : 'Marcar assistido'}
-                onPress={toggleWatched}
-              />
-            )}
-          </View>
-
-          {/* Tabs + content */}
-          {tabContent}
-        </ScrollView>
+        )}
       </View>
     );
   }
@@ -407,7 +439,7 @@ export default function DetailScreen() {
             />
           ) : (
             <View style={styles.heroFallback}>
-              <Text style={styles.heroInitials}>{displayName.slice(0, 3).toUpperCase()}</Text>
+              <Text style={[styles.heroInitials, { color: acc.accent }]}>{displayName.slice(0, 3).toUpperCase()}</Text>
             </View>
           )}
           <LinearGradient
@@ -427,16 +459,12 @@ export default function DetailScreen() {
                 {typeLabel.toUpperCase()}{groupClean ? ` · ${groupClean.toUpperCase()}` : ''}
               </Text>
             </View>
-            <Text style={styles.title} numberOfLines={3}>{displayName}</Text>
+            <SkDecodeText text={displayName} style={styles.title} numberOfLines={3} />
             <View style={styles.metaRow}>
-              {channel.quality && (
-                <View style={styles.metaBadge}>
-                  <Text style={styles.metaBadgeText}>{channel.quality}</Text>
-                </View>
-              )}
-              {displayRating && <Text style={styles.metaText}>{displayRating}</Text>}
-              {displayYear && <Text style={styles.metaText}>{displayYear}</Text>}
-              {displayDuration && <Text style={styles.metaText}>{displayDuration}</Text>}
+              {channel.quality ? <SkChip label={channel.quality} variant="ok" /> : null}
+              {displayRating ? <SkChip label={String(displayRating)} dot={false} /> : null}
+              {displayYear ? <SkChip label={String(displayYear)} dot={false} /> : null}
+              {displayDuration ? <SkChip label={String(displayDuration)} dot={false} /> : null}
               <Text style={styles.metaText}>{displayGenre || typeLabel}</Text>
             </View>
             {castShort ? <Text style={styles.metaText} numberOfLines={2}>Elenco: {castShort}</Text> : null}
@@ -445,14 +473,14 @@ export default function DetailScreen() {
 
         {/* Actions */}
         <View style={styles.actions}>
-          <TVFocusable onPress={handlePlay} style={styles.playBtn} focusStyle={styles.playBtnFocused}>
+          <TVFocusable onPress={handlePlay} style={styles.playBtn} focusStyle={[styles.playBtnFocused, { backgroundColor: acc.accent2 }]}>
             <Ionicons name="play" size={16} color={colors.textInverse} />
             <Text style={styles.playText}>{playLabel}</Text>
           </TVFocusable>
           {resumeFrac > 0 && (
             <View style={shared.resumeRow}>
               <View style={shared.resumeTrack}>
-                <View style={[shared.resumeFill, { width: `${Math.round(resumeFrac * 100)}%` }]} />
+                <View style={[shared.resumeFill, { width: `${Math.round(resumeFrac * 100)}%`, backgroundColor: acc.accent }]} />
               </View>
               <Text style={shared.resumeLabel}>Restam {remainMin} min</Text>
             </View>
@@ -487,7 +515,7 @@ export default function DetailScreen() {
 const shared = StyleSheet.create({
   resumeRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    marginTop: 10,
+    marginTop: spacing.md,
   },
   resumeTrack: {
     flex: 1, height: 3, borderRadius: 2,
@@ -495,177 +523,70 @@ const shared = StyleSheet.create({
     overflow: 'hidden',
   },
   resumeFill: { height: '100%', backgroundColor: colors.accent },
-  resumeLabel: { fontSize: 11, color: colors.text2, flexShrink: 0 },
+  resumeLabel: { fontSize: IS_TV ? 13 : 11, color: colors.text2, flexShrink: 0 },
 });
 
 // ── TV Styles ────────────────────────────────────────────────────────────────
-const tvStyles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: colors.bg0,
-    flexDirection: 'row',
+const tv = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg0 },
+  fill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  fillRel: { width: '100%', height: '100%' },
+  posterStage: { alignItems: 'flex-end', justifyContent: 'center', paddingRight: '9%' },
+  posterTile: {
+    width: '19%', aspectRatio: 2 / 3, borderRadius: 14, overflow: 'hidden',
+    backgroundColor: colors.bg3, ...shadow.floating,
   },
-
-  // Left backdrop panel
-  leftPanel: {
-    width: '60%',
-    position: 'relative',
-    overflow: 'hidden',
-    backgroundColor: colors.bg2,
-  },
-  backdrop: {
-    width: '100%',
-    height: '100%',
-  },
-  backdropFallback: {
-    backgroundColor: colors.bg2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backdropInitials: {
-    fontSize: 80,
-    fontWeight: '800',
-    color: colors.accent,
-    opacity: 0.15,
-    letterSpacing: 6,
-  },
-  backdropGradientRight: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    width: '35%',
-  },
-  backdropGradientBottom: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: '30%',
-  },
-  backBtn: {
-    position: 'absolute',
-    top: 32,
-    left: 32,
-    width: 36,
-    height: 36,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  typeBadgeWrap: {
-    position: 'absolute',
-    bottom: 32,
-    left: 32,
-  },
-  typeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radius.full,
-  },
-  typeBadgeText: {
-    fontSize: 10,
-    color: colors.text2,
-    letterSpacing: 0.8,
-    fontWeight: '600',
-  },
-
-  // Right metadata panel
-  rightPanel: {
-    flex: 1,
-    backgroundColor: colors.bg0,
-  },
-  rightContent: {
-    padding: 40,
-    paddingBottom: 100, // acima da barra de dicas
-    paddingTop: 56,
-    gap: 16,
+  gradH: { position: 'absolute', top: 0, left: 0, bottom: 0, width: '78%' },
+  gradV: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '45%' },
+  scroll: { paddingBottom: 40 },
+  stage: {
+    justifyContent: 'flex-end',
+    paddingHorizontal: TV_PAD, paddingBottom: 8,
   },
   title: {
-    fontSize: 36,
-    fontFamily: fontFamily.bold,
-    color: colors.text1,
-    letterSpacing: -0.8,
-    lineHeight: 42,
+    maxWidth: '58%',
+    fontFamily: fontFamily.bold, fontSize: 44, lineHeight: 48,
+    color: colors.text1, letterSpacing: -1.4,
   },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  meta: {
+    marginTop: 12, maxWidth: '58%',
+    fontFamily: fontFamily.medium, fontSize: 15, color: colors.text2,
   },
-  qualBadge: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-  qualBadgeText: {
-    fontSize: 10,
-    color: colors.text2,
-    fontWeight: '600',
-  },
-  metaText: {
-    fontSize: 13,
-    color: colors.text3,
-  },
+  synopsisWrap: { maxWidth: '50%', marginTop: 14 },
+  synopsis: { fontFamily: fontFamily.regular, fontSize: 16, lineHeight: 24, color: colors.text1, opacity: 0.88 },
+  cast: { marginTop: 10, maxWidth: '50%', fontFamily: fontFamily.regular, fontSize: 14, color: colors.text3 },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 24 },
   playBtn: {
-    height: 52,
-    borderRadius: 12,
-    backgroundColor: colors.text1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    height: 48, paddingHorizontal: 28, borderRadius: 12,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
   },
-  // Foco CLAREIA o botão branco (o FOCUS_BG translúcido o escurecia e apagava o texto)
-  playBtnFocused: { backgroundColor: colors.accent2 },
-  playText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.textInverse,
+  playText: { fontFamily: fontFamily.semiBold, fontSize: 16, color: colors.textInverse },
+  ghostBtn: {
+    height: 48, paddingHorizontal: 20, borderRadius: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
-  secondaryRow: {
-    flexDirection: 'row',
-    gap: 8,
+  ghostText: { fontFamily: fontFamily.medium, fontSize: 15, color: colors.text1 },
+  resume: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14, width: 320 },
+  related: { marginTop: 28 },
+  relatedTitle: {
+    paddingHorizontal: TV_PAD,
+    fontFamily: fontFamily.semiBold, fontSize: 19, color: colors.text1, letterSpacing: -0.3,
   },
-
-  tabBar: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingBottom: 16,
+  // Folga vertical/lateral: o card focado amplia 5% e o anel fica 5px fora.
+  relatedRow: { paddingHorizontal: TV_PAD, paddingVertical: 16, gap: REL_GAP },
+  relCard: { width: REL_W },
+  relPoster: {
+    width: REL_W, aspectRatio: 2 / 3, borderRadius: 10, overflow: 'hidden',
+    backgroundColor: colors.bg2, alignItems: 'center', justifyContent: 'center',
   },
-  tabPill: {
-    paddingHorizontal: 20,
-    paddingVertical: 9,
-    borderRadius: 99,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: 'transparent',
-  },
-  // Foco CLAREIA o controle claro/ativo — o FOCUS_BG translúcido padrão o escurecia
-  tabPillFocused: { backgroundColor: colors.accent2 },
-  tabPillActive: {
-    backgroundColor: colors.text1,
-    borderColor: colors.text1,
-  },
-  tabText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: colors.text2,
-  },
-  tabTextActive: {
-    color: colors.textInverse,
-    fontWeight: '600',
+  relInitials: { fontFamily: fontFamily.bold, fontSize: 18, opacity: 0.6 },
+  relName: { marginTop: 8, fontFamily: fontFamily.medium, fontSize: 13, color: colors.text2 },
+  backBtn: {
+    position: 'absolute', top: 28, left: 28,
+    width: 40, height: 40, borderRadius: radius.full,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center', justifyContent: 'center',
   },
 });
 
@@ -717,7 +638,8 @@ const styles = StyleSheet.create({
     color: colors.text1, letterSpacing: -0.8, lineHeight: 36,
   },
   metaRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap', alignItems: 'center', gap: 10, marginTop: 12,
   },
   metaBadge: {
     borderWidth: 1, borderColor: colors.border,
@@ -750,15 +672,15 @@ const styles = StyleSheet.create({
   },
 
   about: { padding: 22, gap: 16 },
-  synopsis: { fontSize: 14, color: colors.text1, lineHeight: 22 },
+  synopsis: { fontSize: IS_TV ? 16 : 14, color: colors.text1, lineHeight: IS_TV ? 25 : 22 },
   metaGrid: { gap: 2 },
   metaItem: {
     flexDirection: 'row', alignItems: 'flex-start',
     paddingVertical: 7,
     borderBottomWidth: 1, borderBottomColor: colors.borderSoft,
   },
-  metaKey: { width: 100, fontSize: 12, color: colors.text3 },
-  metaVal: { flex: 1, fontSize: 12, color: colors.text1 },
+  metaKey: { width: IS_TV ? 110 : 100, fontSize: IS_TV ? 14 : 12, color: colors.text3 },
+  metaVal: { flex: 1, fontSize: IS_TV ? 14 : 12, color: colors.text1 },
 
   relatedGrid: {
     flexDirection: 'row', flexWrap: 'wrap',
@@ -775,6 +697,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg2,
   },
   relPosterInitials: { fontSize: 12, fontWeight: '700', color: colors.accent, opacity: 0.5 },
-  relTitle: { fontSize: 11, fontWeight: '500', color: colors.text1, marginTop: 6, lineHeight: 15 },
-  emptyRelated: { fontSize: 13, color: colors.text3, padding: 22 },
+  relTitle: { fontSize: IS_TV ? 13 : 11, fontWeight: '500', color: colors.text1, marginTop: 6, lineHeight: IS_TV ? 18 : 15 },
+  emptyRelated: { fontSize: 14, fontFamily: fontFamily.regular, color: colors.text2, padding: 22 },
 });

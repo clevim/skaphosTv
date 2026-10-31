@@ -9,14 +9,16 @@ import Svg, { Circle } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Channel } from '../types';
 import TVFocusable, { TVFocusableHandle } from './TVFocusable';
-import PulsingDot from './PulsingDot';
-import { colors, fontSize, radius, spacing } from '@/utils/theme';
+import { colors, fontSize, fontFamily, radius, spacing } from '@/utils/theme';
 import { IS_TV, IS_NATIVE_TV, IS_WEB } from '../utils/tvDetect';
 import { useStore } from '../store/useStore';
 import { useNowNext } from '../store/epgStore';
+import { SkChip, SkMeter } from './sk';
+import { useAccentColors } from '../hooks/useAccentColors';
 
 /** Anel que regride ao redor do botão de sleep timer, acompanhando o tempo restante. */
 function SleepRing({ endAt, totalMinutes }: { endAt: number; totalMinutes: number }) {
+  const acc = useAccentColors();
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -30,7 +32,7 @@ function SleepRing({ endAt, totalMinutes }: { endAt: number; totalMinutes: numbe
     <Svg width={size} height={size} style={StyleSheet.absoluteFillObject} pointerEvents="none">
       <Circle
         cx={size / 2} cy={size / 2} r={r}
-        stroke={colors.accent} strokeWidth={stroke} fill="none"
+        stroke={acc.accent} strokeWidth={stroke} fill="none"
         strokeDasharray={`${circ} ${circ}`}
         strokeDashoffset={circ * (1 - pct)}
         strokeLinecap="round"
@@ -48,21 +50,36 @@ function NowNextLine({ channel, isLive }: { channel: Channel; isLive: boolean })
   // passive: no player o guia é só LEITURA — baixar/parsear XMLTV aqui rouba
   // CPU do decodificador de vídeo (ver useNowNext).
   const { now, next } = useNowNext(enabled ? channel.id : undefined, true);
-  if (!now && !next) return null;
+  if (!isLive && !now && !next) return null;
   const fmt = (ms: number) => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const q = channel.quality && channel.quality !== 'HD' ? channel.quality : null;
+  // ponytail: lê Date.now() só ao renderizar (sem timer); atualiza quando o OSD reabre
+  const frac = now ? (Date.now() - now.start) / Math.max(1, now.end - now.start) : 0;
   return (
-    <Text style={nnStyles.line} numberOfLines={1}>
-      {now && <Text style={nnStyles.now}>Agora: {now.title} · {fmt(now.start)}–{fmt(now.end)}</Text>}
-      {now && next ? '   ' : ''}
-      {next && <Text style={nnStyles.next}>A seguir: {next.title}</Text>}
-    </Text>
+    <>
+    {(isLive || now) && (
+      <View style={nnStyles.row}>
+        {isLive && <SkChip label="AO VIVO" variant="live" />}
+        {q && <SkChip label={q} />}
+        {now && (
+          <Text style={nnStyles.now} numberOfLines={1}>
+            {now.title}<Text style={nnStyles.time}>{`   ${fmt(now.start)}–${fmt(now.end)}`}</Text>
+          </Text>
+        )}
+      </View>
+    )}
+    {now && <SkMeter label="agora" value={frac} valueText="" style={nnStyles.meter} />}
+    {next && <Text style={nnStyles.next} numberOfLines={1}>{`A seguir: ${next.title}`}</Text>}
+    </>
   );
 }
 
 const nnStyles = StyleSheet.create({
-  line: { marginTop: 3, fontSize: IS_TV ? 12 : 11 },
-  now: { color: colors.accent2, fontWeight: '600' },
-  next: { color: colors.text2 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
+  meter: { marginTop: 10, maxWidth: 420 },
+  now: { flexShrink: 1, fontSize: IS_TV ? 15 : 13, fontFamily: fontFamily.semiBold, color: colors.text1 },
+  time: { fontFamily: fontFamily.regular, color: colors.text2, fontVariant: ['tabular-nums'] },
+  next: { marginTop: 6, fontSize: IS_TV ? 14 : 12, fontFamily: fontFamily.regular, color: colors.text2 },
 });
 
 interface Props {
@@ -178,6 +195,7 @@ export default function PlayerOSD({
   resizeLabel, onCycleResize, rate = 1, onCycleRate,
   hasRecall, onRecall, sidebarLabel = 'Lista de canais',
 }: Props) {
+  const acc = useAccentColors();
   const progressPct = duration > 0 ? Math.min(1, position / duration) : 0;
   const seekBarWidth = useRef(0);
 
@@ -245,18 +263,13 @@ export default function PlayerOSD({
       {/* Top bar — back + title + actions. Some no modo scrubbing (foco na barra),
           mas continua montado/focável para o foco poder voltar ao sair da barra. */}
       <View style={[styles.osdTop, scrubMode && styles.scrubHidden]} {...hoverProps}>
-        <TVFocusable accessibilityLabel={IS_TV ? 'Voltar' : 'Fechar player'} onPress={onBack} style={styles.backBtn} borderRadius={19} hitSlop={5}>
-          <Ionicons name={IS_TV ? 'chevron-back' : 'chevron-down'} size={20} color={colors.white} />
-        </TVFocusable>
-
-        {/* Absoluto e centralizado no espaço TOTAL da barra — não no espaço
-            "sobrando" entre back e os ícones (que muda de largura conforme
-            quantos ícones aparecem, descentralizando o título). */}
-        <View style={styles.titleWrap} pointerEvents="none">
-          <Text style={styles.titleLabel}>REPRODUZINDO</Text>
-          <Text style={styles.titleName} numberOfLines={1}>{displayTitle(channel)}</Text>
-          <NowNextLine channel={channel} isLive={isLive} />
-        </View>
+        {/* TV física: sem "voltar" na tela — o controle tem a tecla, e um botão a
+            mais no topo era onde o foco caía quando um focável sumia (OK fechava o player). */}
+        {IS_NATIVE_TV ? <View /> : (
+          <TVFocusable accessibilityLabel={IS_TV ? 'Voltar' : 'Fechar player'} onPress={onBack} style={styles.backBtn} borderRadius={19} hitSlop={5}>
+            <Ionicons name={IS_TV ? 'chevron-back' : 'chevron-down'} size={20} color={colors.white} />
+          </TVFocusable>
+        )}
 
         <View style={styles.topActions}>
           {IS_WEB && (
@@ -332,13 +345,13 @@ export default function PlayerOSD({
             </TVFocusable>
           )}
           {hasSubtitles && onToggleSubtitles && (
-            <TVFocusable accessibilityLabel="Legendas" onPress={onToggleSubtitles} style={[styles.iconBtn, subtitleActive && styles.iconBtnActive]} borderRadius={19} hitSlop={5}>
-              <Ionicons name="chatbox-ellipses-outline" size={18} color={subtitleActive ? colors.accent : colors.white} />
+            <TVFocusable accessibilityLabel="Legendas" onPress={onToggleSubtitles} style={[styles.iconBtn, subtitleActive && [styles.iconBtnActive, { backgroundColor: acc.accentSoft, borderColor: acc.accent }]]} borderRadius={19} hitSlop={5}>
+              <Ionicons name="chatbox-ellipses-outline" size={18} color={subtitleActive ? acc.accent : colors.white} />
             </TVFocusable>
           )}
           {onToggleSleepTimer && (
             <TVFocusable accessibilityLabel="Timer de desligamento" onPress={onToggleSleepTimer} style={styles.iconBtn} borderRadius={19} hitSlop={5}>
-              <Ionicons name="moon-outline" size={18} color={sleepTimerActive ? colors.accent : colors.white} />
+              <Ionicons name="moon-outline" size={18} color={sleepTimerActive ? acc.accent : colors.white} />
               {/* Enquanto roda, o estado "ativo" é só o anel regredindo — sem também
                   pintar o botão, que duplicava a indicação (círculo cheio + anel). */}
               {sleepTimerActive && sleepTimerEndAt != null && sleepTimerTotalMinutes != null && (
@@ -384,19 +397,22 @@ export default function PlayerOSD({
         )}
       </View>
 
-      {/* Bottom: progress bar only */}
+      {/* Base: título + agora/a seguir alinhados à esquerda, logo acima da barra
+          (padrão de player de streaming — o olho já está embaixo, onde está o tempo). */}
       <View style={styles.osdBottom} {...hoverProps}>
+        <View style={styles.titleBlock} pointerEvents="none">
+          <Text style={styles.titleName} numberOfLines={1}>{displayTitle(channel)}</Text>
+          <NowNextLine channel={channel} isLive={isLive} />
+        </View>
         {!isLive && duration > 0 ? (
           <View style={styles.progressSection}>
             {IS_TV && scrubMode && (
               <View style={styles.scrubHint}>
-                <Ionicons name="play-back" size={12} color={colors.accent} />
-                <Text style={styles.scrubHintText}>Segure ◀ ▶ para mover · OK pausa · ▲ volta</Text>
-                <Ionicons name="play-forward" size={12} color={colors.accent} />
+                <Text style={styles.scrubHintText}>Segure esquerda ou direita para mover. OK pausa, cima volta.</Text>
               </View>
             )}
             {IS_NATIVE_TV && !scrubMode && (
-              <Text style={styles.scrubHintIdle}>▼ para ajustar o tempo</Text>
+              <Text style={styles.scrubHintIdle}>Desça para ajustar o tempo</Text>
             )}
             {IS_NATIVE_TV ? (
               // TV física: barra apenas VISUAL (não-focável). O modo scrubbing é estado
@@ -408,8 +424,8 @@ export default function PlayerOSD({
                   onLayout={(e) => { seekBarWidth.current = e.nativeEvent.layout.width; }}
                 >
                   <View style={[styles.progressTrack, scrubMode && styles.progressTrackActive]} />
-                  <View style={[styles.progressFill, { width: `${progressPct * 100}%` }, scrubMode && styles.progressFillActive]} />
-                  <View style={[styles.progressThumb, { left: `${progressPct * 100}%` }, scrubMode && styles.progressThumbActive]} />
+                  <View style={[styles.progressFill, { width: `${progressPct * 100}%`, backgroundColor: acc.accent }, scrubMode && styles.progressFillActive]} />
+                  <View style={[styles.progressThumb, { left: `${progressPct * 100}%` }, scrubMode && [styles.progressThumbActive, { borderColor: acc.accent }]]} />
                 </View>
               </View>
             ) : (
@@ -419,7 +435,7 @@ export default function PlayerOSD({
                 {...panResponder.panHandlers}
               >
                 <View style={styles.progressTrack} />
-                <View style={[styles.progressFill, { width: `${progressPct * 100}%` }]} />
+                <View style={[styles.progressFill, { width: `${progressPct * 100}%`, backgroundColor: acc.accent }]} />
                 <View style={[styles.progressThumb, { left: `${progressPct * 100}%` }]} />
               </View>
             )}
@@ -429,12 +445,10 @@ export default function PlayerOSD({
             </View>
           </View>
         ) : isLive ? (
+          // O selo AO VIVO já mora no bloco do título — aqui só a posição na lista
           <View style={styles.liveInfo}>
-            <PulsingDot size={6} />
-            <Text style={styles.liveInfoText}>Ao vivo</Text>
-            <View style={{ flex: 1 }} />
             <Text style={styles.channelCounter}>
-              {currentIndex + 1}/{totalChannels}
+              {`Canal ${currentIndex + 1} de ${totalChannels}`}
             </Text>
           </View>
         ) : null}
@@ -465,13 +479,13 @@ const styles = StyleSheet.create({
   },
 
   scrimTop:    { position: 'absolute', top: 0, left: 0, right: 0, height: 200 },
-  scrimBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 300 },
+  scrimBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 340 },
 
   // Top
   osdTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'space-between',  // vazio à esquerda na TV física: ícones ficam à direita
     gap: 14,
     paddingHorizontal: IS_TV ? spacing.xxxl : 18,
     paddingTop: IS_TV ? 32 : 54,
@@ -489,26 +503,12 @@ const styles = StyleSheet.create({
   // desiguais dos dois lados descentralizavam o título). Insets iguais dos dois
   // lados garantem centro de verdade; numberOfLines=1 trunca com "…" se o nome
   // for maior que o espaço livre.
-  titleWrap: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: IS_TV ? 170 : 100,
-    right: IS_TV ? 170 : 100,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  titleLabel: {
-    fontSize: 9,
-    color: 'rgba(255,255,255,0.6)',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-  },
+  titleBlock: { marginBottom: spacing.md, maxWidth: IS_TV ? '70%' : '100%' },
   titleName: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: IS_TV ? 24 : 16,
+    fontFamily: fontFamily.bold,
     color: colors.white,
-    marginTop: 1,
+    letterSpacing: IS_TV ? -0.5 : -0.2,
   },
   topActions: { flexDirection: 'row', gap: 8 },
   iconBtn: {
@@ -569,10 +569,9 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   scrubHintText: {
-    color: colors.accent,
+    color: colors.text1,
     fontSize: fontSize.xs,
-    fontWeight: '600',
-    letterSpacing: 0.3,
+    fontFamily: fontFamily.medium,
   },
   progressFocusable: {
     paddingVertical: 6,
@@ -588,13 +587,13 @@ const styles = StyleSheet.create({
     borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.35)',
   },
   progressTrackActive: { height: 5, top: 7.5 },
-  scrubHintIdle: { color: 'rgba(255,255,255,0.6)', fontSize: fontSize.xs, textAlign: 'center' },
+  scrubHintIdle: { color: 'rgba(255,255,255,0.7)', fontSize: fontSize.xs, fontFamily: fontFamily.regular, textAlign: 'right' },
   pillBtn: {
     height: 38, minWidth: 38, paddingHorizontal: 11, borderRadius: radius.full,
     backgroundColor: 'rgba(0,0,0,0.4)', flexDirection: 'row', gap: 5,
     alignItems: 'center', justifyContent: 'center',
   },
-  pillText: { color: colors.white, fontSize: 12, fontWeight: '600' },
+  pillText: { color: colors.white, fontSize: 12, fontFamily: fontFamily.semiBold },
   progressFill: {
     position: 'absolute',
     left: 0,
@@ -631,20 +630,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   timeText: {
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.85)',
     fontSize: fontSize.xs,
+    fontVariant: ['tabular-nums'],
   },
 
-  liveInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  liveInfoText: {
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: fontSize.xs,
-    fontWeight: '600',
-  },
+  liveInfo: { flexDirection: 'row', justifyContent: 'flex-end' },
 
   bottomRow: {
     flexDirection: 'row',
@@ -661,8 +652,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   channelCounter: {
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(255,255,255,0.75)',
     fontSize: fontSize.xs,
-    letterSpacing: 0.4,
+    fontFamily: fontFamily.regular,
+    fontVariant: ['tabular-nums'],
   },
 });

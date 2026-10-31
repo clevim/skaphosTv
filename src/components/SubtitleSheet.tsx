@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, FlatList, Pressable, useWindowDimensions } from
 import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable, { TVFocusableHandle } from './TVFocusable';
 import { colors, radius, fontFamily, shadow } from '../utils/theme';
+import { SkSectionHeader } from './sk';
+import { useAccentColors } from '../hooks/useAccentColors';
 import { JellyfinSubtitleTrack } from '../utils/jellyfinLoader';
 import { IS_TV } from '../utils/tvDetect';
 
@@ -27,10 +29,11 @@ function formatOffset(ms: number): string {
 export default function SubtitleSheet({
   visible, tracks, selectedIndex, onSelect, onClose, offsetMs = 0, onOffsetChange,
 }: Props) {
+  const ac = useAccentColors();
   const { width, height } = useWindowDimensions();
-  const sheetWidth  = Math.min(340, width  - 40);
-  const sheetHeight = Math.min(440, height - 80);
-  const listHeight  = sheetHeight - 120;
+  const sheetWidth  = Math.min(420, width  - 40);
+  const sheetHeight = Math.min(480, height - 80);
+  const listHeight  = sheetHeight - 140;
 
   const closeRef = useRef<TVFocusableHandle | null>(null);
   const firstRef = useRef<TVFocusableHandle | null>(null);
@@ -62,10 +65,7 @@ export default function SubtitleSheet({
       />
 
       <View style={[styles.sheet, { width: sheetWidth, maxHeight: sheetHeight }]}>
-        <View style={styles.header}>
-          <Ionicons name="chatbox-ellipses-outline" size={18} color={colors.accent} />
-          <Text style={styles.title}>Legendas</Text>
-        </View>
+        <View style={styles.header}><SkSectionHeader title="legendas" /></View>
 
         <FlatList
           data={data}
@@ -80,7 +80,7 @@ export default function SubtitleSheet({
               <TVFocusable
                 ref={isFirst ? firstRef : undefined}
                 onPress={() => { onSelect(isOff ? null : item.index); onClose(); }}
-                style={[styles.row, active && styles.rowActive]}
+                style={styles.row /* ativo = só o rádio no acento; sem faixa lateral nem fundo tingido */}
                 focusScale={1}
                 borderRadius={6}
                 hasTVPreferredFocus={isFirst}
@@ -89,8 +89,8 @@ export default function SubtitleSheet({
                 nextFocusLeft={closeTag ?? undefined}
                 nextFocusRight={closeTag ?? undefined}
               >
-                <View style={[styles.radio, active && styles.radioActive]}>
-                  {active && <View style={styles.radioDot} />}
+                <View style={[styles.radio, active && { borderColor: ac.accent }]}>
+                  {active && <View style={[styles.radioDot, { backgroundColor: ac.accent }]} />}
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.trackTitle, active && styles.trackTitleActive]}>
@@ -108,22 +108,22 @@ export default function SubtitleSheet({
         {/* Sincronia — só faz sentido com uma legenda ativa */}
         {selectedIndex !== null && onOffsetChange && (
           <View style={styles.syncRow}>
-            <Text style={styles.syncLabel}>Sincronia</Text>
+            <Text style={styles.syncLabel}>sincronia</Text>
             <View style={styles.syncControls}>
               <TVFocusable accessibilityLabel="Atrasar legenda"
                 onPress={() => onOffsetChange(offsetMs - OFFSET_STEP_MS)}
                 style={styles.syncBtn}
-                borderRadius={16}
+                borderRadius={20}
               >
-                <Ionicons name="remove" size={16} color={colors.white} />
+                <Ionicons name="remove" size={20} color={colors.white} />
               </TVFocusable>
               <Text style={styles.syncValue}>{formatOffset(offsetMs)}</Text>
               <TVFocusable accessibilityLabel="Adiantar legenda"
                 onPress={() => onOffsetChange(offsetMs + OFFSET_STEP_MS)}
                 style={styles.syncBtn}
-                borderRadius={16}
+                borderRadius={20}
               >
-                <Ionicons name="add" size={16} color={colors.white} />
+                <Ionicons name="add" size={20} color={colors.white} />
               </TVFocusable>
               {offsetMs !== 0 && (
                 <TVFocusable onPress={() => onOffsetChange(0)} style={styles.syncReset} borderRadius={6}>
@@ -171,54 +171,53 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSoft,
   },
-  title: { fontSize: 15, fontFamily: fontFamily.semiBold, color: colors.text1 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 20,
-    paddingVertical: 13,
+    paddingVertical: 15,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSoft,
   },
   rowActive: { backgroundColor: colors.accentSoft },
   radio: {
-    width: 18, height: 18, borderRadius: 9,
+    width: 22, height: 22, borderRadius: 11,
     borderWidth: 2, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
   radioActive: { borderColor: colors.accent },
-  radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
-  trackTitle: { fontSize: 13, fontWeight: '500', color: colors.text2 },
-  trackTitleActive: { color: colors.text1, fontWeight: '600' },
-  sub: { fontSize: 10, color: colors.text3, marginTop: 2 },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent },
+  trackTitle: { fontSize: 16, fontFamily: fontFamily.medium, color: colors.text2 },
+  trackTitleActive: { color: colors.text1, fontFamily: fontFamily.semiBold },
+  sub: { fontSize: 12, color: colors.text3, marginTop: 2 },
   syncRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingVertical: 14,
     borderTopWidth: 1, borderTopColor: colors.borderSoft,
   },
-  syncLabel: { fontSize: 13, fontWeight: '500', color: colors.text2 },
+  syncLabel: { fontSize: 14, fontFamily: fontFamily.medium, fontVariant: ['tabular-nums'], color: colors.text3, letterSpacing: 0.3 },
   syncControls: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   syncBtn: {
-    width: 32, height: 32, borderRadius: 16,
+    width: 40, height: 40, borderRadius: 20,
     backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  syncValue: { fontSize: 13, fontWeight: '600', color: colors.text1, minWidth: 48, textAlign: 'center' },
+  syncValue: { fontSize: 16, fontFamily: fontFamily.semiBold, color: colors.text1, minWidth: 64, textAlign: 'center' },
   syncReset: {
-    paddingHorizontal: 10, paddingVertical: 6,
+    paddingHorizontal: 12, paddingVertical: 9,
     backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
   },
-  syncResetText: { fontSize: 11, fontWeight: '500', color: colors.text2 },
+  syncResetText: { fontSize: 13, fontFamily: fontFamily.medium, color: colors.text2 },
   actions: { padding: 14, borderTopWidth: 1, borderTopColor: colors.borderSoft },
   closeBtn: {
-    height: 40, borderRadius: radius.md,
+    height: 48, borderRadius: radius.md,
     backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  closeText: { fontSize: 13, fontWeight: '500', color: colors.text2 },
+  closeText: { fontSize: 15, fontFamily: fontFamily.medium, color: colors.text1 },
 });

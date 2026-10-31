@@ -8,11 +8,13 @@
 import React from 'react';
 import { StyleProp, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAccentColors, withAlpha } from '../hooks/useAccentColors';
 
 export default function SonarLine({ style }: { style?: StyleProp<ViewStyle> }) {
+  const { accent } = useAccentColors();
   return (
     <LinearGradient
-      colors={['rgba(167,139,250,0.55)', 'rgba(167,139,250,0)']}
+      colors={[withAlpha(accent, 0.55), withAlpha(accent, 0)]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 0 }}
       style={[{ flex: 1, height: 1 }, style]}

@@ -18,6 +18,8 @@ import QRCode from 'react-native-qrcode-svg';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
 import { colors, fontSize, radius, spacing, fontFamily, shadow } from '../utils/theme';
+import { useAccentColors } from '../hooks/useAccentColors';
+import { SkSectionHeader } from './sk';
 import { IS_WEB } from '../utils/tvDetect';
 import { startPairingServer, PairingPayload, PairingServer } from '../utils/pairingServer';
 
@@ -38,6 +40,7 @@ const SCOPE_OPTIONS: { key: Scope; icon: string; label: string; desc: string }[]
 ];
 
 export default function PairingSetupModal({ visible, onClose, onSource }: Props) {
+  const ac = useAccentColors();
   const [scope, setScope] = useState<Scope | null>(null);
   const [status, setStatus] = useState<Status>('choose');
   const [url, setUrl] = useState('');
@@ -93,8 +96,9 @@ export default function PairingSetupModal({ visible, onClose, onSource }: Props)
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.box}>
-          <View style={styles.iconWrap}>
-            <Ionicons name="qr-code-outline" size={22} color={colors.accent} />
+          <View style={styles.head}><SkSectionHeader title="sincronizar" /></View>
+          <View style={[styles.iconWrap, { backgroundColor: ac.accentSoft }]}>
+            <Ionicons name="qr-code-outline" size={22} color={ac.accent} />
           </View>
           <Text style={styles.title}>Sincronizar dispositivos</Text>
 
@@ -112,8 +116,8 @@ export default function PairingSetupModal({ visible, onClose, onSource }: Props)
                         hasTVPreferredFocus={i === 0}
                         borderRadius={radius.md}
                       >
-                        <View style={styles.scopeIcon}>
-                          <Ionicons name={opt.icon as any} size={17} color={colors.accent} />
+                        <View style={[styles.scopeIcon, { backgroundColor: ac.accentSoft }]}>
+                          <Ionicons name={opt.icon as any} size={17} color={ac.accent} />
                         </View>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.scopeLabel}>{opt.label}</Text>
@@ -128,7 +132,7 @@ export default function PairingSetupModal({ visible, onClose, onSource }: Props)
 
               {status === 'starting' && (
                 <View style={styles.center}>
-                  <ActivityIndicator color={colors.accent} />
+                  <ActivityIndicator color={ac.accent} />
                   <Text style={styles.desc}>Preparando conexão local…</Text>
                 </View>
               )}
@@ -141,7 +145,7 @@ export default function PairingSetupModal({ visible, onClose, onSource }: Props)
                     Nada sai da sua rede Wi-Fi.
                   </Text>
                   <View style={styles.qrWrap}>
-                    <QRCode value={qrValue} size={190} backgroundColor={colors.white} color={colors.black} />
+                    <QRCode value={qrValue} size={220} backgroundColor={colors.white} color={colors.black} />
                   </View>
                   <Text style={styles.url}>{url}</Text>
                   {isLocalhostUrl && (
@@ -151,8 +155,8 @@ export default function PairingSetupModal({ visible, onClose, onSource }: Props)
                     </Text>
                   )}
                   <View style={styles.waitRow}>
-                    <ActivityIndicator size="small" color={colors.accent} />
-                    <Text style={styles.waitText}>Aguardando o celular…</Text>
+                    <ActivityIndicator size="small" color={ac.accent} />
+                    <Text style={[styles.waitText, { color: ac.accent }]}>Aguardando o celular…</Text>
                   </View>
                 </>
               )}
@@ -187,7 +191,7 @@ const styles = StyleSheet.create({
   },
   box: {
     ...shadow.floating,
-    width: 420,
+    width: 460,
     maxWidth: '90%',
     backgroundColor: colors.bg1,
     borderRadius: radius.xl,
@@ -196,9 +200,9 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     alignItems: 'center',
   },
+  head: { alignSelf: 'stretch', marginBottom: spacing.md },
   iconWrap: {
     width: 44, height: 44, borderRadius: 22,
-    backgroundColor: colors.accentSoft,
     alignItems: 'center', justifyContent: 'center',
     marginBottom: spacing.md,
   },
@@ -207,13 +211,14 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.semiBold,
     color: colors.text1,
     marginBottom: spacing.sm,
+    textAlign: 'center',
   },
   center: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
   desc: {
     fontSize: fontSize.sm,
     color: colors.text2,
     textAlign: 'center',
-    lineHeight: 19,
+    lineHeight: 20,
     marginBottom: spacing.md,
   },
   bold: { color: colors.text1, fontWeight: '600' },
@@ -229,11 +234,10 @@ const styles = StyleSheet.create({
   },
   scopeIcon: {
     width: 34, height: 34, borderRadius: 10,
-    backgroundColor: colors.accentSoft,
     alignItems: 'center', justifyContent: 'center',
   },
-  scopeLabel: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text1 },
-  scopeDesc: { fontSize: fontSize.xs, color: colors.text3, marginTop: 2 },
+  scopeLabel: { fontSize: fontSize.md, fontFamily: fontFamily.semiBold, color: colors.text1 },
+  scopeDesc: { fontSize: fontSize.sm, color: colors.text3, marginTop: 2 },
 
   qrWrap: {
     backgroundColor: colors.white,
@@ -242,8 +246,9 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   url: {
-    fontSize: fontSize.xs,
-    color: colors.text3,
+    fontSize: fontSize.sm,
+    fontFamily: 'monospace',
+    color: colors.text2,
     marginBottom: spacing.md,
   },
   waitRow: {
@@ -252,15 +257,15 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: spacing.sm,
   },
-  waitText: { fontSize: fontSize.sm, color: colors.accent },
+  waitText: { fontSize: fontSize.sm, fontFamily: fontFamily.regular },
   cancelBtn: {
     marginTop: spacing.sm,
-    paddingHorizontal: 28,
-    paddingVertical: 10,
+    paddingHorizontal: 32,
+    height: 48, justifyContent: 'center',
     borderRadius: radius.md,
     backgroundColor: colors.bg2,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  cancelText: { fontSize: fontSize.sm, color: colors.text1, fontWeight: '600' },
+  cancelText: { fontSize: fontSize.md, color: colors.text1, fontFamily: fontFamily.semiBold },
 });

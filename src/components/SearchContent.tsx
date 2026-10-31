@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View, Text, StyleSheet, TextInput,
   ScrollView,
@@ -7,11 +7,25 @@ import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Channel } from '../types';
 import TVFocusable from './TVFocusable';
-import { colors, spacing, fontSize, radius, UI_FONT_SCALE } from '../utils/theme';
+import { colors, spacing, fontSize, radius, fontFamily, UI_FONT_SCALE } from '../utils/theme';
 import { getSeriesBaseName, cleanGroupName } from '../utils/channelUtils';
 import { resolveChannelType, useStore } from '../store/useStore';
 import { SearchType, useSearchPending } from '../utils/search';
 import { IS_TV } from '../utils/tvDetect';
+import { SkSectionHeader, SkDecodeText } from './sk';
+import { useAccentColors, withAlpha } from '../hooks/useAccentColors';
+
+/** Estilos de chip no acento do tema: selecionado = tinta + borda acento; FOCADO = fundo
+ *  mais forte (o anel vem do TVFocusable) — focado != selecionado. */
+function useChipStyles() {
+  const ac = useAccentColors();
+  return useMemo(() => ({
+    active: { backgroundColor: withAlpha(ac.accent, 0.14), borderColor: withAlpha(ac.accent, 0.55) },
+    focus: { backgroundColor: withAlpha(ac.accent, 0.32) },
+    activeText: { color: ac.accent2 },
+  }), [ac]);
+}
+
 
 interface Props {
   query: string;
@@ -39,6 +53,7 @@ interface Props {
 function FilterChipsRow({ options, value, onChange }: {
   options: string[]; value: string | null; onChange: (v: string | null) => void;
 }) {
+  const cs = useChipStyles();
   if (options.length === 0) return null;
   return (
     <ScrollView
@@ -52,10 +67,10 @@ function FilterChipsRow({ options, value, onChange }: {
           <TVFocusable
             key={opt}
             onPress={() => onChange(active ? null : opt)}
-            style={[styles.filterChip, active && styles.filterChipActive]}
-            focusStyle={styles.filterChipFocused}
+            style={[styles.filterChip, active && cs.active]}
+            focusStyle={cs.focus}
           >
-            <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{opt}</Text>
+            <Text style={[styles.filterChipText, active && cs.activeText, active && styles.filterChipTextActive]}>{opt}</Text>
           </TVFocusable>
         );
       })}
@@ -76,6 +91,7 @@ const TYPE_FILTERS: { key: SearchType; label: string }[] = [
 
 function ResultRow({ channel, onPress }: { channel: Channel; onPress: () => void }) {
   const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
+  const ac = useAccentColors();
   const type = resolveChannelType(channel);
   const displayName = type === 'series' ? getSeriesBaseName(channel.name) : channel.name;
   const groupClean = channel.group ? cleanGroupName(channel.group) : '';
@@ -87,14 +103,16 @@ function ResultRow({ channel, onPress }: { channel: Channel; onPress: () => void
           <Image source={channel.logo} style={rowStyles.thumbImg} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
         ) : (
           <View style={rowStyles.thumbFallback}>
-            <Text style={rowStyles.thumbInitials}>{displayName.slice(0, 2).toUpperCase()}</Text>
+            <Text style={[rowStyles.thumbInitials, { color: ac.accent }]}>{displayName.slice(0, 2).toUpperCase()}</Text>
           </View>
         )}
       </View>
       <View style={rowStyles.info}>
-        <Text style={rowStyles.typeLabel}>{TYPE_LABEL[type] ?? 'ITEM'}</Text>
         <Text style={[rowStyles.name, { fontSize: 14 * scale }]} numberOfLines={1}>{displayName}</Text>
-        {groupClean ? <Text style={[rowStyles.sub, { fontSize: 11 * scale }]} numberOfLines={1}>{groupClean}</Text> : null}
+        <Text style={[rowStyles.sub, { fontSize: 11 * scale }]} numberOfLines={1}>
+          <Text style={[rowStyles.typeLabel, { color: ac.accent2 }]}>{TYPE_LABEL[type] ?? 'ITEM'}</Text>
+          {groupClean ? `  ·  ${groupClean}` : ''}
+        </Text>
       </View>
       <Ionicons name="chevron-forward" size={14} color={colors.text3} />
     </TVFocusable>
@@ -120,15 +138,15 @@ const rowStyles = StyleSheet.create({
   thumbInitials: { fontSize: 13, fontWeight: '700', color: colors.accent },
   info: { flex: 1, minWidth: 0 },
   typeLabel: {
-    fontSize: 9, color: colors.text3,
-    letterSpacing: 0.6, textTransform: 'uppercase',
-    fontWeight: '500',
+    fontFamily: fontFamily.medium, fontSize: 11,
+    letterSpacing: 0.6, fontWeight: '700',
   },
-  name: { fontSize: 14, fontWeight: '500', color: colors.text1, marginTop: 1 },
-  sub: { fontSize: 11, color: colors.text2, marginTop: 1 },
+  name: { fontSize: 14, fontWeight: '600', color: colors.text1 },
+  sub: { fontSize: 11, color: colors.text2, marginTop: 2 },
 });
 
 function BestMatch({ channel, onPress }: { channel: Channel; onPress: () => void }) {
+  const ac = useAccentColors();
   const scale = useStore(s => UI_FONT_SCALE[s.settings.uiFontScale]);
   const type = resolveChannelType(channel);
   const displayName = type === 'series' ? getSeriesBaseName(channel.name) : channel.name;
@@ -136,21 +154,21 @@ function BestMatch({ channel, onPress }: { channel: Channel; onPress: () => void
 
   return (
     <View style={bmStyles.wrap}>
-      <Text style={bmStyles.sectionLabel}>MELHOR RESULTADO</Text>
+      <View style={bmStyles.sectionLabel}><SkSectionHeader title="melhor resultado" /></View>
       <TVFocusable onPress={onPress} style={bmStyles.card}>
         <View style={bmStyles.poster}>
           {channel.logo ? (
-            <Image source={channel.logo} style={bmStyles.posterImg} contentFit="cover" transition={0} recyclingKey={channel.id} />
+            <Image source={channel.logo} style={bmStyles.posterImg} contentFit="cover" transition={0} cachePolicy="memory-disk" recyclingKey={channel.id} />
           ) : (
             <View style={bmStyles.posterFallback}>
-              <Text style={bmStyles.posterInitials}>{displayName.slice(0, 3).toUpperCase()}</Text>
+              <Text style={[bmStyles.posterInitials, { color: ac.accent }]}>{displayName.slice(0, 3).toUpperCase()}</Text>
             </View>
           )}
         </View>
         <View style={bmStyles.info}>
           <Text style={[bmStyles.name, { fontSize: 15 * scale }]} numberOfLines={2}>{displayName}</Text>
           <Text style={[bmStyles.meta, { fontSize: 11 * scale }]}>{TYPE_LABEL[type] ?? 'ITEM'} · {groupClean || channel.quality || 'HD'}</Text>
-          <View style={bmStyles.playBtn}>
+          <View style={[bmStyles.playBtn, { backgroundColor: ac.accent }]}>
             <Ionicons name="play" size={11} color={colors.textInverse} />
             <Text style={bmStyles.playText}>Assistir</Text>
           </View>
@@ -162,11 +180,7 @@ function BestMatch({ channel, onPress }: { channel: Channel; onPress: () => void
 
 const bmStyles = StyleSheet.create({
   wrap: { paddingHorizontal: IS_TV ? spacing.xxxl : 22, paddingBottom: 16 },
-  sectionLabel: {
-    fontSize: 10, color: colors.text3,
-    letterSpacing: 0.6, textTransform: 'uppercase',
-    fontWeight: '500', marginBottom: 10,
-  },
+  sectionLabel: { marginBottom: 10 },
   card: {
     flexDirection: 'row', gap: 12,
     padding: 12, backgroundColor: colors.bg1,
@@ -201,7 +215,9 @@ export default function SearchContent({
   yearOptions, filterYear, onFilterYearChange,
   qualityOptions, filterQuality, onFilterQualityChange,
 }: Props) {
+  const acc = useAccentColors();
   const otherResults = results.slice(1);
+  const cs = useChipStyles();
   const pending = useSearchPending(query);
 
   return (
@@ -238,10 +254,10 @@ export default function SearchContent({
             <TVFocusable
               key={f.key}
               onPress={() => onSearchTypeChange(f.key)}
-              style={[styles.filterChip, active && styles.filterChipActive]}
-            focusStyle={styles.filterChipFocused}
+              style={[styles.filterChip, active && cs.active]}
+              focusStyle={cs.focus}
             >
-              <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{f.label}</Text>
+              <Text style={[styles.filterChipText, active && cs.activeText, active && styles.filterChipTextActive]}>{f.label}</Text>
             </TVFocusable>
           );
         })}
@@ -258,9 +274,9 @@ export default function SearchContent({
 
       {/* Result count */}
       {results.length > 0 && (
-        <Text style={styles.countLabel}>
-          {results.length} RESULTADO{results.length !== 1 ? 'S' : ''} · CANAIS, FILMES, SÉRIES
-        </Text>
+        <View style={styles.countLabel}>
+          <SkSectionHeader title={`${results.length} resultado${results.length !== 1 ? 's' : ''}`} />
+        </View>
       )}
 
       {/* States */}
@@ -272,9 +288,9 @@ export default function SearchContent({
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.recentHeader}>
-              <Text style={styles.recentTitle}>BUSCAS RECENTES</Text>
-              <TVFocusable onPress={onClearRecent}>
-                <Text style={styles.recentClear}>Limpar</Text>
+              <SkSectionHeader title="buscas recentes" />
+              <TVFocusable onPress={onClearRecent} style={{ marginLeft: 12 }}>
+                <Text style={[styles.recentClear, { color: acc.accent }]}>Limpar</Text>
               </TVFocusable>
             </View>
             {recent.map(q => (
@@ -288,15 +304,15 @@ export default function SearchContent({
         ) : (
           <View style={styles.empty}>
             <Ionicons name="search" size={48} color={colors.text3} />
-            <Text style={styles.emptyTitle}>Digite para buscar</Text>
-            <Text style={styles.emptySub}>Pesquise em toda a sua lista</Text>
+            <SkDecodeText text="Buscar" style={styles.emptyTitle} />
+            <Text style={styles.emptySub}>{'Busque canais, filmes e séries'}</Text>
           </View>
         )
       ) : results.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name={pending ? 'hourglass-outline' : 'alert-circle-outline'} size={48} color={colors.text3} />
           <Text style={styles.emptyTitle}>{pending ? 'Buscando…' : `Sem resultados para "${query.trim()}"`}</Text>
-          {!pending && <Text style={styles.emptySub}>Tente outro termo ou limpe os filtros</Text>}
+          {!pending && <Text style={styles.emptySub}>{'tente outro termo ou limpe os filtros'}</Text>}
         </View>
       ) : (
         <ScrollView
@@ -310,7 +326,7 @@ export default function SearchContent({
           {/* Other results */}
           {otherResults.length > 0 && (
             <View>
-              <Text style={styles.othersLabel}>OUTROS RESULTADOS</Text>
+              <View style={styles.othersLabel}><SkSectionHeader title="outros resultados" /></View>
               {/* ponytail: resultados do MOBILE, não virtualizados — limitados a
                   100 pelo `limit` do searchChannels, então é teto conhecido e
                   baixo. Na TV o caminho é o TVSearchContent, já em FlatList. */}
@@ -343,26 +359,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: IS_TV ? spacing.xxxl : 22,
   },
   filterChip: {
-    paddingHorizontal: 14, paddingVertical: 7,
+    paddingHorizontal: 14, paddingVertical: 9,
     borderRadius: 999, backgroundColor: colors.bg1,
     borderWidth: 1, borderColor: colors.border,
   },
-  filterChipActive: { backgroundColor: 'rgba(167,139,250,0.10)', borderColor: 'transparent' },
-  // Foco CLAREIA o controle claro/ativo — o FOCUS_BG translúcido padrão o escurecia
-  // Foco = só o fundo; o anel vem do TVFocusable (um único token de foco).
-  filterChipFocused: { backgroundColor: 'rgba(167,139,250,0.30)' },
-  filterChipText: { fontSize: 12, fontWeight: '500', color: colors.text1 },
-  filterChipTextActive: { color: colors.accent2, fontWeight: '700' },
+  filterChipText: { fontFamily: fontFamily.medium, fontSize: 12, fontWeight: '500', color: colors.text1 },
+  filterChipTextActive: { fontWeight: '700' },
   recentHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: IS_TV ? spacing.xxxl : 22,
     marginBottom: 6,
   },
-  recentTitle: {
-    fontSize: 10, color: colors.text3, letterSpacing: 0.6,
-    textTransform: 'uppercase', fontWeight: '500',
-  },
-  recentClear: { fontSize: 12, color: colors.accent, fontWeight: '500' },
+  recentClear: { fontFamily: fontFamily.semiBold, fontSize: 12, color: colors.text2 },
   recentRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingVertical: 12,
@@ -370,21 +378,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: colors.borderSoft,
   },
   recentText: { flex: 1, fontSize: 14, color: colors.text1 },
-  countLabel: {
-    fontSize: 10, color: colors.text3,
-    letterSpacing: 0.4, textTransform: 'uppercase',
-    fontWeight: '500',
-    paddingHorizontal: IS_TV ? spacing.xxxl : 22,
-    marginBottom: 14,
-  },
-  othersLabel: {
-    fontSize: 10, color: colors.text3,
-    letterSpacing: 0.6, textTransform: 'uppercase',
-    fontWeight: '500',
-    paddingHorizontal: IS_TV ? spacing.xxxl : 22,
-    marginBottom: 4, marginTop: 4,
-  },
+  countLabel: { paddingHorizontal: IS_TV ? spacing.xxxl : 22, marginBottom: 14 },
+  othersLabel: { paddingHorizontal: IS_TV ? spacing.xxxl : 22, marginBottom: 4, marginTop: 4 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, paddingTop: 80 },
-  emptyTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text1, textAlign: 'center' },
-  emptySub: { fontSize: fontSize.sm, color: colors.text3 },
+  emptyTitle: { fontFamily: fontFamily.semiBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.text1, textAlign: 'center' },
+  emptySub: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.text2 },
 });

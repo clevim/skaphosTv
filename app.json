@@ -7,7 +7,7 @@
       "android",
       "web"
     ],
-    "version": "1.9.0",
+    "version": "1.10.0",
     "orientation": "default",
     "updates": {
       "url": "https://u.expo.dev/311cabc0-dbe5-4e90-bab4-5f821106e362",
@@ -36,7 +36,7 @@
         "backgroundColor": "#0a0810"
       },
       "package": "com.skaphostv.app",
-      "versionCode": 10900,
+      "versionCode": 11000,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",

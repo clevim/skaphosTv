@@ -13,6 +13,7 @@ import { setPlaybackActive } from '../utils/playbackGate';
 import { Channel } from '../types';
 import { colors, shadow } from '../utils/theme';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
+import { useAccentColors } from '../hooks/useAccentColors';
 
 const WIN_W = IS_TV ? 340 : IS_WEB ? 300 : 176;
 const WIN_H = Math.round(WIN_W * 9 / 16);
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export default function MiniPlayer({ onExpand }: Props) {
+  const acc = useAccentColors();
   const { channel, startPosition, playlist, visible, close } = useMiniPlayer();
   const record = useWatchProgress(s => s.record);
 
@@ -94,7 +96,7 @@ export default function MiniPlayer({ onExpand }: Props) {
 
   return (
     <View style={[styles.wrap, IS_TV && styles.wrapTV]} pointerEvents="box-none">
-      <View style={[styles.window, IS_TV && styles.windowTV]}>
+      <View style={[styles.window, IS_TV && [styles.windowTV, { borderColor: acc.accent }]]}>
         {/* Toque/OK no vídeo expande para tela cheia */}
         <Pressable
           style={styles.videoTouch}

@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { useIsFocused } from '@react-navigation/native';
+import { useContext, useEffect, useRef } from 'react';
+import { useIsFocused, NavigationRouteContext } from '@react-navigation/native';
 import { IS_TV } from './tvDetect';
 import { afterInteractions } from './afterInteractions';
 
@@ -22,7 +22,7 @@ import { afterInteractions } from './afterInteractions';
 
 type FocusFn = () => void;
 
-const listeners = new Set<(fn: FocusFn) => void>();
+const listeners = new Set<(fn: FocusFn, routeKey?: string) => void>();
 
 // Fonte única de verdade do foco visual: só UM focável fica "aceso". Quando um
 // novo assume, o anterior é apagado à força (cobre blur perdido entre janelas/
@@ -37,11 +37,12 @@ export function releaseTVFocus(id: object) {
 }
 
 /** Chamado pelo TVFocusable sempre que um focável ganha foco. */
-export function reportTVFocus(fn: FocusFn) {
-  for (const l of listeners) l(fn);
+/** `routeKey`: a tela (rota) dona do focável — só ela guarda a lembrança. */
+export function reportTVFocus(fn: FocusFn, routeKey?: string) {
+  for (const l of listeners) l(fn, routeKey);
 }
 
-function subscribe(l: (fn: FocusFn) => void) {
+function subscribe(l: (fn: FocusFn, routeKey?: string) => void) {
   listeners.add(l);
   return () => { listeners.delete(l); };
 }
@@ -50,12 +51,17 @@ function subscribe(l: (fn: FocusFn) => void) {
 export function useTVFocusMemory() {
   const isFocused = useIsFocused();
   const saved = useRef<FocusFn | null>(null);
+  // Só guarda focáveis DESTA rota. Sem isto, o foco preferido da tela que acabou
+  // de subir (ex.: "Assistir" do Detalhe, play do Player) chegava antes do cleanup
+  // desta e virava a lembrança dela — ao voltar, a restauração chamava um focável
+  // já desmontado e o D-pad caía em qualquer lugar.
+  const routeKey = useContext(NavigationRouteContext)?.key;
 
   useEffect(() => {
     if (!IS_TV || !isFocused) return;
     // Só escuta com a tela em primeiro plano — assim o foco preferido da tela
     // que subiu por cima não sobrescreve a lembrança desta aqui.
-    const unsub = subscribe(fn => { saved.current = fn; });
+    const unsub = subscribe((fn, key) => { if (!key || key === routeKey) saved.current = fn; });
     // Reassumiu: devolve o foco. afterInteractions espera a transição de volta
     // assentar (pedir foco no meio da animação não sobrevive ao fim dela).
     const restore = saved.current;

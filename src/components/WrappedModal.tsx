@@ -5,7 +5,9 @@ import React from 'react';
 import { View, Text, StyleSheet, Modal } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
-import { colors, spacing, fontSize, radius, shadow } from '../utils/theme';
+import { colors, spacing, fontSize, radius, shadow, fontFamily } from '../utils/theme';
+import { useAccentColors } from '../hooks/useAccentColors';
+import { SkSectionHeader, SkChip } from './sk';
 import { formatWatchTime, WrappedSummary } from '../store/usageStats';
 
 interface Props {
@@ -15,6 +17,7 @@ interface Props {
 }
 
 export default function WrappedModal({ visible, summary, onClose }: Props) {
+  const ac = useAccentColors();
   if (!visible || !summary) return null;
   const hasData = summary.itemsWatched > 0 || summary.totalWatchSeconds > 0;
 
@@ -22,7 +25,10 @@ export default function WrappedModal({ visible, summary, onClose }: Props) {
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.box}>
-          <Ionicons name="sparkles" size={28} color={colors.accent} />
+          <View style={styles.head}><SkSectionHeader title={`wrapped ${summary.year}`} /></View>
+          <View style={[styles.iconWrap, { backgroundColor: ac.accentSoft }]}>
+            <Ionicons name="sparkles" size={24} color={ac.accent} />
+          </View>
           <Text style={styles.title}>Seu {summary.year} no SkaphosTV</Text>
 
           {hasData ? (
@@ -50,11 +56,11 @@ export default function WrappedModal({ visible, summary, onClose }: Props) {
             </View>
           ) : (
             <Text style={styles.emptyText}>
-              Ainda não há dados suficientes esse ano — volte depois de assistir mais alguma coisa.
+              Ainda sem dados em {summary.year}. Assista um pouco mais e volte aqui.
             </Text>
           )}
 
-          <TVFocusable onPress={onClose} style={styles.closeBtn} hasTVPreferredFocus>
+          <TVFocusable onPress={onClose} style={[styles.closeBtn, { backgroundColor: ac.accent3 }]} hasTVPreferredFocus>
             <Text style={styles.closeText}>Fechar</Text>
           </TVFocusable>
         </View>
@@ -65,28 +71,30 @@ export default function WrappedModal({ visible, summary, onClose }: Props) {
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.75)',
+    flex: 1, backgroundColor: colors.overlay,
     alignItems: 'center', justifyContent: 'center', padding: spacing.xl,
   },
   box: {
     ...shadow.floating,
-    width: '100%', maxWidth: 420,
+    width: '100%', maxWidth: 460,
     backgroundColor: colors.bg1, borderRadius: radius.xl,
     borderWidth: 1, borderColor: colors.border,
     padding: spacing.xl, gap: spacing.md, alignItems: 'center',
   },
-  title: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text1, textAlign: 'center' },
+  head: { alignSelf: 'stretch' },
+  iconWrap: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  title: { fontSize: fontSize.lg, fontFamily: fontFamily.semiBold, color: colors.text1, textAlign: 'center' },
   stats: { width: '100%', gap: spacing.md, marginTop: spacing.sm },
   statRow: {
     width: '100%', alignItems: 'center', gap: 2,
     paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.borderSoft,
   },
-  statValue: { fontSize: fontSize.xl, fontWeight: '700', color: colors.accent2 },
-  statLabel: { fontSize: 12, color: colors.text3, textTransform: 'uppercase', letterSpacing: 0.4 },
-  emptyText: { fontSize: 13, color: colors.text2, textAlign: 'center', marginTop: spacing.sm },
+  statValue: { fontSize: fontSize.xxl, fontFamily: fontFamily.bold, color: colors.text1 },
+  statLabel: { fontSize: fontSize.xs, fontFamily: fontFamily.medium, fontVariant: ['tabular-nums'], color: colors.text3, textTransform: 'uppercase', letterSpacing: 0.6 },
+  emptyText: { fontSize: fontSize.sm, fontFamily: fontFamily.regular, color: colors.text2, lineHeight: 20, textAlign: 'center', marginTop: spacing.sm },
   closeBtn: {
-    marginTop: spacing.sm, width: '100%', height: 44, borderRadius: radius.md,
+    marginTop: spacing.sm, width: '100%', height: 48, borderRadius: radius.md,
     backgroundColor: colors.accent3, alignItems: 'center', justifyContent: 'center',
   },
-  closeText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.white },
+  closeText: { fontSize: fontSize.md, fontFamily: fontFamily.semiBold, color: colors.white },
 });

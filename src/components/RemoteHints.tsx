@@ -16,7 +16,7 @@ interface Props {
 const DEFAULT_HINTS: Hint[] = [
   { key: 'OK', label: 'Selecionar' },
   { key: '↑↓←→', label: 'Navegar' },
-  { key: '⬅', label: 'Voltar' },
+  { key: '←', label: 'Voltar' },
 ];
 
 export default function RemoteHints({ hints = DEFAULT_HINTS }: Props) {

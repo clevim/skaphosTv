@@ -6,6 +6,8 @@ import Svg, { Circle } from 'react-native-svg';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
 import { colors, radius, fontFamily, shadow } from '../utils/theme';
+import { SkSectionHeader } from './sk';
+import { useAccentColors } from '../hooks/useAccentColors';
 
 interface Props {
   visible: boolean;
@@ -37,6 +39,7 @@ function formatDuration(m: number): string {
 const STROKE = 14;
 
 export default function SleepTimerSheet({ visible, selectedMinutes, onSelect, onClose }: Props) {
+  const ac = useAccentColors();
   const { width, height } = useWindowDimensions();
   const active = selectedMinutes !== null;
   const [draft, setDraft] = useState(selectedMinutes ?? 30);
@@ -45,8 +48,8 @@ export default function SleepTimerSheet({ visible, selectedMinutes, onSelect, on
 
   // Dial some pra caber na tela — o player fica sempre em landscape, então a
   // ALTURA (não a largura) é o fator apertado; o resto do sheet (header, botões
-  // +/-, ações) tem altura fixa de ~208px, o que sobra vira o tamanho do dial.
-  const SIZE = Math.round(Math.max(130, Math.min(220, height * 0.92 - 208, width * 0.36)));
+  // +/-, ações) tem altura fixa de ~228px, o que sobra vira o tamanho do dial.
+  const SIZE = Math.round(Math.max(130, Math.min(220, height * 0.92 - 228, width * 0.36)));
   const R = (SIZE - STROKE) / 2;
   const CIRC = 2 * Math.PI * R;
   const CENTER = SIZE / 2;
@@ -91,10 +94,7 @@ export default function SleepTimerSheet({ visible, selectedMinutes, onSelect, on
           só garante que nada fique inalcançável se ainda assim não couber. */}
       <View style={[styles.sheet, { width: SIZE + 60, maxHeight: height * 0.94 }]}>
         <ScrollView contentContainerStyle={styles.sheetInner} showsVerticalScrollIndicator={false}>
-          <View style={styles.header}>
-            <Ionicons name="moon-outline" size={18} color={colors.accent} />
-            <Text style={styles.title}>Temporizador</Text>
-          </View>
+          <View style={styles.header}><SkSectionHeader title="temporizador" /></View>
 
           <View
             ref={dialRef}
@@ -110,7 +110,7 @@ export default function SleepTimerSheet({ visible, selectedMinutes, onSelect, on
               <Circle cx={CENTER} cy={CENTER} r={R} stroke={colors.borderSoft} strokeWidth={STROKE} fill="none" />
               <Circle
                 cx={CENTER} cy={CENTER} r={R}
-                stroke={colors.accent} strokeWidth={STROKE} fill="none"
+                stroke={ac.accent} strokeWidth={STROKE} fill="none"
                 strokeDasharray={`${CIRC} ${CIRC}`}
                 strokeDashoffset={CIRC * (1 - pct)}
                 strokeLinecap="round"
@@ -124,20 +124,20 @@ export default function SleepTimerSheet({ visible, selectedMinutes, onSelect, on
           </View>
 
           <View style={styles.stepRow}>
-            <TVFocusable accessibilityLabel="Diminuir tempo" onPress={() => step(-1)} style={styles.stepBtn} borderRadius={20}>
-              <Ionicons name="remove" size={20} color={colors.white} />
+            <TVFocusable accessibilityLabel="Diminuir tempo" onPress={() => step(-1)} style={styles.stepBtn} borderRadius={24}>
+              <Ionicons name="remove" size={24} color={colors.white} />
             </TVFocusable>
             <TVFocusable
               onPress={() => { onSelect(draft); onClose(); }}
-              style={styles.confirmBtn}
-              focusStyle={styles.confirmBtnFocused}
+              style={[styles.confirmBtn, { backgroundColor: ac.accent }]}
+              focusStyle={{ backgroundColor: ac.accent2 }}
               hasTVPreferredFocus
               borderRadius={radius.md}
             >
               <Text style={styles.confirmText}>{active ? 'Atualizar' : 'Ativar'}</Text>
             </TVFocusable>
-            <TVFocusable accessibilityLabel="Aumentar tempo" onPress={() => step(1)} style={styles.stepBtn} borderRadius={20}>
-              <Ionicons name="add" size={20} color={colors.white} />
+            <TVFocusable accessibilityLabel="Aumentar tempo" onPress={() => step(1)} style={styles.stepBtn} borderRadius={24}>
+              <Ionicons name="add" size={24} color={colors.white} />
             </TVFocusable>
           </View>
 
@@ -178,10 +178,9 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     alignSelf: 'stretch',
-    paddingHorizontal: 20, paddingVertical: 16,
+    paddingHorizontal: 20, paddingVertical: 14,
     borderBottomWidth: 1, borderBottomColor: colors.borderSoft,
   },
-  title: { fontSize: 15, fontFamily: fontFamily.semiBold, color: colors.text1 },
   dialWrap: {
     marginTop: 24,
     alignItems: 'center', justifyContent: 'center',
@@ -193,30 +192,30 @@ const styles = StyleSheet.create({
     marginTop: 22,
   },
   stepBtn: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 48, height: 48, borderRadius: 24,
     backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
   confirmBtn: {
-    minWidth: 120, height: 40, borderRadius: radius.md,
+    minWidth: 140, height: 48, borderRadius: radius.md,
     backgroundColor: colors.accent,
     alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 16,
   },
   // Foco CLAREIA o botão accent — o FOCUS_BG translúcido padrão o escurecia
   confirmBtnFocused: { backgroundColor: colors.accent2 },
-  confirmText: { fontSize: 13, fontWeight: '700', color: colors.textInverse },
+  confirmText: { fontSize: 15, fontFamily: fontFamily.bold, color: colors.textInverse },
   actions: { flexDirection: 'row', gap: 10, padding: 16, alignSelf: 'stretch' },
   disableBtn: {
-    flex: 1, height: 40, borderRadius: radius.md,
+    flex: 1, height: 48, borderRadius: radius.md,
     backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  disableText: { fontSize: 13, fontWeight: '500', color: colors.text2 },
+  disableText: { fontSize: 15, fontFamily: fontFamily.medium, color: colors.text1 },
   closeBtn: {
-    flex: 1, height: 40, borderRadius: radius.md,
+    flex: 1, height: 48, borderRadius: radius.md,
     backgroundColor: colors.bg2, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  closeText: { fontSize: 13, fontWeight: '500', color: colors.text2 },
+  closeText: { fontSize: 15, fontFamily: fontFamily.medium, color: colors.text1 },
 });

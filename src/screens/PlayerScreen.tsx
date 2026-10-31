@@ -8,7 +8,7 @@ import type { ISO639_1 } from 'react-native-video/src/types/language';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useStore, resolveChannelType } from '../store/useStore';
-import { colors, fontSize } from '../utils/theme';
+import { colors, fontSize, fontFamily } from '../utils/theme';
 import { RootStackParamList } from '../types';
 import { MAX_RETRIES, RETRY_DELAYS, usePlayer } from '@/hooks/usePlayer';
 import PlayerOSD from '@/components/PlayerOSD';
@@ -22,6 +22,7 @@ import { resolveSubtitleUri } from '../utils/subtitleSync';
 import { IS_TV, IS_WEB, IS_NATIVE_TV } from '../utils/tvDetect';
 import { setPipEnabled, setPipPlaying } from '../utils/pip';
 import { useMiniPlayer } from '../store/miniPlayer';
+import { useAccentColors } from '../hooks/useAccentColors';
 
 // Teclas do controle FireTV / Android TV
 const KEY = {
@@ -45,6 +46,7 @@ const KEY = {
 type PlayerRoute = RouteProp<RootStackParamList, 'Player'>;
 
 export default function PlayerScreen() {
+  const acc = useAccentColors();
   const navigation = useNavigation();
   const route = useRoute<PlayerRoute>();
   const {
@@ -591,10 +593,10 @@ export default function PlayerScreen() {
           <View style={styles.bufferingOverlay} pointerEvents="none">
             {/* Metade de baixo: o botão play/pause fica no centro exato */}
             <View style={styles.bufferingBox}>
-              <Ionicons name="reload-circle" size={36} color={colors.accent2} />
-              <Text style={styles.bufferingText}>Carregando...</Text>
+              <Ionicons name="reload-circle" size={36} color={acc.accent2} />
+              <Text style={styles.bufferingText}>{'Carregando…'}</Text>
               {retryCount > 0 && (
-                <Text style={styles.retryLabel}>Tentativa {retryCount + 1} de {MAX_RETRIES}</Text>
+                <Text style={[styles.retryLabel, { color: acc.accent2 }]}>Tentativa {retryCount + 1}/{MAX_RETRIES}</Text>
               )}
             </View>
           </View>
@@ -627,7 +629,7 @@ export default function PlayerScreen() {
 
         {zapHud && !showOSD && !inPip && (
           <View style={styles.zapHud} pointerEvents="none">
-            <Text style={styles.zapNum}>{zapHud.num}</Text>
+            <Text style={[styles.zapNum, { color: acc.accent2 }]}>{zapHud.num}</Text>
             <Text style={styles.zapName} numberOfLines={1}>{zapHud.name}</Text>
             <Text style={styles.zapTotal}>de {zapHud.total}</Text>
           </View>
@@ -745,10 +747,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 16,
     paddingHorizontal: 20, paddingVertical: 12, borderRadius: 14,
     backgroundColor: 'rgba(10,8,16,0.88)',
+    borderWidth: 1, borderColor: colors.border,
   },
-  zapNum: { color: colors.accent2, fontSize: fontSize.lg, fontWeight: '800' },
-  zapName: { color: colors.text1, fontSize: fontSize.lg, fontWeight: '600', flexShrink: 1 },
-  zapTotal: { color: colors.text2, fontSize: fontSize.sm },
+  zapNum: { color: colors.accent2, fontSize: IS_TV ? fontSize.xl : fontSize.lg, fontFamily: fontFamily.bold, fontVariant: ['tabular-nums'] },
+  zapName: { color: colors.text1, fontSize: IS_TV ? fontSize.xl : fontSize.lg, fontFamily: fontFamily.semiBold, flexShrink: 1 },
+  zapTotal: { color: colors.text2, fontSize: fontSize.sm, fontFamily: fontFamily.medium, fontVariant: ['tabular-nums'] },
   speedIndicator: {
     position: 'absolute',
     top: 24,
@@ -776,9 +779,10 @@ const styles = StyleSheet.create({
   toast: {
     position: 'absolute', alignSelf: 'center', top: 90, paddingHorizontal: 18, paddingVertical: 9,
     borderRadius: 999, backgroundColor: 'rgba(10,8,16,0.9)',
+    borderWidth: 1, borderColor: colors.border,
   },
   toastText: { color: colors.text1, fontSize: fontSize.sm, fontWeight: '600' },
-  bufferingText: { color: colors.text2, fontSize: fontSize.md, fontWeight: '500' },
+  bufferingText: { color: colors.text1, fontSize: fontSize.md, fontFamily: fontFamily.medium },
   seekHint: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center', justifyContent: 'center',
@@ -793,7 +797,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
     overflow: 'hidden',
   },
-  retryLabel: { color: colors.accent2, fontSize: fontSize.xs },
+  retryLabel: { color: colors.accent2, fontSize: fontSize.xs, fontFamily: fontFamily.regular },
   sidebarOverlay: {
     ...StyleSheet.absoluteFillObject,
     flexDirection: 'row',

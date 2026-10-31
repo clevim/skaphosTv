@@ -3,8 +3,8 @@ import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import TVFocusable from './TVFocusable';
-import { colors, radius, fontSize } from '../utils/theme';
-import { useThemeStore } from '../store/useThemeStore';
+import { useAccentColors, withAlpha } from '../hooks/useAccentColors';
+import { colors, radius, fontSize, fontFamily } from '../utils/theme';
 import { Channel } from '../types';
 import { IS_TV, IS_WEB } from '../utils/tvDetect';
 import { cleanGroupName, cleanDisplayName } from '../utils/channelUtils';
@@ -69,16 +69,6 @@ const CARD_H = IS_TV ? 224 : 154;
 // Altura da seção de info — deve casar com INFO_H do HomeScreen (getItemLayout)
 const INFO_H = IS_TV ? 72 : 56;
 
-const TYPE_CONFIG = {
-  live:   { label: 'AO VIVO', color: colors.red },
-  movies: { label: 'FILME',   color: colors.blue },
-  series: { label: 'SÉRIE',   color: colors.accent },
-};
-
-const QUALITY_COLORS: Record<string, string> = {
-  '4K': colors.accent, 'FHD': colors.blue, 'HD': colors.green, 'SD': colors.text3,
-};
-
 function ChannelCard({
   channel, displayName, isPlaying, isFavorite, onPress, onLongPress, onToggleFavorite,
   hasTVPreferredFocus, episodeCount, contentType = 'live', progress, watched,
@@ -86,11 +76,8 @@ function ChannelCard({
 }: ChannelCardProps) {
   // Seletor pontual: sem ele, TODO card montado re-renderizava em qualquer
   // mudança da theme store (destructure assina a store inteira).
-  const preset = useThemeStore(s => s.preset);
+  const { accent, accent2 } = useAccentColors();
   const name = cleanDisplayName(displayName ?? channel.name);
-  const type = TYPE_CONFIG[contentType] ?? TYPE_CONFIG.live;
-  const qColor = QUALITY_COLORS[channel.quality || 'HD'] ?? QUALITY_COLORS.HD;
-  const quality = channel.quality || 'HD';
 
   const W = cardWidth ?? CARD_W;
   const H = cardHeight ?? Math.round(W * CARD_H / CARD_W);
@@ -107,11 +94,10 @@ function ChannelCard({
         // somava 2px à altura real de cada linha e o getItemLayout do grid ia
         // acumulando o erro — a virtualização errava a janela e os cards "pulavam".
         { width: W, height: H + INFO_H },
-        isPlaying && { borderColor: preset.primary, borderWidth: 2 },
       ]}
     >
-      {/* Poster */}
-      <View style={[styles.poster, { height: H }, contentType === 'live' && styles.posterLive]}>
+      {/* Poster — o card É o pôster + legenda; sem caixa/borda em volta. */}
+      <View style={[styles.poster, { height: H }, contentType === 'live' && styles.posterLive, isPlaying && { borderColor: accent, borderWidth: 2 }]}>
         <SafeImage
           uri={channel.logo}
           style={styles.posterImg}
@@ -119,30 +105,18 @@ function ChannelCard({
           contentFit={contentType === 'live' ? 'contain' : 'cover'}
           recyclingKey={channel.id}
           fallback={
-            <View style={[styles.posterFallback, { backgroundColor: preset.primary + '18' }]}>
-              <Text style={[styles.posterInitials, { color: preset.accent }]}>
+            <View style={[styles.posterFallback, { backgroundColor: withAlpha(accent, 0.09) }]}>
+              <Text style={[styles.posterInitials, { color: accent2 }]}>
                 {name.slice(0, 2).toUpperCase()}
               </Text>
             </View>
           }
         />
 
-        {/* Gradiente inferior */}
-        <View style={styles.posterGradient} />
-
-        {/* Badge tipo — canto superior esquerdo */}
-        <View style={[styles.typeBadge, { backgroundColor: type.color }]}>
-          <Text style={styles.badgeText}>{type.label}</Text>
-        </View>
-
-        {/* Badge qualidade — canto superior direito */}
-        <View style={[styles.qualityBadge, { backgroundColor: qColor }]}>
-          <Text style={styles.badgeText}>{quality}</Text>
-        </View>
-
+        {/* Sem selos de tipo/qualidade: a aba já diz o que é e HD é o padrão. */}
         {/* Indicador playing — pulso no canto inferior direito */}
         {isPlaying && (
-          <View style={[styles.playingDot, { backgroundColor: preset.primary }]} />
+          <View style={[styles.playingDot, { backgroundColor: accent }]} />
         )}
 
         {/* Favorito — indicador estático (mobile/TV; no web o botão abaixo já mostra o estado) */}
@@ -168,19 +142,10 @@ function ChannelCard({
           </Pressable>
         )}
 
-        {/* Play overlay for continue-watching */}
-        {progress != null && progress > 0 && (
-          <View style={styles.playOverlay}>
-            <View style={styles.playOverlayCircle}>
-              <Ionicons name="play" size={14} color={colors.white} />
-            </View>
-          </View>
-        )}
-
         {/* Progress bar — "assistindo" */}
         {progress != null && progress > 0 && (
           <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${Math.min(progress, 1) * 100}%`, backgroundColor: preset.accent }]} />
+            <View style={[styles.progressFill, { width: `${Math.min(progress, 1) * 100}%`, backgroundColor: accent }]} />
           </View>
         )}
 
@@ -195,12 +160,9 @@ function ChannelCard({
       {/* Info */}
       <View style={styles.info}>
         <Text style={styles.name} numberOfLines={2}>{name}</Text>
+        {/* Grupo saiu: dentro da categoria ele só repetia o nome dela em todo card. */}
         {episodeCount && episodeCount > 1 ? (
-          <Text style={[styles.epCount, { color: preset.accent }]}>{episodeCount} episódios</Text>
-        ) : channel.group ? (
-          <Text style={styles.group} numberOfLines={1}>
-            {cleanGroupName(channel.group)}
-          </Text>
+          <Text style={styles.group}>{episodeCount} episódios</Text>
         ) : null}
       </View>
     </TVFocusable>
@@ -230,7 +192,7 @@ interface LiveChannelRowProps {
 function LiveChannelRowBase({
   channel, width, isPlaying, isFavorite, onPress, onLongPress, hasTVPreferredFocus,
 }: LiveChannelRowProps) {
-  const preset = useThemeStore(s => s.preset);
+  const { accent, accent2 } = useAccentColors();
   const showEpg = useStore(s => s.settings.showEpg);
   const { now } = useNowNext(showEpg && !channel.id.startsWith('jf-') ? channel.id : undefined);
   const pct = now && now.end > now.start
@@ -245,7 +207,7 @@ function LiveChannelRowBase({
       accessibilityLabel={channel.name}
       style={[
         rStyles.row, { width, height: LIVE_ROW_H },
-        isPlaying && { borderColor: preset.primary, borderWidth: 2 },
+        isPlaying && { borderColor: accent, borderWidth: 2 },
       ]}
     >
       <View style={rStyles.logoBox}>
@@ -255,7 +217,7 @@ function LiveChannelRowBase({
           contentFit="contain"
           recyclingKey={channel.id}
           fallback={
-            <Text style={[rStyles.initials, { color: preset.accent }]}>
+            <Text style={[rStyles.initials, { color: accent2 }]}>
               {cleanDisplayName(channel.name).slice(0, 2).toUpperCase()}
             </Text>
           }
@@ -263,17 +225,17 @@ function LiveChannelRowBase({
       </View>
       <View style={rStyles.text}>
         <Text style={rStyles.name} numberOfLines={1}>{cleanDisplayName(channel.name)}</Text>
-        <Text style={[rStyles.sub, now && { color: preset.accent }]} numberOfLines={1}>
+        <Text style={rStyles.sub} numberOfLines={1}>
           {now ? `Agora: ${now.title}` : group}
         </Text>
         {pct > 0 && (
           <View style={rStyles.track}>
-            <View style={[rStyles.fill, { width: `${Math.round(pct * 100)}%`, backgroundColor: preset.accent }]} />
+            <View style={[rStyles.fill, { width: `${Math.round(pct * 100)}%`, backgroundColor: accent }]} />
           </View>
         )}
       </View>
       {isFavorite && <Ionicons name="heart" size={12} color={colors.favorite} />}
-      {channel.quality ? <Text style={rStyles.quality}>{channel.quality}</Text> : null}
+      {channel.quality && channel.quality !== 'HD' ? <Text style={rStyles.quality}>{channel.quality}</Text> : null}
     </TVFocusable>
   );
 }
@@ -285,8 +247,8 @@ const rStyles = StyleSheet.create({
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     margin: LIVE_ROW_MARGIN, paddingHorizontal: 10,
-    backgroundColor: colors.bg1, borderRadius: radius.md,
-    borderWidth: 1, borderColor: colors.border, overflow: 'hidden',
+    // Sem borda e SEM overflow:'hidden' (cortaria o anel de foco, que fica fora).
+    backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: radius.md,
   },
   logoBox: {
     width: IS_TV ? 76 : 64, height: IS_TV ? 44 : 38, borderRadius: 6,
@@ -297,26 +259,26 @@ const rStyles = StyleSheet.create({
   initials: { fontSize: 14, fontWeight: '800', letterSpacing: 1 },
   text: { flex: 1, gap: 2 },
   name: { color: colors.text1, fontSize: IS_TV ? fontSize.sm : 12, fontWeight: '600' },
-  sub: { color: colors.text3, fontSize: IS_TV ? 11 : 10 },
+  sub: { color: colors.text2, fontSize: IS_TV ? 12 : 10 },
   track: { height: 2, borderRadius: 1, backgroundColor: 'rgba(255,255,255,0.15)', marginTop: 2 },
   fill: { height: '100%', borderRadius: 1 },
-  quality: { color: colors.text3, fontSize: 9, fontWeight: '700' },
+  quality: { color: colors.text2, fontSize: IS_TV ? 11 : 9, fontWeight: '700' },
 });
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.bg1,
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
     margin: IS_TV ? 6 : 4,
     width: CARD_W,
-    overflow: 'hidden',
+    // Sem overflow aqui: cortaria o anel de foco, que fica FORA do card. O recorte
+    // do raio fica no pôster (único filho que encosta nas bordas de cima).
   },
   poster: {
     width: '100%',
     height: CARD_H,
-    backgroundColor: colors.bg3,
+    backgroundColor: colors.bg2,
+    borderRadius: radius.md,
+    overflow: 'hidden',
   },
   // Live: respiro ao redor + fundo neutro p/ o logo contido ficar uniforme
   posterLive: {
@@ -337,36 +299,6 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 32 : 22,
     fontWeight: '800',
     letterSpacing: 2,
-  },
-  posterGradient: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 36,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  typeBadge: {
-    position: 'absolute',
-    top: 5,
-    left: 5,
-    borderRadius: 3,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-  },
-  qualityBadge: {
-    position: 'absolute',
-    top: 5,
-    right: 5,
-    borderRadius: 3,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-  },
-  badgeText: {
-    color: colors.white,
-    fontSize: 7,
-    fontWeight: '800',
-    letterSpacing: 0.4,
   },
   playingDot: {
     position: 'absolute',
@@ -414,41 +346,22 @@ const styles = StyleSheet.create({
     cursor: 'pointer',
   },
   info: {
-    padding: IS_TV ? 10 : 7,
+    paddingTop: IS_TV ? 10 : 7,
+    paddingHorizontal: 2,
     gap: 2,
     // Fixed height so getItemLayout works reliably (all rows uniform)
     minHeight: IS_TV ? 72 : 56,
   },
   name: {
     color: colors.text1,
-    fontSize: IS_TV ? fontSize.sm : 10,
-    fontWeight: '600',
+    fontFamily: fontFamily.medium,
+    fontSize: IS_TV ? 14 : 11,
     lineHeight: IS_TV ? 18 : 14,
   },
   group: {
     color: colors.text3,
-    fontSize: 9,
-  },
-  epCount: {
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  playOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  playOverlayCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    fontFamily: fontFamily.regular,
+    fontSize: IS_TV ? 12 : 10,
   },
   progressTrack: {
     position: 'absolute',
